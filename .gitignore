@@ -1,0 +1,31 @@
+# --- Python сміття (кеш) ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Віртуальні середовища ---
+venv/
+env/
+.venv/
+.env_test/
+
+# --- СЕКРЕТИ (Найважливіше!) ---
+.env
+.env.local
+config/secrets.json
+
+# --- Логи та бази даних ---
+*.log
+*.sqlite
+data/trades_history.csv
+
+# --- Картинки (можна не зберігати історію графіків) ---
+data/trading_chart.png
+
+# --- Операційні системи ---
+.DS_Store
+Thumbs.db
+
+# --- Налаштування редакторів ---
+.vscode/
+.idea/

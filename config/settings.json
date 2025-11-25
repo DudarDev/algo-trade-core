@@ -7,12 +7,17 @@
     "strategy": {
         "name": "RSI",
         "rsi_period": 14,
-        "buy_level": 45,
+        "buy_level": 65,
         "sell_level": 55
     },
     "risk_management": {
         "start_balance": 1000,
         "min_trade_usdt": 10
+    },
+    "telegram": {
+        "enabled": true,
+        "token": "8530911239:AAHlf0XZR9hfYqBRAFrqDAZy5SEp2WbHVqc",
+        "chat_id": "888550601"
     },
     "system": {
         "check_interval_seconds": 5,

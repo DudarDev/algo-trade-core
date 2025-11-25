@@ -16,8 +16,8 @@
     },
     "telegram": {
         "enabled": true,
-        "token": "8530911239:AAHlf0XZR9hfYqBRAFrqDAZy5SEp2WbHVqc",
-        "chat_id": "888550601"
+        "token": "HIDDEN_IN_ENV",
+        "chat_id": "HIDDEN_IN_ENV"
     },
     "system": {
         "check_interval_seconds": 5,

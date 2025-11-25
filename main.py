@@ -1,117 +1,86 @@
-import time
-import json
-import sys
-import os
-from datetime import datetime
-from colorama import Fore, Style, init
+import telebot
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+import threading
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+class TelegramBot:
+    def __init__(self, token, chat_id, trader, strategy_name="RSI"):
+        self.bot = telebot.TeleBot(token)
+        self.chat_id = chat_id
+        self.trader = trader
+        self.strategy_name = strategy_name
+        self.is_running = True
 
-from app.exchange_manager import ExchangeManager
-from app.strategy import Strategy
-from app.paper_trader import PaperTrader
-from app.csv_logger import CSVLogger
-from app.chart_generator import ChartGenerator
-# Підключаємо НОВИЙ файл
-from app.telegram_bot import TelegramBot
+        # --- КНОПКИ ---
+        self.markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+        btn1 = KeyboardButton("💰 Баланс")
+        btn2 = KeyboardButton("📊 PnL")      # <--- НОВА КНОПКА
+        btn3 = KeyboardButton("📈 Статус")
+        btn4 = KeyboardButton("🛑 СТОП")
+        self.markup.add(btn1, btn2, btn3, btn4)
 
-init(autoreset=True)
-
-def load_config():
-    try:
-        with open('config/settings.json', 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        print(Fore.RED + f"❌ Помилка конфігу: {e}")
-        sys.exit()
-
-def run():
-    cfg = load_config()
-    symbol = cfg['exchange']['symbol']
-    
-    print(Fore.CYAN + f"🚀 ALGO PRO BOT v3.0 (Interactive) | {symbol}")
-
-    # 1. Створюємо компоненти
-    manager = ExchangeManager(cfg['exchange']['name'])
-    strategy = Strategy(
-        rsi_period=cfg['strategy']['rsi_period'],
-        rsi_oversold=cfg['strategy']['buy_level'],
-        rsi_overbought=cfg['strategy']['sell_level']
-    )
-    # Гаманець
-    trader = PaperTrader(initial_usdt=cfg['risk_management']['start_balance'])
-    
-    logger = CSVLogger(filename=cfg['system']['log_file'])
-    artist = ChartGenerator()
-    chart_path = cfg['system']['chart_file']
-
-    # 2. Ініціалізуємо ТЕЛЕГРАМ БОТА (передаємо йому trader!)
-    bot = TelegramBot(
-        token=cfg['telegram']['token'], 
-        chat_id=cfg['telegram']['chat_id'],
-        trader=trader  # <--- Ось тут магія зв'язку
-    )
-    
-    # 3. Запускаємо прослуховування кнопок
-    if cfg['telegram']['enabled']:
-        bot.start()
-
-    buy_points = []
-    sell_points = []
-
-    try:
-        # Головний цикл працює, поки в боті не натиснули "СТОП"
-        while bot.is_running:
-            df = manager.get_history(symbol, timeframe=cfg['exchange']['timeframe'])
+        # --- ОБРОБНИКИ ---
+        
+        @self.bot.message_handler(func=lambda message: message.text == "💰 Баланс")
+        def handle_balance(message):
+            # Беремо дані з трейдера
+            usdt = round(self.trader.usdt, 2)
+            crypto = round(self.trader.crypto, 5)
+            price = self.trader.last_price
             
-            if df is not None:
-                current_price = df['close'].iloc[-1]
-                current_time = df['time'].iloc[-1]
-                signal, rsi_value = strategy.check_signal(df)
-                now = datetime.now().strftime("%H:%M:%S")
-                
-                total_val, pnl_str = trader.get_summary(current_price)
-                min_trade = cfg['risk_management']['min_trade_usdt']
-
-                # --- КУПІВЛЯ ---
-                if signal == "BUY" and trader.usdt > min_trade:
-                    print(Fore.GREEN + f"[{now}] 🔥 BUY! -> Купуємо!")
-                    trader.buy(current_price)
-                    
-                    logger.log_trade("BUY", current_price, trader.crypto, trader.usdt, rsi_value)
-                    
-                    buy_points.append((current_time, current_price))
-                    artist.create_chart(df, symbol, buy_points, sell_points)
-                    
-                    caption = f"🟢 **BUY {symbol}**\nЦіна: `{current_price}`\nRSI: `{rsi_value:.1f}`"
-                    bot.send_image(chart_path, caption)
-
-                # --- ПРОДАЖ ---
-                elif signal == "SELL" and trader.crypto * current_price > min_trade:
-                    print(Fore.RED + f"[{now}] 🔻 SELL! -> Продаємо!")
-                    trader.sell(current_price)
-                    
-                    logger.log_trade("SELL", current_price, 0, trader.usdt, rsi_value)
-                    
-                    sell_points.append((current_time, current_price))
-                    artist.create_chart(df, symbol, buy_points, sell_points)
-                    
-                    profit_icon = "🤑" if float(pnl_str) > 0 else "🔻"
-                    caption = f"🔴 **SELL {symbol}**\nЦіна: `{current_price}`\nПрибуток: {profit_icon} `{pnl_str}` USDT"
-                    bot.send_image(chart_path, caption)
-
-                elif trader.crypto * current_price > min_trade:
-                    print(f"[{now}] ✊ Тримаємо... {current_price} | RSI: {rsi_value:.1f}")
-                
-                else:
-                    print(Fore.YELLOW + f"[{now}] 💤 Пошук... RSI: {rsi_value:.1f}")
+            # Рахуємо повну вартість
+            total_val, _ = self.trader.get_summary()
             
-            time.sleep(cfg['system']['check_interval_seconds'])
+            msg = (f"💼 **Твій Гаманець:**\n\n"
+                   f"💵 USDT: `{usdt}`\n"
+                   f"🪙 Crypto: `{crypto}`\n"
+                   f"🏷 Ціна зараз: `${price}`\n"
+                   f"💰 **Всього: `${total_val:.2f}`**")
+            
+            self.bot.reply_to(message, msg, parse_mode="Markdown")
 
-    except KeyboardInterrupt:
-        print("\n👋 Роботу завершено вручну.")
-    
-    print("🛑 Бот повністю зупинився.")
+        @self.bot.message_handler(func=lambda message: message.text == "📊 PnL")
+        def handle_pnl(message):
+            # Рахуємо прибуток/збиток
+            total_val, pnl_str = self.trader.get_summary()
+            pnl = float(pnl_str)
+            start = self.trader.start_balance
+            
+            # Рахуємо відсоток
+            if start > 0:
+                percent = (pnl / start) * 100
+            else:
+                percent = 0.0
 
-if __name__ == "__main__":
-    run()
+            emoji = "🚀" if pnl >= 0 else "🔻"
+            
+            msg = (f"{emoji} **Статистика PnL:**\n\n"
+                   f"🏁 Старт: `${start}`\n"
+                   f"💰 Зараз: `${total_val:.2f}`\n"
+                   f"📊 **PnL: {pnl_str} USDT ({percent:.2f}%)**")
+            
+            self.bot.reply_to(message, msg, parse_mode="Markdown")
+
+        @self.bot.message_handler(func=lambda message: message.text == "📈 Статус")
+        def handle_status(message):
+            msg = f"✅ **Бот працює!**\nСтратегія: `{self.strategy_name}`\nРежим: `Paper Trading`"
+            self.bot.reply_to(message, msg, parse_mode="Markdown")
+
+        @self.bot.message_handler(func=lambda message: message.text == "🛑 СТОП")
+        def handle_stop(message):
+            self.bot.reply_to(message, "⚠️ **Зупиняюсь...**", parse_mode="Markdown")
+            self.is_running = False
+
+    def start(self):
+        print("🎧 Telegram слухає команди...")
+        threading.Thread(target=self.bot.infinity_polling, daemon=True).start()
+        try:
+            self.bot.send_message(self.chat_id, "🎛 **Пульт оновлено (v3.1)**", reply_markup=self.markup)
+        except:
+            pass
+            
+    def send_image(self, image_path, caption=""):
+        try:
+            with open(image_path, 'rb') as img:
+                self.bot.send_photo(self.chat_id, img, caption=caption)
+        except Exception as e:
+            print(f"Помилка TG (Img): {e}")

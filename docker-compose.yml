@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  crypto-bot:
+    build: .
+    container_name: crypto_algo_pro_v3
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config

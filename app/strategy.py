@@ -1,61 +1,75 @@
+import pandas_ta as ta
 import pandas as pd
-import pandas_ta as ta  # Використовуємо pandas-ta для зручності, або ручний розрахунок
 
 class Strategy:
-    def __init__(self, rsi_period=14, rsi_oversold=30, rsi_overbought=70):
-        self.period = rsi_period
-        self.oversold = rsi_oversold
-        self.overbought = rsi_overbought
-        
-        # --- НОВІ НАЛАШТУВАННЯ ---
-        self.stop_loss_percent = 0.02   # 2% втрати - продаємо
-        self.take_profit_percent = 0.05 # 5% прибутку - продаємо
+    def __init__(self):
+        # Налаштування RSI
+        self.rsi_period = 14
+        self.rsi_buy_limit = 45  # Трохи вище 30, бо ми чекаємо підтвердження MACD
+        self.rsi_sell_limit = 65
+
+        # Налаштування MACD
+        self.macd_fast = 12
+        self.macd_slow = 26
+        self.macd_signal = 9
+
+        # Ризик-менеджмент
+        self.stop_loss_percent = 0.02 # 2% втрати
+        self.take_profit_percent = 0.05 # 5% прибутку
 
     def calculate_indicators(self, df):
-        """
-        Розраховує RSI для всього датафрейму
-        """
-        # Класичний розрахунок RSI вручну (щоб не залежати від зайвих бібліотек)
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=self.period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=self.period).mean()
+        """Розрахунок RSI та MACD через pandas_ta"""
+        # RSI
+        df.ta.rsi(length=self.rsi_period, append=True)
         
-        rs = gain / loss
-        df['rsi'] = 100 - (100 / (1 + rs))
+        # MACD (Додасть колонки MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9)
+        df.ta.macd(fast=self.macd_fast, slow=self.macd_slow, signal=self.macd_signal, append=True)
+        
+        # Перейменуємо для зручності (pandas_ta дає довгі назви)
+        # Назви можуть змінюватися, тому беремо останні колонки
+        df.rename(columns={
+            f'RSI_{self.rsi_period}': 'rsi',
+            f'MACD_{self.macd_fast}_{self.macd_slow}_{self.macd_signal}': 'macd',
+            f'MACDs_{self.macd_fast}_{self.macd_slow}_{self.macd_signal}': 'macd_signal'
+        }, inplace=True)
+        
         return df
 
     def get_signal(self, df, in_position=False, entry_price=0):
-        """
-        Повертає 'BUY', 'SELL' або None
-        
-        in_position: Чи купили ми вже крипту?
-        entry_price: За якою ціною купили? (Потрібно для Stop-Loss)
-        """
-        if df.empty:
+        if df.empty or len(df) < 30:
             return None
 
+        # Беремо останні дані
         current_rsi = df.iloc[-1]['rsi']
-        current_price = df.iloc[-1]['close']
+        current_macd = df.iloc[-1]['macd']
+        current_signal = df.iloc[-1]['macd_signal']
         
-        # 1. Логіка КУПІВЛІ (Тільки якщо ми не в позиції)
-        if not in_position:
-            if current_rsi < self.oversold:
+        # Попередні дані (щоб побачити перетин ліній)
+        prev_macd = df.iloc[-2]['macd']
+        prev_signal = df.iloc[-2]['macd_signal']
+        
+        current_price = df.iloc[-1]['close']
+
+        # --- ЛОГІКА ПРОДАЖУ (SELL) ---
+        if in_position:
+            # 1. Stop-Loss
+            if current_price <= entry_price * (1 - self.stop_loss_percent):
+                return "SELL"
+            # 2. Take-Profit
+            if current_price >= entry_price * (1 + self.take_profit_percent):
+                return "SELL"
+            # 3. RSI перегрітий (занадто дорого)
+            if current_rsi > self.rsi_sell_limit:
+                return "SELL"
+        
+        # --- ЛОГІКА КУПІВЛІ (BUY) ---
+        else:
+            # Умова 1: RSI не в космосі (ціна адекватна)
+            # Умова 2: MACD перетинає Сигнальну лінію ЗНИЗУ ВГОРУ (Золотий хрест)
+            # Тобто: вчора MACD був нижче сигналу, а сьогодні - вище
+            macd_cross_up = (prev_macd < prev_signal) and (current_macd > current_signal)
+            
+            if current_rsi < self.rsi_buy_limit and macd_cross_up:
                 return "BUY"
 
-        # 2. Логіка ПРОДАЖУ (Якщо ми в позиції)
-        else:
-            # А. Перевірка Stop-Loss (Чи не впали ми занадто низько?)
-            if current_price <= entry_price * (1 - self.stop_loss_percent):
-                print(f"🛑 STOP-LOSS спрацював! Вхід: {entry_price}, Зараз: {current_price}")
-                return "SELL"
-
-            # Б. Перевірка Take-Profit (Чи не заробили ми вже достатньо?)
-            if current_price >= entry_price * (1 + self.take_profit_percent):
-                print(f"💰 TAKE-PROFIT спрацював! Вхід: {entry_price}, Зараз: {current_price}")
-                return "SELL"
-
-            # В. Стандартний вихід по RSI
-            if current_rsi > self.overbought:
-                return "SELL"
-                
         return None

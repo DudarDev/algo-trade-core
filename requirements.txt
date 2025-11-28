@@ -6,3 +6,4 @@ colorama
 matplotlib
 requests
 pyTelegramBotAPI
+pandas_ta

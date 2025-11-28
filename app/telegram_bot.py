@@ -1,86 +1,121 @@
 import telebot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from telebot import types
+import os
 import threading
+import time
+from dotenv import load_dotenv
 
-class TelegramBot:
-    def __init__(self, token, chat_id, trader, strategy_name="RSI"):
-        self.bot = telebot.TeleBot(token)
-        self.chat_id = chat_id
-        self.trader = trader
-        self.strategy_name = strategy_name
-        self.is_running = True
+# Завантаження змінних оточення
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-        # --- КНОПКИ ---
-        self.markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        btn1 = KeyboardButton("💰 Баланс")
-        btn2 = KeyboardButton("📊 PnL")      # <--- НОВА КНОПКА
-        btn3 = KeyboardButton("📈 Статус")
-        btn4 = KeyboardButton("🛑 СТОП")
-        self.markup.add(btn1, btn2, btn3, btn4)
+bot = telebot.TeleBot(TOKEN)
 
-        # --- ОБРОБНИКИ ---
+# --- ГЛОБАЛЬНІ ЗМІННІ (Стан бота) ---
+bot_status = "STOPPED"  # STOPPED / RUNNING
+current_pair = "BTC/USDT"
+current_risk = "Medium" # Low / Medium / High
+
+# --- КЛАВІАТУРИ (Меню) ---
+
+def main_menu_keyboard():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = types.KeyboardButton("🚀 СТАРТ / СТОП")
+    btn2 = types.KeyboardButton("⚙️ Налаштування")
+    btn3 = types.KeyboardButton("📊 Баланс & PnL")
+    btn4 = types.KeyboardButton("📈 Графік")
+    markup.add(btn1, btn2, btn3, btn4)
+    return markup
+
+def settings_inline_keyboard():
+    markup = types.InlineKeyboardMarkup()
+    # Ряд 1: Вибір монети
+    btn_btc = types.InlineKeyboardButton("BTC/USDT", callback_data="set_pair_BTC")
+    btn_eth = types.InlineKeyboardButton("ETH/USDT", callback_data="set_pair_ETH")
+    btn_sol = types.InlineKeyboardButton("SOL/USDT", callback_data="set_pair_SOL")
+    markup.row(btn_btc, btn_eth, btn_sol)
+    
+    # Ряд 2: Ризик (змінює Stop-Loss)
+    btn_low = types.InlineKeyboardButton("🛡 Low Risk", callback_data="set_risk_low")
+    btn_high = types.InlineKeyboardButton("🔥 High Risk", callback_data="set_risk_high")
+    markup.row(btn_low, btn_high)
+    
+    return markup
+
+# --- ОБРОБНИКИ КОМАНД ---
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    welcome_text = (
+        f"🤖 **Crypto Algo Pro v3.5**\n\n"
+        f"Вітаю, {message.from_user.first_name}!\n"
+        f"Цей бот готовий до автоматичної торгівлі.\n\n"
+        f"🔹 **Поточна пара:** {current_pair}\n"
+        f"🔹 **Режим:** Paper Trading (Симуляція)\n"
+    )
+    bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard(), parse_mode="Markdown")
+
+@bot.message_handler(func=lambda message: message.text == "⚙️ Налаштування")
+def open_settings(message):
+    text = (
+        "🛠 **ПАНЕЛЬ НАЛАШТУВАНЬ**\n\n"
+        "Тут ви можете змінити торгову пару та рівень ризику без перезапуску бота.\n"
+        f"Поточний вибір: **{current_pair}** | Ризик: **{current_risk}**"
+    )
+    bot.send_message(message.chat.id, text, reply_markup=settings_inline_keyboard(), parse_mode="Markdown")
+
+# --- ОБРОБКА КЛІКІВ ПО КНОПКАХ (Callback) ---
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    global current_pair, current_risk
+    
+    if call.data.startswith("set_pair_"):
+        new_pair = call.data.split("_")[2] + "/USDT"
+        current_pair = new_pair
+        bot.answer_callback_query(call.id, f"Пару змінено на {new_pair}")
+        bot.send_message(call.message.chat.id, f"✅ **Торгова пара змінена:** {current_pair}", parse_mode="Markdown")
         
-        @self.bot.message_handler(func=lambda message: message.text == "💰 Баланс")
-        def handle_balance(message):
-            # Беремо дані з трейдера
-            usdt = round(self.trader.usdt, 2)
-            crypto = round(self.trader.crypto, 5)
-            price = self.trader.last_price
-            
-            # Рахуємо повну вартість
-            total_val, _ = self.trader.get_summary()
-            
-            msg = (f"💼 **Твій Гаманець:**\n\n"
-                   f"💵 USDT: `{usdt}`\n"
-                   f"🪙 Crypto: `{crypto}`\n"
-                   f"🏷 Ціна зараз: `${price}`\n"
-                   f"💰 **Всього: `${total_val:.2f}`**")
-            
-            self.bot.reply_to(message, msg, parse_mode="Markdown")
+    elif call.data.startswith("set_risk_"):
+        risk_level = call.data.split("_")[2]
+        current_risk = risk_level.capitalize()
+        bot.answer_callback_query(call.id, f"Ризик змінено на {current_risk}")
+        bot.send_message(call.message.chat.id, f"⚠️ **Рівень ризику змінено:** {current_risk}", parse_mode="Markdown")
 
-        @self.bot.message_handler(func=lambda message: message.text == "📊 PnL")
-        def handle_pnl(message):
-            # Рахуємо прибуток/збиток
-            total_val, pnl_str = self.trader.get_summary()
-            pnl = float(pnl_str)
-            start = self.trader.start_balance
-            
-            # Рахуємо відсоток
-            if start > 0:
-                percent = (pnl / start) * 100
-            else:
-                percent = 0.0
+# --- СТАНДАРТНІ КНОПКИ ---
 
-            emoji = "🚀" if pnl >= 0 else "🔻"
-            
-            msg = (f"{emoji} **Статистика PnL:**\n\n"
-                   f"🏁 Старт: `${start}`\n"
-                   f"💰 Зараз: `${total_val:.2f}`\n"
-                   f"📊 **PnL: {pnl_str} USDT ({percent:.2f}%)**")
-            
-            self.bot.reply_to(message, msg, parse_mode="Markdown")
+@bot.message_handler(func=lambda message: message.text == "🚀 СТАРТ / СТОП")
+def toggle_bot(message):
+    global bot_status
+    if bot_status == "STOPPED":
+        bot_status = "RUNNING"
+        bot.send_message(message.chat.id, f"🟢 **Бот ЗАПУЩЕНИЙ!**\nПрацюємо з парою: {current_pair}", parse_mode="Markdown")
+    else:
+        bot_status = "STOPPED"
+        bot.send_message(message.chat.id, "🔴 **Бот ЗУПИНЕНИЙ!**", parse_mode="Markdown")
 
-        @self.bot.message_handler(func=lambda message: message.text == "📈 Статус")
-        def handle_status(message):
-            msg = f"✅ **Бот працює!**\nСтратегія: `{self.strategy_name}`\nРежим: `Paper Trading`"
-            self.bot.reply_to(message, msg, parse_mode="Markdown")
+@bot.message_handler(func=lambda message: message.text == "📊 Баланс & PnL")
+def show_balance(message):
+    # Тут має бути виклик реальної функції з paper_trader.py
+    # Для прикладу - заглушка
+    text = (
+        "💰 **Ваш Гаманець:**\n"
+        "USDT: 1050.00 (+5.0%)\n"
+        f"В активах: 0.00 {current_pair.split('/')[0]}"
+    )
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
-        @self.bot.message_handler(func=lambda message: message.text == "🛑 СТОП")
-        def handle_stop(message):
-            self.bot.reply_to(message, "⚠️ **Зупиняюсь...**", parse_mode="Markdown")
-            self.is_running = False
+@bot.message_handler(func=lambda message: message.text == "📈 Графік")
+def send_chart_request(message):
+    bot.send_message(message.chat.id, "⏳ Малюю графік, зачекайте...")
+    # Тут логіка відправки фото
+    # with open('data/trading_chart.png', 'rb') as photo:
+    #    bot.send_photo(message.chat.id, photo)
 
-    def start(self):
-        print("🎧 Telegram слухає команди...")
-        threading.Thread(target=self.bot.infinity_polling, daemon=True).start()
-        try:
-            self.bot.send_message(self.chat_id, "🎛 **Пульт оновлено (v3.1)**", reply_markup=self.markup)
-        except:
-            pass
-            
-    def send_image(self, image_path, caption=""):
-        try:
-            with open(image_path, 'rb') as img:
-                self.bot.send_photo(self.chat_id, img, caption=caption)
-        except Exception as e:
-            print(f"Помилка TG (Img): {e}")
+# --- ЗАПУСК ---
+def run_bot():
+    print("🎧 Telegram Bot слухає команди...")
+    bot.infinity_polling()
+
+if __name__ == "__main__":
+    run_bot()

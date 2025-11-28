@@ -1,151 +1,113 @@
-import time
-import json
 import sys
+import io
+import time
+import threading
 import os
-from datetime import datetime
-from colorama import Fore, Style, init
+import logging
 from dotenv import load_dotenv
 
-# Додаємо папку app, щоб Python бачив наші файли
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# --- 🛠 ВИПРАВЛЕННЯ КОДУВАННЯ ---
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-# Імпортуємо наші модулі
+# --- ІМПОРТИ МОДУЛІВ ---
 from app.exchange_manager import ExchangeManager
 from app.strategy import Strategy
-from app.paper_trader import PaperTrader
-from app.csv_logger import CSVLogger
-from app.chart_generator import ChartGenerator
-from app.telegram_bot import TelegramBot  # <-- Використовуємо нову версію з кнопками
+# 👇 ЗМІНА: Використовуємо PaperTrader (Симулятор) для тестів без грошей
+from app.paper_trader import PaperTrader 
+from app.telegram_bot import run_bot 
 
-# Ініціалізація
-init(autoreset=True)
-load_dotenv()  # Завантажуємо секрети з .env
+# --- НАЛАШТУВАННЯ ЛОГУВАННЯ ---
+logging.basicConfig(
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger("CryptoBot")
 
-def load_config():
-    """Завантажує налаштування з файлу"""
-    try:
-        with open('config/settings.json', 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        print(Fore.RED + f"❌ Помилка читання конфігу: {e}")
-        sys.exit()
+class CryptoTradingBot:
+    def __init__(self):
+        """Ініціалізація SIMULATION бота"""
+        logger.info("🎮 Ініціалізація Crypto Algo Pro (PAPER TRADING MODE)...")
+        load_dotenv()
+        
+        # Конфігурація
+        self.symbol = 'BTC/USDT' # Для симулятора краще BTC або ETH
+        self.timeframe = '1m'
+        self.is_running = True
 
-def run():
-    # 1. Завантаження налаштувань
-    cfg = load_config()
-    symbol = cfg['exchange']['symbol']
-    
-    print(Fore.CYAN + f"🚀 ALGO PRO BOT v3.3 (Final) | {symbol}")
-
-    # 2. Отримання ключів (безпечно)
-    tg_token = os.getenv('TELEGRAM_TOKEN')
-    tg_chat_id = os.getenv('TELEGRAM_CHAT_ID')
-
-    if not tg_token:
-        print(Fore.RED + "⚠️ ПОМИЛКА: Токен Telegram не знайдено в .env!")
-        return
-
-    # 3. Створення компонентів бота
-    manager = ExchangeManager(cfg['exchange']['name'])
-    
-    strategy = Strategy(
-        rsi_period=cfg['strategy']['rsi_period'],
-        rsi_oversold=cfg['strategy']['buy_level'],
-        rsi_overbought=cfg['strategy']['sell_level']
-    )
-    
-    # Гаманець (паперовий трейдинг)
-    trader = PaperTrader(initial_usdt=cfg['risk_management']['start_balance'])
-    
-    # Інструменти для звітів
-    logger = CSVLogger(filename=cfg['system']['log_file'])
-    artist = ChartGenerator()
-    chart_path = cfg['system']['chart_file']
-
-    # 4. Запуск Телеграм-бота (з кнопками)
-    # Ми передаємо об'єкт 'trader', щоб бот міг показувати баланс
-    bot = TelegramBot(token=tg_token, chat_id=tg_chat_id, trader=trader)
-    
-    if cfg['telegram']['enabled']:
-        bot.start() # Запускаємо слухача кнопок у фоні
-
-    buy_points = []
-    sell_points = []
-
-    print(Fore.YELLOW + "⏳ Починаю аналіз ринку... (Натисни 'СТОП' у Телеграмі для виходу)")
-
-    # 5. Головний цикл торгівлі
-    try:
-        # Цикл працює, поки в боті не натиснули кнопку "СТОП"
-        while bot.is_running:
+        # Ініціалізація компонентів
+        try:
+            # Kraken дозволяє читати публічні дані (ціни) БЕЗ ключів
+            self.exchange = ExchangeManager(exchange_id='kraken') 
+            self.strategy = Strategy()
             
-            # Отримуємо свічки
-            df = manager.get_history(symbol, timeframe=cfg['exchange']['timeframe'])
+            # 👇 ЗМІНА: Підключаємо Симулятор з віртуальними $1000
+            self.trader = PaperTrader(initial_balance=1000.0)
             
-            if df is not None:
-                current_price = df['close'].iloc[-1]
-                current_time = df['time'].iloc[-1]
-                
-                # --- ВАЖЛИВО: Оновлюємо ціну в гаманці (для кнопки PnL) ---
-                trader.set_current_price(current_price)
-                
-                # Аналіз стратегії
-                signal, rsi_value = strategy.check_signal(df)
-                now = datetime.now().strftime("%H:%M:%S")
-                
-                # Статистика для логу
-                total_val, pnl_str = trader.get_summary(current_price)
-                min_trade = cfg['risk_management']['min_trade_usdt']
+            logger.info("✅ Модулі симуляції завантажено. Віртуальний баланс: $1000")
+        except Exception as e:
+            logger.error(f"❌ Критична помилка запуску: {e}")
+            sys.exit(1)
 
-                # --- ЛОГІКА ПОКУПКИ (BUY) ---
-                if signal == "BUY" and trader.usdt > min_trade:
-                    print(Fore.GREEN + f"[{now}] 🔥 BUY SIGNAL! RSI: {rsi_value:.1f}")
-                    trader.buy(current_price)
-                    
-                    # Логуємо
-                    logger.log_trade("BUY", current_price, trader.crypto, trader.usdt, rsi_value)
-                    
-                    # Малюємо графік
-                    buy_points.append((current_time, current_price))
-                    artist.create_chart(df, symbol, buy_points, sell_points)
-                    
-                    # Відправляємо фото в Телеграм
-                    caption = f"🟢 **BUY {symbol}**\nЦіна: `{current_price}`\nRSI: `{rsi_value:.1f}`"
-                    bot.send_image(chart_path, caption)
+    def start_telegram_service(self):
+        """Запускає Telegram"""
+        bot_thread = threading.Thread(target=run_bot)
+        bot_thread.daemon = True
+        bot_thread.start()
+        logger.info("✅ Служба Telegram активна.")
 
-                # --- ЛОГІКА ПРОДАЖУ (SELL) ---
-                elif signal == "SELL" and trader.crypto * current_price > min_trade:
-                    print(Fore.RED + f"[{now}] 🔻 SELL SIGNAL! RSI: {rsi_value:.1f}")
-                    trader.sell(current_price)
-                    
-                    # Логуємо
-                    logger.log_trade("SELL", current_price, 0, trader.usdt, rsi_value)
-                    
-                    # Малюємо графік
-                    sell_points.append((current_time, current_price))
-                    artist.create_chart(df, symbol, buy_points, sell_points)
-                    
-                    # Відправляємо фото в Телеграм
-                    profit_icon = "🤑" if float(pnl_str) > 0 else "🔻"
-                    caption = f"🔴 **SELL {symbol}**\nЦіна: `{current_price}`\nПрибуток: {profit_icon} `{pnl_str}` USDT"
-                    bot.send_image(chart_path, caption)
-
-                # --- РЕЖИМ ОЧІКУВАННЯ ---
-                elif trader.crypto * current_price > min_trade:
-                    # Якщо ми в позиції (чекаємо росту)
-                    print(f"[{now}] ✊ Тримаємо... Ціна: {current_price:.2f} | RSI: {rsi_value:.1f}")
-                
-                else:
-                    # Якщо ми в доларі (чекаємо падіння)
-                    print(Fore.YELLOW + f"[{now}] 💤 Пошук входу... RSI: {rsi_value:.1f}")
+    def analyze_market(self):
+        """Цикл аналізу"""
+        try:
+            df = self.exchange.fetch_candles(self.symbol, self.timeframe, limit=100)
             
-            # Пауза між перевірками (з конфігу)
-            time.sleep(cfg['system']['check_interval_seconds'])
+            if df.empty:
+                logger.warning("⚠️ Пусті дані. Перевірка з'єднання...")
+                return
 
-    except KeyboardInterrupt:
-        print("\n👋 Зупинено через термінал (Ctrl+C).")
-    
-    print("🛑 Роботу завершено.")
+            df = self.strategy.calculate_indicators(df)
+            
+            # Отримуємо сигнал
+            signal = self.strategy.get_signal(
+                df, 
+                in_position=self.trader.in_position, 
+                entry_price=self.trader.entry_price
+            )
+            
+            current_price = df.iloc[-1]['close']
+            current_time = df.iloc[-1]['timestamp']
+            rsi = df.iloc[-1]['rsi']
+
+            # Логіка торгівлі (Симуляція)
+            if signal == "BUY":
+                logger.info(f"💵 СИГНАЛ BUY! Ціна: {current_price}")
+                self.trader.buy(self.symbol, current_price, current_time)
+            
+            elif signal == "SELL":
+                logger.info(f"💴 СИГНАЛ SELL! Ціна: {current_price}")
+                self.trader.sell(self.symbol, current_price, current_time)
+
+            print(f"🎲 {self.symbol} | ${current_price:.2f} | RSI: {rsi:.1f} | SIMULATION")
+
+        except Exception as e:
+            logger.error(f"⚠️ Помилка циклу: {e}")
+
+    def run(self):
+        self.start_telegram_service()
+        logger.info(f"🔥 Починаю віртуальну торгівлю: {self.symbol}")
+
+        while self.is_running:
+            try:
+                self.analyze_market()
+                time.sleep(10) # 10 секунд пауза
+            except KeyboardInterrupt:
+                logger.info("🛑 Зупинка бота.")
+                self.is_running = False
+            except Exception as e:
+                logger.critical(f"💥 Збій: {e}")
+                time.sleep(5)
 
 if __name__ == "__main__":
-    run()
+    bot_app = CryptoTradingBot()
+    bot_app.run()

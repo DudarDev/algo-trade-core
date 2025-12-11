@@ -7,3 +7,6 @@ matplotlib
 requests
 pyTelegramBotAPI
 pandas_ta
+scikit-learn
+joblib
+numpy

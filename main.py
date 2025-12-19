@@ -1,113 +1,81 @@
-import sys
-import io
-import time
-import threading
 import os
-import logging
+import time
+import pandas as pd
 from dotenv import load_dotenv
+import logging
+import ccxt
 
-# --- 🛠 ВИПРАВЛЕННЯ КОДУВАННЯ ---
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+from app.ai_brain import TradingAI
+from app.paper_trader import PaperTrader
 
-# --- ІМПОРТИ МОДУЛІВ ---
-from app.exchange_manager import ExchangeManager
-from app.strategy import Strategy
-# 👇 ЗМІНА: Використовуємо PaperTrader (Симулятор) для тестів без грошей
-from app.paper_trader import PaperTrader 
-from app.telegram_bot import run_bot 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
-# --- НАЛАШТУВАННЯ ЛОГУВАННЯ ---
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    datefmt='%H:%M:%S'
-)
-logger = logging.getLogger("CryptoBot")
+def get_market_price(exchange, symbol):
+    try:
+        ticker = exchange.fetch_ticker(symbol)
+        return ticker['last']
+    except Exception as e:
+        logging.error(f"Помилка отримання ціни: {e}")
+        return None
 
-class CryptoTradingBot:
-    def __init__(self):
-        """Ініціалізація SIMULATION бота"""
-        logger.info("🎮 Ініціалізація Crypto Algo Pro (PAPER TRADING MODE)...")
-        load_dotenv()
-        
-        # Конфігурація
-        self.symbol = 'BTC/USDT' # Для симулятора краще BTC або ETH
-        self.timeframe = '1m'
-        self.is_running = True
+def get_historical_data(exchange, symbol, limit=200):
+    try:
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe='1m', limit=limit)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        return df
+    except Exception as e:
+        logging.error(f"Помилка історії: {e}")
+        return pd.DataFrame()
 
-        # Ініціалізація компонентів
+def main():
+    load_dotenv()
+    
+    SYMBOL = 'BTC/USDT'
+    
+    # --- ВИПРАВЛЕННЯ ---
+    # Використовуємо Binance US, бо сервер Google знаходиться в США
+    print("🇺🇸 Підключення до Binance US (через локацію сервера)...")
+    exchange = ccxt.binanceus() 
+    # -------------------
+    
+    ai_bot = TradingAI()
+    trader = PaperTrader(initial_balance=1000.0)
+    
+    logging.info(f"🚀 Бот перезапущено (US Region Fix) на парі {SYMBOL}")
+    logging.info(f"💰 Баланс: {trader.get_balance()} USDT")
+
+    while True:
         try:
-            # Kraken дозволяє читати публічні дані (ціни) БЕЗ ключів
-            self.exchange = ExchangeManager(exchange_id='kraken') 
-            self.strategy = Strategy()
+            current_price = get_market_price(exchange, SYMBOL)
+            df = get_historical_data(exchange, SYMBOL)
             
-            # 👇 ЗМІНА: Підключаємо Симулятор з віртуальними $1000
-            self.trader = PaperTrader(initial_balance=1000.0)
-            
-            logger.info("✅ Модулі симуляції завантажено. Віртуальний баланс: $1000")
-        except Exception as e:
-            logger.error(f"❌ Критична помилка запуску: {e}")
-            sys.exit(1)
+            if df.empty or current_price is None:
+                logging.warning("⏳ Чекаю дані від біржі...")
+                time.sleep(10)
+                continue
 
-    def start_telegram_service(self):
-        """Запускає Telegram"""
-        bot_thread = threading.Thread(target=run_bot)
-        bot_thread.daemon = True
-        bot_thread.start()
-        logger.info("✅ Служба Telegram активна.")
+            if not ai_bot.is_trained:
+                 logging.info("🧠 Треную AI...")
+                 ai_bot.train_new_model(df)
 
-    def analyze_market(self):
-        """Цикл аналізу"""
-        try:
-            df = self.exchange.fetch_candles(self.symbol, self.timeframe, limit=100)
+            signal = ai_bot.predict(df)
             
-            if df.empty:
-                logger.warning("⚠️ Пусті дані. Перевірка з'єднання...")
-                return
-
-            df = self.strategy.calculate_indicators(df)
-            
-            # Отримуємо сигнал
-            signal = self.strategy.get_signal(
-                df, 
-                in_position=self.trader.in_position, 
-                entry_price=self.trader.entry_price
-            )
-            
-            current_price = df.iloc[-1]['close']
-            current_time = df.iloc[-1]['timestamp']
-            rsi = df.iloc[-1]['rsi']
-
-            # Логіка торгівлі (Симуляція)
             if signal == "BUY":
-                logger.info(f"💵 СИГНАЛ BUY! Ціна: {current_price}")
-                self.trader.buy(self.symbol, current_price, current_time)
-            
+                trader.buy(symbol=SYMBOL, price=current_price, amount_usdt=100) 
             elif signal == "SELL":
-                logger.info(f"💴 СИГНАЛ SELL! Ціна: {current_price}")
-                self.trader.sell(self.symbol, current_price, current_time)
+                trader.sell(symbol=SYMBOL, price=current_price) 
+            elif signal == "HOLD":
+                pass 
 
-            print(f"🎲 {self.symbol} | ${current_price:.2f} | RSI: {rsi:.1f} | SIMULATION")
-
+            trader.log_status(current_price)
+            
+            time.sleep(60)
+            
+        except KeyboardInterrupt:
+            break
         except Exception as e:
-            logger.error(f"⚠️ Помилка циклу: {e}")
-
-    def run(self):
-        self.start_telegram_service()
-        logger.info(f"🔥 Починаю віртуальну торгівлю: {self.symbol}")
-
-        while self.is_running:
-            try:
-                self.analyze_market()
-                time.sleep(10) # 10 секунд пауза
-            except KeyboardInterrupt:
-                logger.info("🛑 Зупинка бота.")
-                self.is_running = False
-            except Exception as e:
-                logger.critical(f"💥 Збій: {e}")
-                time.sleep(5)
+            logging.error(f"Error: {e}")
+            time.sleep(10)
 
 if __name__ == "__main__":
-    bot_app = CryptoTradingBot()
-    bot_app.run()
+    main()

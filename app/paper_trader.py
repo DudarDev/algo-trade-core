@@ -3,58 +3,80 @@ import logging
 class PaperTrader:
     def __init__(self, initial_balance=1000.0):
         self.usdt_balance = initial_balance
-        self.crypto_balance = 0.0
-        self.in_position = False
-        self.entry_price = 0.0
+        # Словник для зберігання позицій: {'BTC/USDT': {'amount': 0.1, 'entry': 50000}, ...}
+        self.positions = {} 
 
     def get_balance(self):
-        return round(self.usdt_balance, 2)
+        # Рахуємо загальний баланс (USDT + вартість всіх монет за ціною входу)
+        # У реалі треба брати поточну ціну, але для логу вистачить і так
+        equity = self.usdt_balance
+        return round(equity, 2)
 
     def buy(self, symbol, price, amount_usdt):
-        """Симуляція покупки"""
-        if self.in_position:
-            # logging.info("Вже в позиції, пропускаю BUY")
+        """Купівля конкретної монети"""
+        if symbol in self.positions:
+            # Вже є ця монета, докуповувати не будемо (спрощена логіка)
             return
 
         if self.usdt_balance < 10:
-            logging.warning("Недостатньо коштів для покупки")
-            return
+            return # Немає грошей
 
-        # Розрахунок
-        trade_amount = min(amount_usdt, self.usdt_balance)
-        fees = trade_amount * 0.001 # 0.1% комісія (як на Binance)
-        cost = trade_amount + fees
+        # Купуємо на вказану суму (або на залишок)
+        trade_amount_usdt = min(amount_usdt, self.usdt_balance)
         
-        self.crypto_balance = (trade_amount / price)
-        self.usdt_balance -= cost
+        # Комісія 0.1%
+        fees = trade_amount_usdt * 0.001
+        actual_spend = trade_amount_usdt
         
-        self.in_position = True
-        self.entry_price = price
+        # Кількість монет
+        coin_amount = (trade_amount_usdt - fees) / price
         
-        logging.info(f"🟢 [PAPER BUY] Купив {self.crypto_balance:.5f} {symbol} по {price}. Баланс USDT: {self.usdt_balance:.2f}")
+        self.usdt_balance -= actual_spend
+        
+        # Записуємо в портфель
+        self.positions[symbol] = {
+            'amount': coin_amount,
+            'entry_price': price
+        }
+        
+        logging.info(f"🟢 [BUY {symbol}] Ціна: {price}. Куплено: {coin_amount:.4f}. Залишок USDT: {self.usdt_balance:.2f}")
 
     def sell(self, symbol, price):
-        """Симуляція продажу"""
-        if not self.in_position:
-            return
+        """Продаж конкретної монети"""
+        if symbol not in self.positions:
+            return # Немає що продавати
 
-        # Розрахунок
-        revenue = self.crypto_balance * price
-        fees = revenue * 0.001 # 0.1% комісія
+        position = self.positions[symbol]
+        amount = position['amount']
+        entry = position['entry_price']
+
+        # Продаємо
+        revenue = amount * price
+        fees = revenue * 0.001
         total_receive = revenue - fees
         
-        profit = total_receive - (self.crypto_balance * self.entry_price)
-        profit_percent = (profit / (self.crypto_balance * self.entry_price)) * 100
+        # Рахуємо профіт
+        profit_percent = ((price - entry) / entry) * 100 - 0.2
+        icon = "🤑" if profit_percent > 0 else "🔻"
         
         self.usdt_balance += total_receive
-        self.crypto_balance = 0.0
-        self.in_position = False
         
-        icon = "🤑" if profit > 0 else "🔻"
-        logging.info(f"🔴 [PAPER SELL] Продав по {price}. PnL: {profit:.2f}$ ({profit_percent:.2f}%) {icon}")
-        logging.info(f"💰 Загальний баланс: {self.usdt_balance:.2f} USDT")
+        # Видаляємо з портфеля
+        del self.positions[symbol]
+        
+        logging.info(f"🔴 [SELL {symbol}] Ціна: {price}. PnL: {profit_percent:.2f}% {icon}")
+        logging.info(f"💰 Вільний USDT: {self.usdt_balance:.2f}")
 
-    def log_status(self, current_price):
-        if self.in_position:
-            unrealized_pnl = (current_price - self.entry_price) / self.entry_price * 100
-            logging.info(f"📊 Позиція відкрита. PnL (плаваючий): {unrealized_pnl:.2f}%")
+    def log_status(self, current_prices):
+        """Виводить статус усіх відкритих позицій"""
+        if not self.positions:
+            return
+
+        logging.info("--- 📊 АКТИВНІ ПОЗИЦІЇ ---")
+        for symbol, pos in self.positions.items():
+            # Якщо ми знаємо поточну ціну для цієї пари
+            if symbol in current_prices:
+                curr_price = current_prices[symbol]
+                pnl = ((curr_price - pos['entry_price']) / pos['entry_price']) * 100
+                logging.info(f"   🔹 {symbol}: {pnl:.2f}%")
+        logging.info("---------------------------")

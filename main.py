@@ -10,72 +10,82 @@ from app.paper_trader import PaperTrader
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
-def get_market_price(exchange, symbol):
+def get_data(exchange, symbol):
     try:
+        # Отримуємо і ціну, і історію одразу
         ticker = exchange.fetch_ticker(symbol)
-        return ticker['last']
-    except Exception as e:
-        logging.error(f"Помилка отримання ціни: {e}")
-        return None
-
-def get_historical_data(exchange, symbol, limit=200):
-    try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe='1m', limit=limit)
+        current_price = ticker['last']
+        
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe='5m', limit=100)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        return df
-    except Exception as e:
-        logging.error(f"Помилка історії: {e}")
-        return pd.DataFrame()
+        
+        return current_price, df
+    except:
+        return None, pd.DataFrame()
 
 def main():
     load_dotenv()
     
-    SYMBOL = 'BTC/USDT'
+    # 🔥 ТОП-10 ПАР (Висока ліквідність + Волатильність)
+    PAIRS = [
+        'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'DOGE/USDT', 'XRP/USDT',
+        'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'LTC/USDT', 'SHIB/USDT'
+    ]
     
-    # --- ВИПРАВЛЕННЯ ---
-    # Використовуємо Binance US, бо сервер Google знаходиться в США
-    print("🇺🇸 Підключення до Binance US (через локацію сервера)...")
+    print(f"🇺🇸 Підключення до Binance US. Моніторинг {len(PAIRS)} пар...")
     exchange = ccxt.binanceus() 
-    # -------------------
     
+    # Використовуємо наш розумний мозок v3.1
     ai_bot = TradingAI()
+    
+    # Стартуємо з 1000 USDT
     trader = PaperTrader(initial_balance=1000.0)
     
-    logging.info(f"🚀 Бот перезапущено (US Region Fix) на парі {SYMBOL}")
-    logging.info(f"💰 Баланс: {trader.get_balance()} USDT")
+    logging.info(f"🚀 Мульти-бот запущено! Портфель пустий.")
 
     while True:
         try:
-            current_price = get_market_price(exchange, SYMBOL)
-            df = get_historical_data(exchange, SYMBOL)
-            
-            if df.empty or current_price is None:
-                logging.warning("⏳ Чекаю дані від біржі...")
-                time.sleep(10)
-                continue
+            current_prices_map = {} # Для звіту по PnL
 
-            if not ai_bot.is_trained:
-                 logging.info("🧠 Треную AI...")
-                 ai_bot.train_new_model(df)
+            for symbol in PAIRS:
+                # 1. Тягнемо дані
+                price, df = get_data(exchange, symbol)
+                
+                if price is None or df.empty:
+                    continue
+                
+                current_prices_map[symbol] = price
 
-            signal = ai_bot.predict(df)
-            
-            if signal == "BUY":
-                trader.buy(symbol=SYMBOL, price=current_price, amount_usdt=100) 
-            elif signal == "SELL":
-                trader.sell(symbol=SYMBOL, price=current_price) 
-            elif signal == "HOLD":
-                pass 
+                # 2. Тренування (якщо треба, бот сам вирішить)
+                # Тренуємось тільки раз на цикл, якщо модель не готова
+                if not ai_bot.is_trained:
+                     ai_bot.train_new_model(df)
 
-            trader.log_status(current_price)
+                # 3. Аналіз
+                signal = ai_bot.predict(df)
+                
+                # 4. Дії
+                if signal == "BUY":
+                    # Ставимо 100$ на одну монету (максимум 10 позицій)
+                    trader.buy(symbol, price, amount_usdt=100)
+                
+                elif signal == "SELL":
+                    trader.sell(symbol, price)
+                
+                # Пауза щоб не забанили API (1 секунда)
+                time.sleep(1)
+
+            # Виводимо статус портфеля
+            trader.log_status(current_prices_map)
             
-            time.sleep(60)
+            logging.info("💤 Пауза 5 хвилин...")
+            time.sleep(300)
             
         except KeyboardInterrupt:
             break
         except Exception as e:
-            logging.error(f"Error: {e}")
-            time.sleep(10)
+            logging.error(f"Error loop: {e}")
+            time.sleep(60)
 
 if __name__ == "__main__":
     main()

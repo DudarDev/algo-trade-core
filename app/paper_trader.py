@@ -1,11 +1,12 @@
 import logging
+from app.database import DatabaseManager
 
 class PaperTrader:
     def __init__(self, initial_balance=1000.0):
-        self.usdt_balance = initial_balance
-        # Структура позиції: 
-        # {'BTC/USDT': {'amount': 0.1, 'entry_price': 50000, 'highest_price': 50000}, ...}
+        self.db = DatabaseManager()
+        self.usdt_balance = self.db.load_balance(initial_balance)
         self.positions = {} 
+        logging.info(f"💾 Баланс завантажено з БД: {self.usdt_balance:.2f} USDT")
 
     def get_balance(self):
         return round(self.usdt_balance, 2)
@@ -15,13 +16,13 @@ class PaperTrader:
         if self.usdt_balance < 10: return
 
         trade_amount = min(amount_usdt, self.usdt_balance)
-        fees = trade_amount * 0.001 # 0.1% комісія
-        
+        fees = trade_amount * 0.001
         coin_amount = (trade_amount - fees) / price
         
         self.usdt_balance -= trade_amount
+        self.db.save_balance(self.usdt_balance)
+        self.db.log_trade(symbol, "BUY", price, coin_amount, trade_amount)
         
-        # Записуємо позицію + highest_price для трейлінгу
         self.positions[symbol] = {
             'amount': coin_amount,
             'entry_price': price,
@@ -31,7 +32,6 @@ class PaperTrader:
         logging.info(f"🟢 [BUY {symbol}] Entry: {price} | Amt: {coin_amount:.4f}")
 
     def update_high(self, symbol, current_price):
-        """Оновлює локальний максимум ціни для трейлінгу"""
         if symbol in self.positions:
             if current_price > self.positions[symbol]['highest_price']:
                 self.positions[symbol]['highest_price'] = current_price
@@ -48,11 +48,13 @@ class PaperTrader:
         icon = "🤑" if profit_pct > 0 else "🔻"
         
         self.usdt_balance += total_rec
+        self.db.save_balance(self.usdt_balance)
+        self.db.log_trade(symbol, "SELL", price, pos['amount'], total_rec, profit_pct)
+        
         del self.positions[symbol]
         
         logging.info(f"🔴 [SELL {symbol}] Price: {price} | PnL: {profit_pct:.2f}% | {reason} {icon}")
         logging.info(f"💰 Balance: {self.usdt_balance:.2f} USDT")
 
     def log_status(self, current_prices):
-        if not self.positions: return
-        # logging.info(f"--- Portfolio ---")
+        pass

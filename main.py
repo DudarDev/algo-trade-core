@@ -7,15 +7,24 @@ import ccxt
 
 from app.ai_brain import TradingAI
 from app.paper_trader import PaperTrader
-from app.notifier import TelegramNotifier
-import app.config as config  # Імпортуємо наш конфіг
+from app.market_scanner import MarketScanner
+import app.config as config
+
+# Спроба імпорту телеграм-інтерфейсу
+try:
+    from app.telegram_interface import TelegramInterface
+    tg_available = True
+except ImportError:
+    tg_available = False
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 def get_data(exchange, symbol):
+    """Отримує поточні дані для оперативної роботи"""
     try:
         ticker = exchange.fetch_ticker(symbol)
         price = ticker['last']
+        # Для торгівлі беремо 100 свічок, для навчання AI скачає сам скільки треба
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=config.TIMEFRAME, limit=100)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         return price, df
@@ -24,90 +33,88 @@ def get_data(exchange, symbol):
 
 def main():
     load_dotenv()
+    print(f"🚀 Запуск AI-трейдера v6.0 (Deep Memory)...")
     
-    print(f"🇺🇸 Підключення до Binance US. Стратегія: Trailing Stop.")
     exchange = ccxt.binanceus() 
-    
     ai_bot = TradingAI()
     trader = PaperTrader(initial_balance=1000.0)
-    notify = TelegramNotifier()
+    scanner = MarketScanner()
     
-    notify.send("🚀 Bot Restarted with Trailing Stop Logic")
+    active_pairs = config.PAIRS 
+    last_scan_time = 0
+    SCAN_INTERVAL = 4 * 60 * 60 
+
+    # Ініціалізація Telegram
+    tg = None
+    if tg_available:
+        tg = TelegramInterface(trader)
+        tg.send_alert("🚀 Bot v6.0 Started. Deep Context AI enabled.")
 
     while True:
         try:
-            current_prices = {}
-            
-            for symbol in config.PAIRS:
+            # --- 1. АВТО-СКАНЕР РИНКУ ---
+            if time.time() - last_scan_time > SCAN_INTERVAL:
+                new_pairs = scanner.get_top_volatile_pairs(limit=10)
+                if new_pairs:
+                    active_pairs = new_pairs
+                    logging.info(f"📋 Новий список пар: {active_pairs}")
+                    if tg and tg.is_running:
+                        tg.send_alert(f"🔄 *Ринок змінився!* Нові пари:\n`{active_pairs}`")
+                last_scan_time = time.time()
+            # ---------------------------
+
+            for symbol in active_pairs:
                 price, df = get_data(exchange, symbol)
                 if price is None or df.empty: continue
-                
-                current_prices[symbol] = price
 
-                # 1. Оновлюємо максимум для трейлінгу
                 trader.update_high(symbol, price)
 
-                # 2. Тренування
+                # --- ТРЕНУВАННЯ З ГЛИБОКОЮ ПАМ'ЯТТЮ ---
                 if not ai_bot.is_trained:
-                     ai_bot.train_new_model(df)
+                     # ВАЖЛИВО: Передаємо symbol, щоб AI скачав 1500 свічок
+                     ai_bot.train_new_model(df, symbol)
 
-                # 3. Аналіз AI
                 signal = ai_bot.predict(df)
                 
-                # 4. Вхід в угоду
+                # --- ЛОГІКА ВХОДУ ---
                 if signal == "BUY":
                     if len(trader.positions) < config.MAX_POSITIONS:
                         trader.buy(symbol, price, config.TRADE_AMOUNT)
-                        if symbol in trader.positions:
-                            notify.send_trade("BUY", symbol, price, config.TRADE_AMOUNT)
+                        if tg and tg.is_running and symbol in trader.positions:
+                            tg.send_alert(f"🟢 *BUY {symbol}* @ `{price}`")
 
-                # 5. ВИХІД (Trailing Stop Logic)
+                # --- ЛОГІКА ВИХОДУ (Smart Exit) ---
                 if symbol in trader.positions:
                     pos = trader.positions[symbol]
-                    entry_price = pos['entry_price']
-                    highest_price = pos['highest_price']
+                    entry = pos['entry_price']
+                    high = pos['highest_price']
                     
-                    # Поточний % зміни
-                    pnl_current = (price - entry_price) / entry_price
-                    # Відкат від максимуму
-                    drawdown = (highest_price - price) / highest_price
+                    pnl = (price - entry) / entry
+                    drawdown = (high - price) / high
                     
                     should_sell = False
                     reason = ""
 
-                    # А. Stop Loss (Аварійний вихід)
-                    if pnl_current < -config.STOP_LOSS_PCT:
+                    if pnl < -config.STOP_LOSS_PCT:
                         should_sell = True
-                        reason = "Stop Loss 🛡️"
-                    
-                    # Б. Trailing Take Profit (Розумний вихід)
-                    elif config.USE_TRAILING_STOP and pnl_current > config.TRAILING_START_PCT:
-                        # Якщо ціна почала падати від піку більше ніж на DROP_PCT
+                        reason = "Stop Loss"
+                    elif config.USE_TRAILING_STOP and pnl > config.TRAILING_START_PCT:
                         if drawdown > config.TRAILING_DROP_PCT:
                             should_sell = True
-                            reason = f"Trailing Stop (High: {highest_price}) 🎣"
-                    
-                    # В. Звичайний Take Profit (якщо трейлінг вимкнено)
-                    elif not config.USE_TRAILING_STOP and pnl_current > config.TAKE_PROFIT_PCT:
-                        should_sell = True
-                        reason = "Take Profit 💰"
-
-                    # Г. AI Exit (Тільки якщо є мінімальний плюс, щоб відбити комісію)
-                    elif signal == "SELL" and pnl_current > 0.002:
+                            reason = "Trailing"
+                    elif signal == "SELL" and pnl > 0.002:
                          should_sell = True
-                         reason = "AI Signal 🤖"
+                         reason = "AI Signal"
 
                     if should_sell:
                         trader.sell(symbol, price, reason)
-                        new_bal = trader.get_balance()
-                        notify.send_trade("SELL", symbol, price, 0, pnl_current*100, new_bal)
+                        if tg and tg.is_running:
+                            new_bal = trader.get_balance()
+                            tg.send_alert(f"🔴 *SELL {symbol}* @ `{price}`\nPnL: *{pnl*100:.2f}%* ({reason})\n💰 Bal: `{new_bal}`")
 
-                time.sleep(1)
-
-            if trader.positions:
-                trader.log_status(current_prices)
+                time.sleep(1) 
             
-            time.sleep(300) # 5 хвилин пауза
+            time.sleep(300) 
             
         except KeyboardInterrupt:
             break

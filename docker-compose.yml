@@ -1,12 +1,30 @@
-version: '3'
+version: '3.8'
 
 services:
-  crypto-bot:
+  # 1. Твій Торговий Бот (Backend)
+  bot:
     build: .
-    container_name: crypto_algo_pro_v3
+    container_name: trade_bot
+    command: python main.py
     restart: always
-    env_file:
-      - .env
     volumes:
-      - ./data:/app/data
-      - ./config:/app/config
+      # Спільна папка для бази даних
+      - ./bot_data:/app/bot_data
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  # 2. Твій Веб-Сайт (Frontend)
+  web:
+    build: .
+    container_name: trade_dashboard
+    # Запускаємо Django
+    command: python manage.py runserver 0.0.0.0:8000
+    restart: always
+    volumes:
+      # Та сама спільна папка! Сайт бачить те, що пише Бот.
+      - ./bot_data:/app/bot_data
+    ports:
+      # Відкриваємо порт назовні (80 - це стандартний порт інтернету)
+      - "80:8000"
+    depends_on:
+      - bot

@@ -1,19 +1,27 @@
 # --- НАЛАШТУВАННЯ ТОРГІВЛІ ---
-TIMEFRAME = '5m'
-TRADE_AMOUNT = 100         # USDT на одну угоду
-MAX_POSITIONS = 10         # Максимум угод одночасно
+TIMEFRAME = "5m"
+TRADE_AMOUNT = 100  # USDT на одну угоду
+MAX_POSITIONS = 10  # Максимум угод одночасно
 
-# --- РИЗИК-МЕНЕДЖМЕНТ ---
-TAKE_PROFIT_PCT = 0.015    # 1.5% (Ціль)
-STOP_LOSS_PCT = 0.010      # 1.0% (Стоп)
+# --- РИЗИК-МЕНЕДЖМЕНТ (Оптимізовано Backtest) ---
+TAKE_PROFIT_PCT = 0.008  # 0.8% (Зменшили, щоб частіше фіксувати прибуток)
+STOP_LOSS_PCT = 0.015  # 1.5% (Збільшили, щоб не вибивало випадково)
 
 # --- TRAILING STOP (Розумний вихід) ---
 USE_TRAILING_STOP = True
-TRAILING_START_PCT = 0.005 # Активувати, коли прибуток > 0.5%
+TRAILING_START_PCT = 0.005  # Активувати, коли прибуток > 0.5%
 TRAILING_DROP_PCT = 0.003  # Продати, якщо ціна впала на 0.3% від піку
 
-# --- СПИСОК ПАР (Стартовий, далі оновлюється сканером) ---
+# --- СПИСОК ПАР ---
 PAIRS = [
-    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT',
-    'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'LTC/USDT'
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "XRP/USDT",
+    "DOGE/USDT",
+    "ADA/USDT",
+    "AVAX/USDT",
+    "LINK/USDT",
+    "LTC/USDT",
 ]

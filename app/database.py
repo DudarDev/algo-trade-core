@@ -2,6 +2,7 @@ import sqlite3
 import logging
 import os
 
+
 class DatabaseManager:
     def __init__(self, db_file="data/bot_data.db"):
         # Переконуємось, що папка data існує
@@ -12,7 +13,8 @@ class DatabaseManager:
 
     def create_tables(self):
         # Таблиця для угод
-        self.cursor.execute('''
+        self.cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT,
@@ -23,22 +25,28 @@ class DatabaseManager:
                 pnl REAL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
+        """
+        )
         # Таблиця для стану гаманця (щоб пам'ятати баланс)
-        self.cursor.execute('''
+        self.cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS wallet (
                 id INTEGER PRIMARY KEY,
                 usdt_balance REAL
             )
-        ''')
+        """
+        )
         self.conn.commit()
 
     def log_trade(self, symbol, side, price, amount, cost, pnl=0):
         try:
-            self.cursor.execute('''
+            self.cursor.execute(
+                """
                 INSERT INTO trades (symbol, side, price, amount, cost, pnl)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (symbol, side, price, amount, cost, pnl))
+            """,
+                (symbol, side, price, amount, cost, pnl),
+            )
             self.conn.commit()
         except Exception as e:
             logging.error(f"DB Error (Trade): {e}")
@@ -46,14 +54,17 @@ class DatabaseManager:
     def save_balance(self, balance):
         try:
             # Оновлюємо єдиний запис з ID=1
-            self.cursor.execute('INSERT OR REPLACE INTO wallet (id, usdt_balance) VALUES (1, ?)', (balance,))
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO wallet (id, usdt_balance) VALUES (1, ?)",
+                (balance,),
+            )
             self.conn.commit()
         except Exception as e:
             logging.error(f"DB Error (Balance): {e}")
 
     def load_balance(self, default=1000.0):
         try:
-            self.cursor.execute('SELECT usdt_balance FROM wallet WHERE id=1')
+            self.cursor.execute("SELECT usdt_balance FROM wallet WHERE id=1")
             row = self.cursor.fetchone()
             if row:
                 return row[0]

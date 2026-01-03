@@ -1,114 +1,108 @@
+import ccxt
 import pandas as pd
-import sys
-import os
-from colorama import Fore, Style, init
+import pandas_ta as ta
+import numpy as np
 
-# Додаємо папку app, щоб бачити стратегію
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Налаштування для перевірки
+TIMEFRAME = "5m"
+PAIRS = ["BTC/USDT", "SOL/USDT", "ETH/USDT"]  # Тільки сильні монети
 
-from app.strategy import Strategy
 
-init(autoreset=True)
+def run_smart_backtest(symbol, tp, sl, trail_on):
+    exchange = ccxt.binanceus()
+    # Качаємо більше даних (5 днів)
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe=TIMEFRAME, limit=1500)
+    df = pd.DataFrame(ohlcv, columns=["ts", "open", "high", "low", "close", "vol"])
 
-def run_backtest(file_path, rsi_period=14, buy_level=30, sell_level=70, start_balance=1000):
-    """
-    Симуляція торгівлі на історичних даних
-    """
-    print(Fore.CYAN + f"🔄 Запуск бектесту на файлі: {file_path}")
-    print(f"⚙️  Налаштування: RSI={rsi_period} | BUY<{buy_level} | SELL>{sell_level}")
-    
-    # 1. Завантажуємо дані
-    if not os.path.exists(file_path):
-        print(Fore.RED + f"❌ Файл {file_path} не знайдено! Спочатку запусти download_data.py")
-        return
+    # --- ІМІТАЦІЯ МОЗКУ AI ---
+    # 1. Тренд (SMA 200)
+    df["SMA_200"] = ta.sma(df["close"], length=200)
+    # 2. Імпульс (RSI)
+    df["RSI"] = ta.rsi(df["close"], length=14)
+    # 3. Напрямок (MACD)
+    macd = ta.macd(df["close"])
+    df["MACD"] = macd["MACD_12_26_9"]
 
-    df = pd.read_csv(file_path)
-    
-    # 2. Ініціалізуємо стратегію
-    strategy = Strategy(
-        rsi_period=rsi_period, 
-        rsi_oversold=buy_level, 
-        rsi_overbought=sell_level
-    )
+    balance = 1000
+    position = None
+    trades = 0
+    wins = 0
 
-    # 3. Гаманець симулятора
-    usdt = start_balance
-    crypto = 0
-    trades_count = 0
-    
-    # Початкова ціна (для розрахунку Hold стратегії)
-    start_price = df['close'].iloc[0]
+    # Починаємо з 200-ї свічки (щоб SMA порахувалась)
+    for i in range(200, len(df)):
+        price = df["close"].iloc[i]
 
-    print("⏳ Обробка даних...", end="")
+        # Поточні індикатори
+        rsi = df["RSI"].iloc[i]
 
-    # 4. Проганяємо цикл (Швидкий метод)
-    # Спочатку рахуємо RSI для всього файлу одразу (це дуже швидко)
-    df = strategy.calculate_rsi(df)
+        # Перевірка на існування SMA (захист від NaN)
+        sma_val = df["SMA_200"].iloc[i]
+        if pd.isna(sma_val):
+            continue
 
-    # Тепер йдемо по рядках
-    for i in range(len(df)):
-        if i < rsi_period: continue # Пропускаємо перші рядки без RSI
-        
-        price = df['close'].iloc[i]
-        rsi = df['rsi'].iloc[i]
-        
-        # ЛОГІКА ТОРГІВЛІ (Спрощена для швидкості)
-        
-        # КУПІВЛЯ: Якщо RSI низький І у нас є USDT
-        if rsi < buy_level and usdt > 10:
-            crypto = usdt / price
-            usdt = 0
-            trades_count += 1
-            # print(f"  🟢 BUY at {price} (RSI: {rsi:.1f})") # Можна розкоментувати для деталізації
+        trend = price > sma_val  # Ціна вище довгострокової лінії
+        macd_val = df["MACD"].iloc[i]
 
-        # ПРОДАЖ: Якщо RSI високий І у нас є Крипта
-        elif rsi > sell_level and crypto > 0:
-            usdt = crypto * price
-            crypto = 0
-            trades_count += 1
-            # print(f"  🔴 SELL at {price} (RSI: {rsi:.1f})")
+        if position is None:
+            # ЛОГІКА ВХОДУ (Близька до AI)
+            # Купуємо тільки по тренду (Trend=True) і на відкаті (RSI < 45)
+            if trend and rsi < 45 and macd_val > 0:
+                position = {"entry": price, "high": price}
+        else:
+            # ЛОГІКА ВИХОДУ
+            entry = position["entry"]
+            if price > position["high"]:
+                position["high"] = price
 
-    print(" Готово!\n")
+            pnl = (price - entry) / entry
+            drawdown = (position["high"] - price) / position["high"]
 
-    # 5. Підсумки
-    final_price = df['close'].iloc[-1]
-    
-    # Якщо залишились у крипті - продаємо по останній ціні, щоб порахувати баланс
-    if crypto > 0:
-        usdt = crypto * final_price
+            sell = False
 
-    total_pnl = usdt - start_balance
-    pnl_percent = (total_pnl / start_balance) * 100
+            # Stop Loss
+            if pnl < -sl:
+                sell = True
+            # Trailing Take Profit
+            elif trail_on and pnl > 0.005 and drawdown > 0.003:
+                sell = True
+            # Hard Take Profit
+            elif not trail_on and pnl > tp:
+                sell = True
 
-    # Порівняння з "Buy & Hold" (просто купив і тримав)
-    hold_crypto = start_balance / start_price
-    hold_usdt = hold_crypto * final_price
-    hold_pnl = hold_usdt - start_balance
-    hold_percent = (hold_pnl / start_balance) * 100
+            if sell:
+                profit = 100 * pnl  # Ставка 100$
+                balance += profit
+                trades += 1
+                if profit > 0:
+                    wins += 1
+                position = None
 
-    # Вивід результатів
-    print("="*40)
-    print(Fore.YELLOW + "📊 РЕЗУЛЬТАТИ БЕКТЕСТУ")
-    print("="*40)
-    print(f"💰 Початковий баланс: ${start_balance}")
-    print(f"💵 Кінцевий баланс:   ${usdt:.2f}")
-    
-    color = Fore.GREEN if total_pnl > 0 else Fore.RED
-    print(f"📈 Чистий прибуток:   {color}${total_pnl:.2f} ({pnl_percent:.2f}%){Style.RESET_ALL}")
-    print(f"🔄 Кількість угод:    {trades_count}")
-    
-    print("-" * 40)
-    print(f"🐢 Стратегія 'Тримати' (Buy&Hold): {hold_percent:.2f}%")
-    
-    if pnl_percent > hold_percent:
-        print(Fore.GREEN + "🏆 БОТ ПЕРЕМІГ РИНОК!")
-    else:
-        print(Fore.RED + "🐢 'Тримати' було вигідніше.")
-    print("="*40)
+    return balance, trades, wins
 
-if __name__ == "__main__":
-    # Налаштування для тесту
-    FILE = "data/BTC_USDT_history.csv"
-    
-    # Спробуй змінити ці цифри, щоб покращити результат!
-    run_backtest(FILE, rsi_period=14, buy_level=30, sell_level=70)
+
+print("🧠 Запуск Розумного Бектесту...")
+print(f"Пари: {PAIRS}")
+
+best_profit = -9999
+best_config = {}
+
+# Перебираємо варіанти
+for sl in [0.01, 0.015]:  # Stop: 1%, 1.5%
+    for tp in [0.008, 0.015]:  # Take: 0.8%, 1.5%
+        total_profit = 0
+        total_trades = 0
+
+        for pair in PAIRS:
+            bal, tr, _ = run_smart_backtest(pair, tp, sl, True)
+            total_profit += bal - 1000
+            total_trades += tr
+
+        print(
+            f"⚙️ SL: {sl*100}% | TP: {tp*100}% -> Profit: {total_profit:.2f}$ ({total_trades} угод)"
+        )
+
+        if total_profit > best_profit:
+            best_profit = total_profit
+            best_config = {"SL": sl, "TP": tp}
+
+print(f"\n🏆 ПЕРЕМОЖЕЦЬ: {best_config}")

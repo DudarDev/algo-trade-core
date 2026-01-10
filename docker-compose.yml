@@ -1,30 +1,24 @@
-version: '3.8'
+version: '3.3'
 
 services:
-  # 1. Твій Торговий Бот (Backend)
   bot:
-    build: .
-    container_name: trade_bot
+    image: us-central1-docker.pkg.dev/algo-trade-480920/bot-repo/ai-scalper:v2
+    container_name: bot
+    restart: always
+    volumes:
+      - ./bot_data:/app/bot_data
+      - ./bot_data:/app/data
     command: python main.py
-    restart: always
-    volumes:
-      # Спільна папка для бази даних
-      - ./bot_data:/app/bot_data
-    environment:
-      - PYTHONUNBUFFERED=1
 
-  # 2. Твій Веб-Сайт (Frontend)
-  web:
-    build: .
-    container_name: trade_dashboard
-    # Запускаємо Django
-    command: python manage.py runserver 0.0.0.0:8000
+  website:
+    image: us-central1-docker.pkg.dev/algo-trade-480920/bot-repo/ai-scalper:v2
+    container_name: website
     restart: always
-    volumes:
-      # Та сама спільна папка! Сайт бачить те, що пише Бот.
-      - ./bot_data:/app/bot_data
     ports:
-      # Відкриваємо порт назовні (80 - це стандартний порт інтернету)
-      - "80:8000"
+      - "8000:8000"
     depends_on:
       - bot
+    volumes:
+      - ./bot_data:/app/bot_data
+      - ./bot_data:/app/data
+    command: python manage.py runserver 0.0.0.0:8000

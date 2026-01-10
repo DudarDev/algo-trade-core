@@ -9,41 +9,67 @@ def dashboard(request):
         balance = wallet.usdt_balance if wallet else 1000.0
     except: balance = 1000.0
 
-    # 2. Отримуємо всі угоди
-    trades = Trade.objects.all().order_by('-timestamp')
+    # 2. Отримуємо угоди (OPTIMIZATION: беремо тільки останні 1000 для графіку, щоб не вбити RAM)
+    # Якщо угод менше 1000, він візьме всі. Це врятує твій e2-micro в майбутньому.
+    all_trades_qs = Trade.objects.all().order_by('-timestamp')
+    trades = list(all_trades_qs[:1000]) 
     
-    # 3. Статистика
-    total_trades = trades.count()
-    wins = trades.filter(pnl__gt=0).count()
-    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+    # 3. Базова статистика
+    total_trades = all_trades_qs.count() # Count у SQL дешевий
+    # Для Win Rate беремо статистику по завантажених угодах (або можна окремим SQL запитом)
+    wins = sum(1 for t in trades if t.pnl > 0)
+    local_count = len(trades)
+    win_rate = (wins / local_count * 100) if local_count > 0 else 0
     
-    # 4. Підготовка даних для графіку (Equity Curve)
-    # Нам треба список дат і балансу в той момент
+    # 4. Підготовка даних (Equity Curve + Profit Factor)
     chart_labels = []
     chart_data = []
     
-    # Симуляція історії балансу (від 1000 до поточного)
-    # У реальності краще записувати історію балансу окремо, 
-    # але для демо вирахуємо приблизно
+    current_equity = 1000.0 # Стартовий депозит симуляції
     
-    current_equity = 1000.0
-    equity_curve = []
-    
-    # Йдемо від найстаріших до нових
+    # Змінні для Profit Factor
+    gross_profit = 0.0
+    gross_loss = 0.0
+
+    # Йдемо від найстаріших до нових (reversed працює, бо ми зробили list[:1000])
     for t in reversed(trades):
+        # Рахуємо PnL тільки для закритих угод (SELL), як у твоїй логіці
         if t.side == 'SELL':
-            # Приблизний профіт у доларах
+            # Абсолютний профіт у $ (формула: об'єм * ціна * %/100)
             profit_usd = t.amount * t.price * (t.pnl / 100)
-            current_equity += profit_usd
             
+            # Накопичуємо дані для Profit Factor
+            if profit_usd > 0:
+                gross_profit += profit_usd
+            else:
+                gross_loss += abs(profit_usd) # беремо модуль від мінуса
+
+            # Оновлюємо графік
+            current_equity += profit_usd
             chart_labels.append(t.timestamp.strftime("%d-%m %H:%M"))
             chart_data.append(round(current_equity, 2))
+
+    # 5. Фінальний розрахунок Profit Factor
+    if gross_loss == 0:
+        profit_factor = 10.0 if gross_profit > 0 else 0.0 # Штучне обмеження
+    else:
+        profit_factor = round(gross_profit / gross_loss, 2)
+
+    # Визначаємо колір для UI
+    if profit_factor >= 1.5:
+        pf_color = '#00C853' # Яскраво-зелений (Super)
+    elif profit_factor >= 1.1:
+        pf_color = '#FFD600' # Жовтий (OK)
+    else:
+        pf_color = '#FF3D00' # Червоний (Warning)
 
     context = {
         'balance': round(balance, 2),
         'total_trades': total_trades,
         'win_rate': round(win_rate, 1),
-        'trades': trades[:10], # Останні 10 угод для таблиці
+        'profit_factor': profit_factor,   # <--- НОВА ЗМІННА
+        'pf_color': pf_color,             # <--- КОЛІР ДЛЯ ШАБЛОНУ
+        'trades': trades[:10],            # Останні 10 для таблиці (зріз списку, не QuerySet)
         'chart_labels': json.dumps(chart_labels),
         'chart_data': json.dumps(chart_data),
     }

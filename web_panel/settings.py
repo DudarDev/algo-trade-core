@@ -7,7 +7,6 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 # --- ВИПРАВЛЕННЯ ДЛЯ CLOUD SHELL ---
-# Дозволяємо вхід з будь-якого піддомену cloudshell.dev
 CSRF_TRUSTED_ORIGINS = ['https://*.cloudshell.dev']
 # -----------------------------------
 
@@ -19,6 +18,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'bot_monitor',
+    'app', # <--- ДОДАНО: Тепер Django бачить папку app
 ]
 
 MIDDLEWARE = [
@@ -36,7 +36,8 @@ ROOT_URLCONF = 'web_panel.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # ДОДАНО: Явно вказуємо шлях до глобальних шаблонів
+        'DIRS': [BASE_DIR / 'app' / 'templates'], 
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [

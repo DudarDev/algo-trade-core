@@ -1,176 +1,129 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Crypto Bot | Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
     
-    <style>
-        /* Темна тема */
-        body { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 12px; margin-bottom: 20px; }
-        .card-title { color: #888; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
-        .metric-value { font-size: 2.5rem; font-weight: bold; color: #fff; }
-        
-        /* Кольори для тексту */
-        .text-success-custom { color: #00e676; } /* Зелений */
-        .text-danger-custom { color: #ff5252; }  /* Червоний */
-        .text-warning-custom { color: #ffab00; } /* Жовтий */
-
-        /* Стилі таблиці */
-        .table-dark { background-color: #1e1e1e; }
-        .table-dark th { color: #888; border-bottom: 1px solid #333; }
-        .table-dark td { border-bottom: 1px solid #2a2a2a; }
-        
-        /* Бейджі BUY/SELL */
-        .badge-buy { background-color: #2962ff; color: white; padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
-        .badge-sell { background-color: #ff9100; color: black; padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; }
-        
-        /* Навігація */
-        .navbar { border-bottom: 1px solid #333; background-color: #1e1e1e !important; }
-        .brand-logo { font-weight: bold; letter-spacing: 2px; }
-        .pulse { animation: pulse 2s infinite; display: inline-block; width: 10px; height: 10px; background-color: #00e676; border-radius: 50%; margin-right: 8px; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-    </style>
-</head>
-<body>
-
-    <nav class="navbar navbar-dark mb-4">
-        <div class="container-fluid">
-            <span class="navbar-brand brand-logo"><span class="pulse"></span>AI SCALPER v6.3</span>
-            <span class="navbar-text text-white">Status: <strong>Running</strong></span>
-        </div>
-    </nav>
-
-    <div class="container">
-        
-        <div class="row">
-            <div class="col-12 col-md-6 col-xl-3">
-                <div class="card p-3 h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Current Balance</h5>
-                        <div class="metric-value">${{ balance }}</div>
-                        <small class="text-muted">USDT Wallet</small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12 col-md-6 col-xl-3">
-                <div class="card p-3 h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Total Trades</h5>
-                        <div class="metric-value">{{ total_trades }}</div>
-                        <small class="text-muted">Lifetime Executions</small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12 col-md-6 col-xl-3">
-                <div class="card p-3 h-100" style="border-left: 4px solid {{ pf_color }};">
-                    <div class="card-body">
-                        <h5 class="card-title" style="color: {{ pf_color }}">Profit Factor</h5>
-                        <div class="metric-value" style="color: {{ pf_color }}">
-                            {{ profit_factor }}
-                        </div>
-                        <small class="text-muted">Target: > 1.5</small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-12 col-md-6 col-xl-3">
-                <div class="card p-3 h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">Win Rate</h5>
-                        <div class="metric-value {{ win_rate|yesno:'text-success-custom,text-danger-custom' }}">
-                            {{ win_rate }}%
-                        </div>
-                        <small class="text-muted">Accuracy</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row">
-            <div class="col-12">
-                <div class="card p-4">
-                    <h5 class="card-title mb-4">Performance Growth</h5>
-                    <canvas id="profitChart" height="100"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <div class="row">
-            <div class="col-12">
-                <div class="card p-4">
-                    <h5 class="card-title mb-3">Recent Activity</h5>
-                    <div class="table-responsive">
-                        <table class="table table-dark table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Pair</th>
-                                    <th>Type</th>
-                                    <th>Price</th>
-                                    <th>PnL</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for trade in trades %}
-                                <tr>
-                                    <td>{{ trade.timestamp|date:"d M H:i" }}</td>
-                                    <td><strong>{{ trade.symbol }}</strong></td>
-                                    <td>
-                                        <span class="{% if trade.side == 'BUY' %}badge-buy{% else %}badge-sell{% endif %}">
-                                            {{ trade.side }}
-                                        </span>
-                                    </td>
-                                    <td>{{ trade.price }}</td>
-                                    <td>
-                                        {% if trade.side == 'SELL' %}
-                                            <span class="{% if trade.pnl > 0 %}text-success-custom{% else %}text-danger-custom{% endif %}">
-                                                {{ trade.pnl|floatformat:2 }}%
-                                            </span>
-                                        {% else %}
-                                            <span class="text-muted">-</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="pro-panel p-4">
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Current Balance</div>
+        <div class="text-2xl font-bold text-white mono-font">${{ balance }}</div>
+        <div class="text-xs text-gray-500 mt-2">USDT Wallet</div>
     </div>
 
-    <script>
-        const ctx = document.getElementById('profitChart').getContext('2d');
-        const profitChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: {{ chart_labels|safe }},
-                datasets: [{
-                    label: 'Portfolio Value (USDT)',
-                    data: {{ chart_data|safe }},
-                    borderColor: '#00e676',
-                    backgroundColor: 'rgba(0, 230, 118, 0.1)',
-                    borderWidth: 2,
-                    tension: 0.4,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: '#333' }, ticks: { color: '#888' } },
-                    y: { grid: { color: '#333' }, ticks: { color: '#888' } }
+    <div class="pro-panel p-4">
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Total Trades</div>
+        <div class="text-2xl font-bold text-white mono-font">{{ total_trades }}</div>
+        <div class="text-xs text-gray-500 mt-2">Lifetime Executions</div>
+    </div>
+
+    <div class="pro-panel p-4 relative overflow-hidden">
+        <div class="absolute right-0 top-0 w-1 h-full" style="background-color: {{ pf_color }};"></div>
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Profit Factor</div>
+        <div class="text-2xl font-bold mono-font" style="color: {{ pf_color }}">{{ profit_factor }}</div>
+        <div class="text-xs text-gray-500 mt-2">Target: > 1.5</div>
+    </div>
+
+    <div class="pro-panel p-4">
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Win Rate</div>
+        <div class="text-2xl font-bold mono-font {{ win_rate|yesno:'text-profit,text-loss' }}">
+            {{ win_rate }}%
+        </div>
+        <div class="text-xs text-gray-500 mt-2">Accuracy</div>
+    </div>
+</div>
+
+<div class="pro-panel p-4 mb-6">
+    <h3 class="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wide">Performance Growth</h3>
+    <div class="relative h-64 w-full">
+        <canvas id="profitChart"></canvas>
+    </div>
+</div>
+
+<div class="pro-panel overflow-hidden">
+    <div class="px-4 py-3 border-b border-[#2a2e39]">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+            <thead class="bg-[#1e2329] text-xs uppercase text-gray-500">
+                <tr>
+                    <th class="px-4 py-3 font-medium">Time</th>
+                    <th class="px-4 py-3 font-medium">Pair</th>
+                    <th class="px-4 py-3 font-medium">Type</th>
+                    <th class="px-4 py-3 font-medium">Price</th>
+                    <th class="px-4 py-3 font-medium text-right">PnL</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-[#2a2e39] text-gray-300 mono-font">
+                {% for trade in trades %}
+                <tr class="hover:bg-[#1e2329] transition-colors">
+                    <td class="px-4 py-3 text-gray-400">{{ trade.timestamp|date:"d M H:i" }}</td>
+                    <td class="px-4 py-3 font-bold text-white">{{ trade.symbol }}</td>
+                    <td class="px-4 py-3">
+                        {% if trade.side == 'BUY' %}
+                            <span class="px-2 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20">BUY</span>
+                        {% else %}
+                            <span class="px-2 py-0.5 rounded text-[10px] bg-orange-500/10 text-orange-400 border border-orange-500/20">SELL</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3">{{ trade.price }}</td>
+                    <td class="px-4 py-3 text-right">
+                        {% if trade.side == 'SELL' %}
+                            <span class="{% if trade.pnl > 0 %}text-profit{% else %}text-loss{% endif %}">
+                                {{ trade.pnl|floatformat:2 }}%
+                            </span>
+                        {% else %}
+                            <span class="text-gray-600">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const ctx = document.getElementById('profitChart').getContext('2d');
+    
+    // Create gradient
+    let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
+    gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
+
+    const profitChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: {{ chart_labels|safe }},
+            datasets: [{
+                label: 'Portfolio Value (USDT)',
+                data: {{ chart_data|safe }},
+                borderColor: '#0ecb81',
+                backgroundColor: gradient,
+                borderWidth: 2,
+                tension: 0.4,
+                pointRadius: 0,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { 
+                    grid: { display: false, drawBorder: false },
+                    ticks: { color: '#848e9c', font: { family: "'JetBrains Mono', monospace", size: 10 } }
+                },
+                y: { 
+                    grid: { color: '#2a2e39', borderDash: [5, 5] },
+                    ticks: { color: '#848e9c', font: { family: "'JetBrains Mono', monospace", size: 10 } }
                 }
-            }
-        });
-    </script>
-</body>
-</html>
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index',
+            },
+        }
+    });
+</script>
+{% endblock %}

@@ -1,27 +1,44 @@
-# --- НАЛАШТУВАННЯ ТОРГІВЛІ ---
-TIMEFRAME = "5m"
-TRADE_AMOUNT = 100  # USDT на одну угоду
-MAX_POSITIONS = 10  # Максимум угод одночасно
+from dataclasses import dataclass, field
+from typing import List
 
-# --- РИЗИК-МЕНЕДЖМЕНТ (Оптимізовано Backtest) ---
-TAKE_PROFIT_PCT = 0.008  # 0.8% (Зменшили, щоб частіше фіксувати прибуток)
-STOP_LOSS_PCT = 0.015  # 1.5% (Збільшили, щоб не вибивало випадково)
+@dataclass(frozen=True)
+class TradingConfig:
+    # --- MARKET SETTINGS ---
+    TIMEFRAME: str = '5m'
+    
+    # Видаляємо PAXG та неліквід. Залишаємо те, де AI реально бачить закономірності
+    PAIRS: List[str] = field(default_factory=lambda: [
+        'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 
+        'XRP/USDT', 'ADA/USDT', 'DOT/USDT', 'LINK/USDT'
+    ])
+    
+    # Токсичні активи, які Scanner може випадково підсунути
+    BLACKLIST: List[str] = field(default_factory=lambda: [
+        'PAXG/USDT', 'USDC/USDT', 'FDUSD/USDT', 'TUSD/USDT', 'PEPE/USDT', 'DOGE/USDT'
+    ])
 
-# --- TRAILING STOP (Розумний вихід) ---
-USE_TRAILING_STOP = True
-TRAILING_START_PCT = 0.005  # Активувати, коли прибуток > 0.5%
-TRAILING_DROP_PCT = 0.003  # Продати, якщо ціна впала на 0.3% від піку
+    # --- RISK MANAGEMENT (Жорсткий контроль) ---
+    # Збільшуємо SL, щоб не вибивало випадковим шумом, але зменшуємо об'єм позиції
+    STOP_LOSS_PCT: float = 0.025   # 2.5% - Даємо ціні трохи "подихати"
+    TAKE_PROFIT_PCT: float = 0.05  # 5.0% - Націлюємося на серйозніші рухи
+    
+    # Position Sizing
+    MAX_POSITIONS: int = 3
+    # При депо ~380 USDT це буде ~$76 на угоду. Безпечно.
+    POSITION_SIZE_FRACTION: float = 0.20 
 
-# --- СПИСОК ПАР ---
-PAIRS = [
-    "BTC/USDT",
-    "ETH/USDT",
-    "SOL/USDT",
-    "BNB/USDT",
-    "XRP/USDT",
-    "DOGE/USDT",
-    "ADA/USDT",
-    "AVAX/USDT",
-    "LINK/USDT",
-    "LTC/USDT",
-]
+    # --- TRAILING STOP (Адаптований під логі) ---
+    USE_TRAILING: bool = True
+    # Вмикаємо трейлінг пізніше (після 1.5%), щоб не різати прибуток на самому початку
+    TRAILING_ACTIVATION: float = 0.015  # 1.5%
+    # Відступ робимо більшим, щоб не виходити на мікро-відкатах
+    TRAILING_DISTANCE: float = 0.007    # 0.7% drop from peak
+
+    # --- AI BRAIN ---
+    # Твій поріг 0.60 дає багато "шумних" сигналів. Піднімаємо якість.
+    MODEL_THRESHOLD: float = 0.68
+    EMA_PERIOD: int = 200
+    
+    # Технічний параметр для стабільності CCXT
+    RETRY_LIMIT: int = 5
+    TIMEOUT: int = 30000

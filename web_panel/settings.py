@@ -55,7 +55,8 @@ WSGI_APPLICATION = 'web_panel.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'bot_data' / 'bot_data.db',
+        # Використовуємо абсолютний шлях, який точно існує
+        'NAME': '/app/bot_data/bot_data.db',
     }
 }
 

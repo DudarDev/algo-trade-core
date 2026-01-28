@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
     
     <div class="pro-panel p-4">
         <div class="text-xs text-muted uppercase tracking-wider mb-1">Current Balance</div>
@@ -10,9 +10,12 @@
     </div>
 
     <div class="pro-panel p-4">
-        <div class="text-xs text-muted uppercase tracking-wider mb-1">Total Trades</div>
-        <div class="text-2xl font-bold text-white mono-font">{{ total_trades }}</div>
-        <div class="text-xs text-gray-500 mt-2">Lifetime Executions</div>
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Total PnL</div>
+        <div class="text-2xl font-bold mono-font {% if total_pnl_usd >= 0 %}text-profit{% else %}text-loss{% endif %}">
+            {% if total_pnl_usd > 0 %}+{% endif %}{{ total_pnl_usd }}$
+            <span class="text-sm ml-1 opacity-80 text-gray-400">({{ total_pnl_percent }}%)</span>
+        </div>
+        <div class="text-xs text-gray-500 mt-2">{{ total_trades }} Trades Executed</div>
     </div>
 
     <div class="pro-panel p-4 relative overflow-hidden">
@@ -31,9 +34,42 @@
     </div>
 </div>
 
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+    
+    <div class="pro-panel p-4 border-l-2 border-red-500/30">
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Max Drawdown</div>
+        <div class="text-2xl font-bold text-red-400 mono-font">-{{ max_drawdown }}%</div>
+        <div class="text-xs text-gray-500 mt-2">Peak to Valley</div>
+    </div>
+
+    <div class="pro-panel p-4">
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Risk / Reward</div>
+        <div class="text-2xl font-bold text-blue-400 mono-font">{{ risk_reward }}</div>
+        <div class="text-xs text-gray-500 mt-2">Avg Win / Avg Loss</div>
+    </div>
+
+    <div class="pro-panel p-4">
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Avg Win</div>
+        <div class="text-2xl font-bold text-profit mono-font">+{{ avg_win }}%</div>
+        <div class="text-xs text-gray-500 mt-2">Per Winning Trade</div>
+    </div>
+
+    <div class="pro-panel p-4">
+        <div class="text-xs text-muted uppercase tracking-wider mb-1">Avg Loss</div>
+        <div class="text-2xl font-bold text-loss mono-font">{{ avg_loss }}%</div>
+        <div class="text-xs text-gray-500 mt-2">Per Losing Trade</div>
+    </div>
+</div>
+
 <div class="pro-panel p-4 mb-6">
-    <h3 class="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wide">Performance Growth</h3>
-    <div class="relative h-64 w-full">
+    <div class="flex justify-between items-center mb-4">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Performance Growth</h3>
+        <div class="flex gap-2 text-xs">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#00C853]"></span> Profit</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#FF3D00]"></span> Loss</span>
+        </div>
+    </div>
+    <div class="relative h-72 w-full">
         <canvas id="profitChart"></canvas>
     </div>
 </div>
@@ -85,34 +121,59 @@
 <script>
     const ctx = document.getElementById('profitChart').getContext('2d');
     
-    // Create gradient
+    // Градієнт для фону (зеленуватий)
     let gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
+    gradient.addColorStop(0, 'rgba(14, 203, 129, 0.15)');
     gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
+
+    // Дані з Django (використовуємо |safe для JSON)
+    const labels = {{ chart_labels|safe }};
+    const dataPoints = {{ chart_data|safe }};
+    const pointColors = {{ chart_colors|safe }};
+    const pointRadii = {{ chart_radius|safe }};
 
     const profitChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: {{ chart_labels|safe }},
+            labels: labels,
             datasets: [{
                 label: 'Portfolio Value (USDT)',
-                data: {{ chart_data|safe }},
-                borderColor: '#0ecb81',
-                backgroundColor: gradient,
+                data: dataPoints,
+                borderColor: '#0ecb81',  // Основна лінія зелена
                 borderWidth: 2,
-                tension: 0.4,
-                pointRadius: 0,
+                backgroundColor: gradient,
+                
+                // --- НАЛАШТУВАННЯ ТОЧОК (Markers) ---
+                pointBackgroundColor: pointColors, // Зелені/Червоні точки
+                pointBorderColor: '#131722',       // Темна обводка точки
+                pointBorderWidth: 2,
+                pointRadius: pointRadii,           // Розмір точок (динамічний)
+                pointHoverRadius: 6,
+                
+                // Робимо лінії прямими (без згладжування), щоб бачити кожен крок
+                tension: 0.1, 
                 fill: true
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: { 
+                legend: { display: false },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(19, 23, 34, 0.9)',
+                    titleColor: '#848e9c',
+                    bodyColor: '#fff',
+                    borderColor: '#2a2e39',
+                    borderWidth: 1
+                }
+            },
             scales: {
                 x: { 
                     grid: { display: false, drawBorder: false },
-                    ticks: { color: '#848e9c', font: { family: "'JetBrains Mono', monospace", size: 10 } }
+                    ticks: { color: '#848e9c', font: { family: "'JetBrains Mono', monospace", size: 10 }, maxTicksLimit: 8 }
                 },
                 y: { 
                     grid: { color: '#2a2e39', borderDash: [5, 5] },
@@ -121,7 +182,7 @@
             },
             interaction: {
                 intersect: false,
-                mode: 'index',
+                mode: 'nearest',
             },
         }
     });

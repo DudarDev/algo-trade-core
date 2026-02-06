@@ -5,121 +5,177 @@ from sklearn.ensemble import RandomForestClassifier
 import joblib
 import os
 import logging
-from typing import Optional, List, Literal
+from typing import Optional, Tuple, Dict, Literal
 
-# Налаштування логування
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Налаштування логера
 logger = logging.getLogger("TradingAI")
 
 class TradingAI:
-    def __init__(self, model_path: str = 'data/ai_model_reversion.pkl'):
-        self.model: Optional[RandomForestClassifier] = None
-        self.model_path = model_path
-        self.is_trained = False
-        self.feature_cols: List[str] = ['RSI', 'BB_POS', 'RVOL', 'ATR_PCT', 'EMA_DIST']
+    def __init__(self, model_dir: str = 'data/models/'):
+        self.model_dir = model_dir
+        # Поріг впевненості: 0.60 достатньо для Random Forest, 
+        # бо він консервативніший за Gradient Boosting
+        self.CONFIDENCE_THRESHOLD = 0.60 
+        os.makedirs(self.model_dir, exist_ok=True)
         
-        # Гіперпараметри
-        self.CONFIDENCE_THRESHOLD = 0.65 
-        self.MIN_TRAINING_SAMPLES = 200 # Збільшено для стабільності
+        # Кеш для моделей у пам'яті, щоб не читати диск щоразу
+        self.loaded_models: Dict[str, RandomForestClassifier] = {}
         
-        os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
+        # Базові фічі
+        self.base_features = [
+            'RSI', 'BB_WIDTH', 'BB_POS', 'RVOL', 
+            'ATR_PCT', 'EMA_DIST', 'ADX', 'LOG_RET'
+        ]
+        # Лаги для контексту (що було 1 та 2 свічки тому)
+        self.lag_features = ['RSI', 'LOG_RET', 'RVOL']
+        self.lags = [1, 2]
+
+    def _get_feature_names(self) -> list:
+        """Генерує повний список колонок для навчання."""
+        cols = self.base_features.copy()
+        for feature in self.lag_features:
+            for lag in self.lags:
+                cols.append(f"{feature}_lag_{lag}")
+        return cols
 
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Векторизована генерація ознак."""
-        if len(df) < 200: 
+        """
+        Векторизована підготовка даних. 
+        Додає Log Returns та історичні лаги для контексту.
+        """
+        if len(df) < 50:
             return pd.DataFrame()
 
         data = df.copy().sort_values('timestamp')
-        
-        # 1. RSI
-        data['RSI'] = ta.rsi(data['close'], length=14) / 100.0 # Нормалізація 0-1
-        
-        # 2. Bollinger Bands
-        bb = ta.bbands(data['close'], length=20, std=2.0)
-        lower_band = bb[f'BBL_20_2.0']
-        upper_band = bb[f'BBU_20_2.0']
-        data['BB_POS'] = (data['close'] - lower_band) / (upper_band - lower_band).replace(0, 1e-9)
 
-        # 3. Волатильність та Об'єм
+        # --- 1. Basic Indicators ---
+        # RSI
+        data['RSI'] = ta.rsi(data['close'], length=14) / 100.0
+        
+        # Bollinger Bands (Width + Position)
+        bb = ta.bbands(data['close'], length=20, std=2.0)
+        if bb is not None:
+            # data['BB_WIDTH'] = bb.iloc[:, 2] / data['close'] # Bandwidth (залежить від версії pandas_ta)
+            # Часто простіше порахувати вручну: (Upper - Lower) / Middle
+            data['BB_WIDTH'] = (bb.iloc[:, 0] - bb.iloc[:, 2]) / bb.iloc[:, 1]
+            data['BB_POS'] = (data['close'] - bb.iloc[:, 2]) / (bb.iloc[:, 0] - bb.iloc[:, 2])
+        else:
+            data['BB_WIDTH'] = 0
+            data['BB_POS'] = 0.5
+
+        # ATR & Volatility
         data['ATR'] = ta.atr(data['high'], data['low'], data['close'], length=14)
         data['ATR_PCT'] = data['ATR'] / data['close']
         
+        # ADX (Trend Strength)
+        adx_df = ta.adx(data['high'], data['low'], data['close'], length=14)
+        if adx_df is not None:
+            data['ADX'] = adx_df.iloc[:, 0] / 100.0
+        else:
+            data['ADX'] = 0
+
+        # Relative Volume (RVOL)
         vol_sma = data['volume'].rolling(window=20).mean()
-        data['RVOL'] = data['volume'] / vol_sma.replace(0, 1e-9)
+        data['RVOL'] = data['volume'] / (vol_sma + 1e-9)
 
-        # 4. Тренд (Відстань до EMA 200)
-        ema200 = ta.ema(data['close'], length=200)
-        data['EMA_DIST'] = (data['close'] - ema200) / ema200
+        # EMA Distance (Trend Direction)
+        ema_period = 200 if len(data) > 300 else 50
+        ema = ta.ema(data['close'], length=ema_period)
+        data['EMA_DIST'] = (data['close'] - ema) / (ema + 1e-9)
 
-        # Очистка
+        # --- 2. Advanced: Log Returns (Stationarity) ---
+        data['LOG_RET'] = np.log(data['close'] / data['close'].shift(1))
+
+        # --- 3. Lagged Features (Time Context) ---
+        for feature in self.lag_features:
+            for lag in self.lags:
+                data[f"{feature}_lag_{lag}"] = data[feature].shift(lag)
+
+        # Очищення від NaN
         data = data.replace([np.inf, -np.inf], np.nan).dropna()
         return data
 
-    def train_model(self, df: pd.DataFrame, symbol: str = "Unknown"):
-        """Навчання моделі з валідацією."""
-        processed_df = self.prepare_features(df)
+    def _get_model_path(self, symbol: str) -> str:
+        safe_symbol = symbol.replace('/', '_')
+        return os.path.join(self.model_dir, f"{safe_symbol}.pkl")
+
+    def train_model(self, df: pd.DataFrame, symbol: str):
+        """Навчання Random Forest."""
+        data = self.prepare_features(df)
         
-        if len(processed_df) < self.MIN_TRAINING_SAMPLES:
-            logger.warning(f"⚠️ {symbol}: Недостатньо даних для навчання ({len(processed_df)})")
+        if len(data) < 100:
+            logger.warning(f"⚠️ {symbol}: Замало даних ({len(data)}).")
             return
 
-        # TARGET: рух +0.5% за наступну свічку
-        future_return = processed_df['close'].shift(-1) / processed_df['close'] - 1
-        processed_df['Target'] = (future_return > 0.005).astype(int)
+        feature_cols = self._get_feature_names()
         
-        # Видаляємо останній рядок (де немає Target)
-        train_data = processed_df.iloc[:-1].copy()
+        # Target: Price > Close + 1.5 ATR через 4 свічки
+        future_max = data['high'].rolling(window=4).max().shift(-4)
+        target_price = data['close'] + (data['ATR'] * 1.5)
+        
+        data['Target'] = (future_max > target_price).astype(int)
 
-        if len(train_data['Target'].unique()) < 2:
+        valid_data = data.dropna(subset=['Target'])
+        
+        X = valid_data[feature_cols]
+        y = valid_data['Target']
+
+        if len(np.unique(y)) < 2:
             return
 
-        try:
-            self.model = RandomForestClassifier(
-                n_estimators=150, 
-                max_depth=7,     
-                min_samples_leaf=10,
-                random_state=42,
-                class_weight='balanced_subsample'
-            )
-            self.model.fit(train_data[self.feature_cols], train_data['Target'])
-            
-            joblib.dump(self.model, self.model_path)
-            self.is_trained = True
-            logger.info(f"✅ Модель успішно навчена на {len(train_data)} зразках для {symbol}")
-        except Exception as e:
-            logger.error(f"❌ Помилка ML: {e}")
+        model = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=12,
+            min_samples_split=10,
+            min_samples_leaf=5, 
+            class_weight='balanced',
+            n_jobs=-1,
+            random_state=42
+        )
+        
+        model.fit(X, y)
+        
+        joblib.dump(model, self._get_model_path(symbol))
+        self.loaded_models[symbol] = model
+        
+        logger.info(f"✅ AI Brain: Модель {symbol} навчена. Features: {len(feature_cols)}")
 
-    def predict(self, df: pd.DataFrame, symbol: str = "N/A") -> Literal["BUY", "HOLD"]:
-        """Предикт з використанням ймовірності."""
-        if not self.is_trained and not self.load_model():
-            return "HOLD"
+    def predict(self, df: pd.DataFrame, symbol: str) -> Tuple[Literal["BUY", "HOLD"], float]:
+        """Предикт з використанням кешу."""
+        model = self.loaded_models.get(symbol)
+        
+        if model is None:
+            path = self._get_model_path(symbol)
+            if os.path.exists(path):
+                try:
+                    model = joblib.load(path)
+                    self.loaded_models[symbol] = model
+                except Exception as e:
+                    logger.error(f"❌ Corrupted model {symbol}: {e}")
+                    return "HOLD", 0.0
+            else:
+                return "HOLD", 0.0
 
         processed_df = self.prepare_features(df)
         if processed_df.empty:
-            return "HOLD"
+            return "HOLD", 0.0
 
         try:
-            last_row = processed_df[self.feature_cols].iloc[[-1]]
-            proba = self.model.predict_proba(last_row)[0][1]
+            feature_cols = self._get_feature_names()
+            # Перевіряємо, чи всі колонки є (на випадок зміни логіки)
+            if not all(col in processed_df.columns for col in feature_cols):
+                return "HOLD", 0.0
+                
+            last_row = processed_df[feature_cols].iloc[[-1]]
+            
+            # [0] - ймовірність падіння/флету, [1] - ймовірність росту
+            proba = model.predict_proba(last_row)[0][1]
 
             if proba >= self.CONFIDENCE_THRESHOLD:
-                logger.info(f"🚀 SIGNAL BUY | {symbol} | Confidence: {proba:.2%}")
-                return "BUY"
+                return "BUY", proba
             
-            return "HOLD"
+            return "HOLD", proba
+            
         except Exception as e:
-            logger.error(f"❌ Prediction error: {e}")
-            return "HOLD"
-
-    def load_model(self) -> bool:
-        if os.path.exists(self.model_path):
-            try:
-                self.model = joblib.load(self.model_path)
-                self.is_trained = True
-                return True
-            except Exception as e:
-                logger.error(f"❌ Load error: {e}")
-        return False
+            logger.error(f"❌ Predict Error {symbol}: {e}")
+            return "HOLD", 0.0

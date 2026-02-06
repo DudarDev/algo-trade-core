@@ -1,44 +1,91 @@
-from dataclasses import dataclass, field
-from typing import List
+import os
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
+from typing import List, Dict
 
-@dataclass(frozen=True)
-class TradingConfig:
-    # --- MARKET SETTINGS ---
-    TIMEFRAME: str = '5m'
+# Завантажуємо .env з кореня проекту
+load_dotenv()
+
+class Config:
+    PROJECT_NAME = "AlgoTradeCore_Pro"
+    VERSION = "8.0.0_Arbitrage_Alpha" # Перехід на арбітражну версію
     
-    # Видаляємо PAXG та неліквід. Залишаємо те, де AI реально бачить закономірності
-    PAIRS: List[str] = field(default_factory=lambda: [
+    # 🔧 ШЛЯХИ: 
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    
+    # --- Security & Notifications ---
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+    
+    # --- ARBITRAGE CONFIGURATION (NEW) ---
+    # Список бірж для моніторингу цін.
+    # Важливо: Вибирай біржі, які доступні в твоєму регіоні (US).
+    EXCHANGES: List[str] = ['binanceus', 'kraken', 'coinbase']
+    
+    # Словник ключів для кожної біржі
+    EXCHANGE_KEYS: Dict[str, Dict[str, str]] = {
+        'binanceus': {
+            'apiKey': os.getenv("BINANCE_API_KEY", ""),
+            'secret': os.getenv("BINANCE_API_SECRET", "")
+        },
+        'kraken': {
+            'apiKey': os.getenv("KRAKEN_API_KEY", ""),
+            'secret': os.getenv("KRAKEN_API_SECRET", "")
+        },
+        'coinbase': {
+            'apiKey': os.getenv("COINBASE_API_KEY", ""),
+            'secret': os.getenv("COINBASE_API_SECRET", "")
+        }
+    }
+
+    # Мінімальний % різниці в ціні, щоб угода була вигідною
+    # (Враховуючи комісії за вивід та торгівлю на обох біржах)
+    ARBITRAGE_MIN_SPREAD_PCT = 1.5  
+    
+    # --- Trading Targets ---
+    IS_PAPER_TRADING = os.getenv("IS_PAPER_TRADING", "True").lower() == "true"
+    
+    # Монети, які ми шукаємо на всіх біржах
+    SYMBOLS: List[str] = [
         'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 
-        'XRP/USDT', 'ADA/USDT', 'DOT/USDT', 'LINK/USDT'
-    ])
+        'SHIB/USDT', 'DOGE/USDT', 'XRP/USDT', 'LTC/USDT'
+    ]
     
-    # Токсичні активи, які Scanner може випадково підсунути
-    BLACKLIST: List[str] = field(default_factory=lambda: [
-        'PAXG/USDT', 'USDC/USDT', 'FDUSD/USDT', 'TUSD/USDT', 'PEPE/USDT', 'DOGE/USDT'
-    ])
-
-    # --- RISK MANAGEMENT (Жорсткий контроль) ---
-    # Збільшуємо SL, щоб не вибивало випадковим шумом, але зменшуємо об'єм позиції
-    STOP_LOSS_PCT: float = 0.025   # 2.5% - Даємо ціні трохи "подихати"
-    TAKE_PROFIT_PCT: float = 0.05  # 5.0% - Націлюємося на серйозніші рухи
+    BLACKLIST: List[str] = [
+        'HYPE/USDT', 'PAXG/USDT', 'USDC/USDT', 'FDUSD/USDT', 
+        'PUMP/USDT', 'ZEC/USDT', 'HBAR/USDT'
+    ] 
     
-    # Position Sizing
-    MAX_POSITIONS: int = 3
-    # При депо ~380 USDT це буде ~$76 на угоду. Безпечно.
-    POSITION_SIZE_FRACTION: float = 0.20 
-
-    # --- TRAILING STOP (Адаптований під логі) ---
-    USE_TRAILING: bool = True
-    # Вмикаємо трейлінг пізніше (після 1.5%), щоб не різати прибуток на самому початку
-    TRAILING_ACTIVATION: float = 0.015  # 1.5%
-    # Відступ робимо більшим, щоб не виходити на мікро-відкатах
-    TRAILING_DISTANCE: float = 0.007    # 0.7% drop from peak
-
-    # --- AI BRAIN ---
-    # Твій поріг 0.60 дає багато "шумних" сигналів. Піднімаємо якість.
-    MODEL_THRESHOLD: float = 0.68
-    EMA_PERIOD: int = 200
+    TIMEFRAME = "1m" # Для арбітражу потрібна швидша реакція
     
-    # Технічний параметр для стабільності CCXT
-    RETRY_LIMIT: int = 5
-    TIMEOUT: int = 30000
+    # --- Risk Management ---
+    MAX_OPEN_POSITIONS = 2 # Зменшили, щоб не забити канал
+    USDT_PER_TRADE = 50.0      
+    POSITION_SIZE_FRACTION = 0.95 
+    
+    STOP_LOSS_ATR_MULT = 1.2   
+    TAKE_PROFIT_ATR_MULT = 2.0 
+    
+    # --- AI Settings (Залишаємо як допоміжний інструмент) ---
+    DATA_DIR = BASE_DIR / "data"
+    MODEL_DIR = DATA_DIR / "models"
+    LOG_DIR = BASE_DIR / "logs"
+    
+    AI_CONFIDENCE_THRESHOLD = 0.65  
+    MIN_TRAINING_SAMPLES = 500      
+    TRAINING_LOOKBACK = 1000 
+    
+    @classmethod
+    def setup_environment(cls):
+        """Автоматично створює папки при старті."""
+        for path in [cls.MODEL_DIR, cls.LOG_DIR, cls.DATA_DIR]:
+            path.mkdir(parents=True, exist_ok=True)
+            
+    @classmethod
+    def validate_keys(cls):
+        """Перевірка наявності ключів для основної біржі."""
+        if not cls.EXCHANGE_KEYS['binanceus']['apiKey']:
+            print("⚠️  УВАГА: Основні ключі Binance не знайдені в .env!")
+
+Config.setup_environment()

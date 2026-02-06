@@ -1,0 +1,255 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- Кастомні стилі для дашборда -->
+<style>
+    .mono-font { font-family: 'Courier New', Courier, monospace; }
+    .pro-panel { 
+        background-color: #1e2329; 
+        border: 1px solid #2a2e39; 
+        border-radius: 8px; 
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); 
+    }
+    .text-profit { color: #00C853; }
+    .text-loss { color: #FF3D00; }
+</style>
+
+<!-- РЯДОК 1: ОСНОВНІ ПОКАЗНИКИ (KPI) -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+    
+    <!-- Balance -->
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
+        <div class="text-2xl font-bold text-white mono-font">${{ balance }}</div>
+        <div class="text-xs text-green-500 mt-2">USDT Wallet</div>
+    </div>
+
+    <!-- Total PnL -->
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Total PnL</div>
+        <div class="text-2xl font-bold mono-font {% if total_pnl_usd >= 0 %}text-profit{% else %}text-loss{% endif %}">
+            {% if total_pnl_usd > 0 %}+{% endif %}{{ total_pnl_usd }}$
+            <span class="text-sm ml-1 opacity-80 text-gray-400">({{ total_pnl_percent }}%)</span>
+        </div>
+        <div class="text-xs text-gray-500 mt-2">{{ total_trades }} Trades Executed</div>
+    </div>
+
+    <!-- Profit Factor -->
+    <div class="pro-panel p-4 relative overflow-hidden">
+        <!-- Видалено inline-style, додано ID для JS -->
+        <div id="pf-bar" class="absolute right-0 top-0 w-1 h-full"></div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Profit Factor</div>
+        <!-- Видалено inline-style, додано ID для JS -->
+        <div id="pf-value" class="text-2xl font-bold mono-font">{{ profit_factor }}</div>
+        <div class="text-xs text-gray-500 mt-2">Target: > 1.5</div>
+    </div>
+
+    <!-- Win Rate -->
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Win Rate</div>
+        <div class="text-2xl font-bold mono-font {% if win_rate > 50 %}text-profit{% else %}text-[#FDD835]{% endif %}">
+            {{ win_rate }}%
+        </div>
+        <div class="text-xs text-gray-500 mt-2">Accuracy</div>
+    </div>
+</div>
+
+<!-- РЯДОК 2: АНАЛІЗ РИЗИКІВ -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+    
+    <!-- Max Drawdown -->
+    <div class="pro-panel p-4 border-l-2 border-red-500/30">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Max Drawdown</div>
+        <div class="text-2xl font-bold text-red-400 mono-font">-{{ max_drawdown }}%</div>
+        <div class="text-xs text-gray-500 mt-2">Peak to Valley</div>
+    </div>
+
+    <!-- Risk / Reward -->
+    <div class="pro-panel p-4 border-l-2 border-blue-500/30">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Risk / Reward</div>
+        <div class="text-2xl font-bold text-blue-400 mono-font">{{ risk_reward }}</div>
+        <div class="text-xs text-gray-500 mt-2">Avg Win / Avg Loss</div>
+    </div>
+
+    <!-- Avg Win -->
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Avg Win</div>
+        <div class="text-2xl font-bold text-profit mono-font">+{{ avg_win }}%</div>
+        <div class="text-xs text-gray-500 mt-2">Per Winning Trade</div>
+    </div>
+
+    <!-- Avg Loss -->
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Avg Loss</div>
+        <div class="text-2xl font-bold text-loss mono-font">{{ avg_loss }}%</div>
+        <div class="text-xs text-gray-500 mt-2">Per Losing Trade</div>
+    </div>
+</div>
+
+<!-- РЯДОК 3: ГРАФІК ПРИБУТКОВОСТІ -->
+<div class="pro-panel p-4 mb-6">
+    <div class="flex justify-between items-center mb-4">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Performance Growth</h3>
+        <div class="flex gap-2 text-xs">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#00C853]"></span> Profit</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#FF3D00]"></span> Loss</span>
+        </div>
+    </div>
+    <div class="relative h-72 w-full">
+        <canvas id="profitChart"></canvas>
+    </div>
+</div>
+
+<!-- РЯДОК 4: ТАБЛИЦЯ УГОД -->
+<div class="pro-panel overflow-hidden">
+    <div class="px-4 py-3 border-b border-[#2a2e39]">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+            <thead class="bg-[#161a1e] text-xs uppercase text-gray-500">
+                <tr>
+                    <th class="px-4 py-3 font-medium">Time</th>
+                    <th class="px-4 py-3 font-medium">Pair</th>
+                    <th class="px-4 py-3 font-medium">Type</th>
+                    <th class="px-4 py-3 font-medium">Price</th>
+                    <th class="px-4 py-3 font-medium text-right">PnL</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-[#2a2e39] text-gray-300 mono-font">
+                {% for trade in trades %}
+                <tr class="hover:bg-[#252a33] transition-colors">
+                    <td class="px-4 py-3 text-gray-400">{{ trade.timestamp|date:"d M H:i" }}</td>
+                    <td class="px-4 py-3 font-bold text-white">{{ trade.symbol }}</td>
+                    <td class="px-4 py-3">
+                        {% if trade.side == 'BUY' %}
+                            <span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-500/20">BUY</span>
+                        {% else %}
+                            <span class="px-2 py-0.5 rounded text-[10px] bg-orange-900/30 text-orange-400 border border-orange-500/20">SELL</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3">{{ trade.price }}</td>
+                    <td class="px-4 py-3 text-right">
+                        {% if trade.side == 'SELL' %}
+                            <span class="{% if trade.pnl > 0 %}text-profit{% else %}text-loss{% endif %} font-bold">
+                                {{ trade.pnl|floatformat:2 }}%
+                            </span>
+                        {% else %}
+                            <span class="text-gray-600">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 🔥 БЕЗПЕЧНА ПЕРЕДАЧА ДАНИХ (БЕЗ ПОМИЛОК РЕДАКТОРА) -->
+{{ chart_labels|json_script:"chart-labels-data" }}
+{{ chart_data|json_script:"chart-data-data" }}
+{{ chart_colors|json_script:"chart-colors-data" }}
+{{ chart_radius|json_script:"chart-radius-data" }}
+{{ pf_color|json_script:"pf-color-data" }} <!-- Передаємо колір -->
+
+<!-- Chart.js Script -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Допоміжна функція для безпечного отримання даних з JSON
+        function getJsonData(id, defaultValue) {
+            const element = document.getElementById(id);
+            if (!element) {
+                console.warn(`Element with id '${id}' not found. Using default value.`);
+                return defaultValue;
+            }
+            try {
+                return JSON.parse(element.textContent);
+            } catch (e) {
+                console.error(`Error parsing JSON from '${id}':`, e);
+                return defaultValue;
+            }
+        }
+
+        // 1. Оновлюємо кольори Profit Factor через JS
+        const pfColor = getJsonData('pf-color-data', '#848e9c'); // Сірий за замовчуванням
+        const pfBar = document.getElementById('pf-bar');
+        const pfValue = document.getElementById('pf-value');
+        
+        if(pfBar) pfBar.style.backgroundColor = pfColor;
+        if(pfValue) pfValue.style.color = pfColor;
+
+        // 2. Будуємо графік
+        const canvas = document.getElementById('profitChart');
+        if (!canvas) return; // Якщо елемента немає, виходимо
+        
+        const ctx = canvas.getContext('2d');
+        const labels = getJsonData('chart-labels-data', []);
+        const dataPoints = getJsonData('chart-data-data', []);
+        const pointColors = getJsonData('chart-colors-data', []);
+        const pointRadii = getJsonData('chart-radius-data', []);
+
+        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+        gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
+        gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
+
+        const chartConfig = {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Equity (USDT)',
+                    data: dataPoints,
+                    borderColor: '#0ecb81',
+                    borderWidth: 2,
+                    backgroundColor: gradient,
+                    pointBackgroundColor: pointColors,
+                    pointBorderColor: '#131722',
+                    pointBorderWidth: 1,
+                    pointRadius: pointRadii,
+                    pointHoverRadius: 6,
+                    tension: 0.2, 
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(19, 23, 34, 0.95)',
+                        titleColor: '#848e9c',
+                        bodyColor: '#fff',
+                        borderColor: '#2a2e39',
+                        borderWidth: 1,
+                        callbacks: {
+                            label: function(context) {
+                                return '$' + context.parsed.y.toFixed(2);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { 
+                        grid: { display: false, drawBorder: false },
+                        ticks: { color: '#848e9c', font: { family: "'Courier New', monospace", size: 10 }, maxTicksLimit: 8 }
+                    },
+                    y: { 
+                        grid: { color: '#2a2e39', borderDash: [5, 5] },
+                        ticks: { color: '#848e9c', font: { family: "'Courier New', monospace", size: 10 } }
+                    }
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'nearest',
+                },
+            }
+        };
+
+        new Chart(ctx, chartConfig);
+    });
+</script>
+{% endblock %}

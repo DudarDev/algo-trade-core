@@ -5,150 +5,149 @@ import pandas as pd
 from dotenv import load_dotenv
 import ccxt
 
+# Імпорти
 from app.ai_brain import TradingAI
+from app.strategy import Strategy
 from app.paper_trader import PaperTrader
-from app.market_scanner import MarketScanner
-from app.config import TradingConfig
+from app.market_scanner import MarketScanner 
+from app.notifier import TelegramNotifier
+from app.config import Config
+from app.exchange_manager import ExchangeManager
+from app.arbitrage_engine import ArbitrageEngine # <--- НОВИЙ МОДУЛЬ
 
-# Конфігурація логування для Production
+# Налаштування логування
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.FileHandler("data/bot_runtime.log"),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler("logs/bot_runtime.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger("Main")
 
 def main():
     load_dotenv()
-    cfg = TradingConfig()
-    logger.info("🚀 Запуск AI-трейдера v7.2 (Stable Production)")
-
-    # Ініціалізація біржі з автоматичним контролем лімітів запитів
-    exchange = ccxt.binanceus({
-        'enableRateLimit': True,
-        'options': {'defaultType': 'spot'},
-        'timeout': 30000
-    })
+    notifier = TelegramNotifier()
+    logger.info(f"🚀 Старт {Config.PROJECT_NAME} v{Config.VERSION} (Hybrid Mode)")
     
+    # 1. Основна біржа для скальпінгу (Binance US)
+    try:
+        exchange_mgr = ExchangeManager("binanceus") 
+        exchange = exchange_mgr.exchange 
+    except Exception as e:
+        logger.critical(f"🔥 Exchange Error: {e}")
+        return
+
+    # 2. Ініціалізація Арбітражного Двигуна
+    try:
+        arb_engine = ArbitrageEngine()
+        logger.info("✅ Arbitrage Engine: Active")
+    except Exception as e:
+        logger.error(f"⚠️ Arbitrage Init Failed: {e}")
+        arb_engine = None
+
+    # Компоненти скальпера
     ai_bot = TradingAI()
-    trader = PaperTrader(initial_balance=1000.0) 
+    strategy = Strategy()
+    trader = PaperTrader() 
     scanner = MarketScanner()
 
-    active_pairs = cfg.PAIRS
+    active_pairs = Config.SYMBOLS
     last_scan_time = 0
-    last_ai_check_per_pair = {symbol: 0 for symbol in active_pairs}
+    last_analysis_time = {symbol: 0 for symbol in active_pairs}
+
+    notifier.send_message(f"🤖 <b>{Config.PROJECT_NAME}</b>: Скальпінг + Арбітраж активовано.")
 
     while True:
         try:
             current_time = time.time()
 
-            # --- 1. SCANNER: Оновлення ринкового фокусу (Кожні 4 години) ---
+            # --- 1. SCANNER ---
             if current_time - last_scan_time > 14400:
-                logger.info("🔍 [Scanner] Оновлення списку волатильних пар...")
                 try:
-                    top_volatile = scanner.get_top_volatile_pairs(limit=15)
-                    # Фільтруємо через чорний список та лімітуємо кількість
-                    active_pairs = [p for p in top_volatile if p not in cfg.BLACKLIST][:10]
-                    logger.info(f"📋 Активний список монет: {active_pairs}")
+                    logger.info("📡 Сканування ринку...")
+                    new_pairs = scanner.get_top_volatile_pairs(limit=10)
+                    active_positions = list(trader.positions.keys())
+                    active_pairs = list(set(new_pairs + active_positions))
                     last_scan_time = current_time
+                    logger.info(f"✅ Активний список: {active_pairs}")
                 except Exception as e:
                     logger.error(f"❌ Scanner Error: {e}")
 
-            # --- 2. FAST TICKER: Отримання цін одним запитом ---
+            # --- 2. RISK ENGINE & ARBITRAGE ---
             try:
                 tickers = exchange.fetch_tickers(active_pairs)
             except Exception as e:
-                logger.warning(f"⚠️ Помилка отримання тікерів: {e}")
+                logger.error(f"⚠️ API Error: {e}")
                 time.sleep(5)
                 continue
 
-            # --- 3. RISK & DECISION LOOP ---
             for symbol in active_pairs:
-                if symbol not in tickers:
-                    continue
-                
-                current_price = tickers[symbol]['last']
-                
-                # Оновлюємо стан трейдера (важливо для Trailing Stop)
-                trader.update_high(symbol, current_price)
+                # === АРБІТРАЖНИЙ БЛОК ===
+                if arb_engine:
+                    try:
+                        opportunity = arb_engine.find_opportunity(symbol)
+                        if opportunity:
+                            msg = (f"⚡ ARBITRAGE: {symbol} | Spread: {opportunity['spread']:.2f}%\n"
+                                   f"🔵 BUY: {opportunity['buy_ex']} @ {opportunity['buy_price']}\n"
+                                   f"🟠 SELL: {opportunity['sell_ex']} @ {opportunity['sell_price']}")
+                            logger.info(msg)
+                            notifier.send_message(msg)
+                            # Тут можна додати логіку виконання, якщо є баланси на обох біржах
+                    except Exception as e:
+                        # logger.debug(f"Arb check failed for {symbol}")
+                        pass
 
-                # A. ПЕРЕВІРКА ВИХОДУ (Risk Engine)
-                if symbol in trader.positions:
-                    pos = trader.positions[symbol]
-                    # Розраховуємо поточний PnL
-                    pnl_pct = (current_price - pos["entry_price"]) / pos["entry_price"]
+                # === СКАЛЬПІНГ БЛОК (Звичайний) ===
+                try: 
+                    if symbol not in tickers: continue
+                    current_price = tickers[symbol]['last']
                     
-                    exit_signal, reason = check_exit_conditions(pos, current_price, pnl_pct, cfg)
-                    if exit_signal:
-                        trader.sell(symbol, current_price, reason)
-                        continue # Переходимо до наступної монети
+                    # Risk Check
+                    if symbol in trader.positions:
+                        trader.check_auto_exits(symbol, current_price)
+                    
+                    # AI Analysis
+                    if current_time - last_analysis_time.get(symbol, 0) > 300:
+                        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=Config.TIMEFRAME, limit=500)
+                        if not ohlcv: continue
+                        
+                        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+                        _, ai_conf = ai_bot.predict(df, symbol)
+                        df_tech = strategy.calculate_indicators(df)
+                        in_pos = symbol in trader.positions
+                        
+                        signal, meta = strategy.get_signal(df_tech, ai_confidence=ai_conf, in_position=in_pos)
+                        
+                        if signal == "BUY" and not in_pos:
+                            atr = meta.get('atr', 0)
+                            if atr > 0:
+                                trader.buy(symbol, current_price, atr)
+                                notifier.send_trade_notification("BUY", symbol, current_price, trader.usdt_balance, str(meta))
+                        
+                        elif signal == "SELL" and in_pos:
+                            trader.sell(symbol, current_price, reason=meta.get('reason', 'Signal'))
+                            notifier.send_trade_notification("SELL", symbol, current_price, trader.usdt_balance, str(meta))
 
-                # B. ПЕРЕВІРКА ВХОДУ (AI Engine)
-                # Перевіряємо кожну пару за власним таймером (5 хв)
-                time_since_last_check = current_time - last_ai_check_per_pair.get(symbol, 0)
-                if time_since_last_check > 300:
-                    analyze_entry(symbol, current_price, exchange, ai_bot, trader, cfg)
-                    last_ai_check_per_pair[symbol] = current_time
+                        last_analysis_time[symbol] = current_time
+                        time.sleep(0.5) 
 
-            # Короткий сон для запобігання перевантаженню процесора
+                except KeyError as e:
+                    # Zombie-Killer (залишаємо, бо він працює!)
+                    if 'stop_loss' in str(e):
+                        logger.warning(f"🧹 ВИДАЛЕННЯ ПОШКОДЖЕНОЇ ПОЗИЦІЇ {symbol}...")
+                        if symbol in trader.positions:
+                            del trader.positions[symbol]
+                            logger.info(f"✅ Позицію {symbol} успішно видалено. Бот продовжує роботу.")
+                except Exception as e:
+                    logger.error(f"❌ Error {symbol}: {e}")
+                    continue 
+
             time.sleep(1)
 
         except KeyboardInterrupt:
-            logger.info("🛑 Бот зупинений користувачем.")
             break
         except Exception as e:
-            logger.critical(f"🚨 КРИТИЧНА ПОМИЛКА ЦИКЛУ: {e}", exc_info=True)
-            time.sleep(30) # Пауза перед спробою відновлення
-
-def check_exit_conditions(pos, price, pnl, cfg):
-    """Централізована логіка виходів."""
-    # 1. Stop Loss (Захист капіталу)
-    if pnl < -cfg.STOP_LOSS_PCT:
-        return True, "Stop Loss"
-    
-    # 2. Trailing Stop (Захист прибутку)
-    if cfg.USE_TRAILING and pnl > cfg.TRAILING_ACTIVATION:
-        drawdown = (pos["highest_price"] - price) / pos["highest_price"]
-        if drawdown > cfg.TRAILING_DISTANCE:
-            return True, "Trailing Stop"
-            
-    # 3. Take Profit (Фіксація цілі)
-    if pnl >= cfg.TAKE_PROFIT_PCT:
-        return True, "Take Profit"
-        
-    return False, None
-
-def analyze_entry(symbol, price, exchange, ai_bot, trader, cfg):
-    """Аналіз ринку через AI для відкриття нових позицій."""
-    # Перевіряємо ліміт відкритих позицій
-    if len(trader.positions) >= cfg.MAX_POSITIONS:
-        return
-
-    try:
-        # Завантажуємо свіжі дані
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=cfg.TIMEFRAME, limit=250)
-        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        
-        # Використовуємо AI мозок для предикту
-        signal = ai_bot.predict(df, symbol)
-        
-        if signal == "BUY":
-            # Розрахунок розміру позиції
-            balance = trader.get_balance()
-            amount_usdt = balance * cfg.POSITION_SIZE_FRACTION
-            
-            # Мінімальний поріг для входу (напр. 10 USDT)
-            if amount_usdt >= 10.0:
-                amount_coins = amount_usdt / price
-                trader.buy(symbol, price, amount_coins)
-            else:
-                logger.warning(f"Insufficient funds for {symbol}: {amount_usdt:.2f} USDT")
-                
-    except Exception as e:
-        logger.error(f"❌ Помилка аналізу {symbol}: {e}")
+            logger.critical(f"🔥 CRITICAL: {e}")
+            time.sleep(30)
 
 if __name__ == "__main__":
     main()

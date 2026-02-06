@@ -1,28 +1,35 @@
 version: '3.8'
 
 services:
-  bot:
-    image: us-central1-docker.pkg.dev/algo-trade-480920/bot-repo/ai-scalper:v6.9
-    container_name: bot
+  # --- СЕРВІС 1: ТОРГОВИЙ БОТ ---
+  trading-bot:
+    build: .
+    container_name: algo_sniper
     restart: always
-    env_file: .env  # Всі API ключі тримаємо тут!
+    env_file:
+      - .env
     volumes:
-      - ./bot_data:/app/data  # Стандартизуємо шлях
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10mb"
-        max-file: "3"
+      - ./data:/app/data  # Спільна папка з БД
+      - ./logs:/app/logs
+    command: python main.py
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
 
-  website:
-    image: us-central1-docker.pkg.dev/algo-trade-480920/bot-repo/ai-scalper:v6.9
-    container_name: website
+  # --- СЕРВІС 2: WEB DASHBOARD (Django) ---
+  dashboard:
+    build: .
+    container_name: algo_web
     restart: always
+    env_file:
+      - .env
     ports:
-      - "80:8000" # Краще відкрити стандартний 80 порт
-    env_file: .env
-    depends_on:
-      - bot
+      - "8080:8000"       # Прокидаємо порт 8080 (Cloud Shell любить 8080)
     volumes:
-      - ./bot_data:/app/data
-    command: python manage.py runserver 0.0.0.0:8000
+      - ./data:/app/data  # Та сама папка, щоб читати bot_data.db!
+      - ./logs:/app/logs
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    depends_on:
+      - trading-bot

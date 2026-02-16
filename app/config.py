@@ -9,7 +9,7 @@ load_dotenv()
 
 class Config:
     PROJECT_NAME = "AlgoTradeCore_Pro"
-    VERSION = "8.0.0_Arbitrage_Alpha" # Перехід на арбітражну версію
+    VERSION = "8.1.0_Safe_Mode"  # Оновлено для режиму безпеки
     
     # 🔧 ШЛЯХИ: 
     BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,9 +18,8 @@ class Config:
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
     TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
     
-    # --- ARBITRAGE CONFIGURATION (NEW) ---
+    # --- ARBITRAGE CONFIGURATION ---
     # Список бірж для моніторингу цін.
-    # Важливо: Вибирай біржі, які доступні в твоєму регіоні (US).
     EXCHANGES: List[str] = ['binanceus', 'kraken', 'coinbase']
     
     # Словник ключів для кожної біржі
@@ -40,39 +39,46 @@ class Config:
     }
 
     # Мінімальний % різниці в ціні, щоб угода була вигідною
-    # (Враховуючи комісії за вивід та торгівлю на обох біржах)
     ARBITRAGE_MIN_SPREAD_PCT = 1.5  
     
     # --- Trading Targets ---
+    # Якщо True - торгуємо віртуальними грошима (безпечно)
     IS_PAPER_TRADING = os.getenv("IS_PAPER_TRADING", "True").lower() == "true"
     
-    # Монети, які ми шукаємо на всіх біржах
+    # Монети, які ми шукаємо (XRP та DOGE залишаємо, але під суворим наглядом AI)
     SYMBOLS: List[str] = [
         'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 
         'SHIB/USDT', 'DOGE/USDT', 'XRP/USDT', 'LTC/USDT'
     ]
     
+    # Чорний список (Монети, які "зливали" депозит у логах)
     BLACKLIST: List[str] = [
         'HYPE/USDT', 'PAXG/USDT', 'USDC/USDT', 'FDUSD/USDT', 
-        'PUMP/USDT', 'ZEC/USDT', 'HBAR/USDT'
+        'PUMP/USDT', 'ZEC/USDT', 'HBAR/USDT', 'PEPE/USDT'
     ] 
     
-    TIMEFRAME = "1m" # Для арбітражу потрібна швидша реакція
+    TIMEFRAME = "1m" # 1 хвилина для швидкої реакції
     
-    # --- Risk Management ---
-    MAX_OPEN_POSITIONS = 2 # Зменшили, щоб не забити канал
-    USDT_PER_TRADE = 50.0      
+    # --- Risk Management (ОНОВЛЕНО) ---
+    MAX_OPEN_POSITIONS = 1      # Тільки 1 угода одночасно (консервативно)
+    USDT_PER_TRADE = 50.0       
     POSITION_SIZE_FRACTION = 0.95 
     
-    STOP_LOSS_ATR_MULT = 1.2   
-    TAKE_PROFIT_ATR_MULT = 2.0 
+    # Динамічні стопи (ATR)
+    STOP_LOSS_ATR_MULT = 1.5    # Трохи ширше, щоб не вибивало шумом
+    TAKE_PROFIT_ATR_MULT = 2.5  
     
-    # --- AI Settings (Залишаємо як допоміжний інструмент) ---
+    # --- AI & Filters (ВАЖЛИВО) ---
     DATA_DIR = BASE_DIR / "data"
     MODEL_DIR = DATA_DIR / "models"
     LOG_DIR = BASE_DIR / "logs"
     
-    AI_CONFIDENCE_THRESHOLD = 0.65  
+    # ПОРІГ ВХОДУ: Підняли до 0.85 (Бот стріляє тільки напевно)
+    AI_CONFIDENCE_THRESHOLD = 0.85  
+    
+    # ФІЛЬТР ФЛЕТУ (ADX): Якщо менше 25, ринок стоїть на місці -> не торгуємо
+    ADX_THRESHOLD = 25 
+
     MIN_TRAINING_SAMPLES = 500      
     TRAINING_LOOKBACK = 1000 
     
@@ -88,4 +94,5 @@ class Config:
         if not cls.EXCHANGE_KEYS['binanceus']['apiKey']:
             print("⚠️  УВАГА: Основні ключі Binance не знайдені в .env!")
 
+# Запуск налаштування папок при імпорті
 Config.setup_environment()

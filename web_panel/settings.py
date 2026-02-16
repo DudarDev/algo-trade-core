@@ -56,7 +56,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         # Використовуємо абсолютний шлях, який точно існує
-        'NAME': '/app/bot_data/bot_data.db',
+        'NAME': '/app/data/bot_data.db',
     }
 }
 

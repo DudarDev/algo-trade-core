@@ -73,11 +73,11 @@ class Config:
     MODEL_DIR = DATA_DIR / "models"
     LOG_DIR = BASE_DIR / "logs"
     
-    # ПОРІГ ВХОДУ: Підняли до 0.85 (Бот стріляє тільки напевно)
-    AI_CONFIDENCE_THRESHOLD = 0.85  
+    # ПОРІГ ВХОДУ: Підняли до 0.72 (Бот стріляє тільки напевно)
+    AI_CONFIDENCE_THRESHOLD = 0.72 
     
-    # ФІЛЬТР ФЛЕТУ (ADX): Якщо менше 25, ринок стоїть на місці -> не торгуємо
-    ADX_THRESHOLD = 25 
+    # ФІЛЬТР ФЛЕТУ (ADX): Якщо менше 20, ринок стоїть на місці -> не торгуємо
+    ADX_THRESHOLD = 20 
 
     MIN_TRAINING_SAMPLES = 500      
     TRAINING_LOOKBACK = 1000 

@@ -13,7 +13,7 @@ from app.market_scanner import MarketScanner
 from app.notifier import TelegramNotifier
 from app.config import Config
 from app.exchange_manager import ExchangeManager
-from app.arbitrage_engine import ArbitrageEngine # <--- НОВИЙ МОДУЛЬ
+from app.arbitrage_engine import ArbitrageEngine
 
 # Налаштування логування
 logging.basicConfig(
@@ -26,7 +26,7 @@ logger = logging.getLogger("Main")
 def main():
     load_dotenv()
     notifier = TelegramNotifier()
-    logger.info(f"🚀 Старт {Config.PROJECT_NAME} v{Config.VERSION} (Hybrid Mode)")
+    logger.info(f"🚀 Старт {Config.PROJECT_NAME} v{Config.VERSION} (Hybrid Mode + MTFA)")
     
     # 1. Основна біржа для скальпінгу (Binance US)
     try:
@@ -54,14 +54,14 @@ def main():
     last_scan_time = 0
     last_analysis_time = {symbol: 0 for symbol in active_pairs}
 
-    notifier.send_message(f"🤖 <b>{Config.PROJECT_NAME}</b>: Скальпінг + Арбітраж активовано.")
+    notifier.send_message(f"🤖 <b>{Config.PROJECT_NAME}</b>: Скальпінг + Арбітраж активовано. MTFA увімкнено.")
 
     while True:
         try:
             current_time = time.time()
 
             # --- 1. SCANNER ---
-            if current_time - last_scan_time > 14400:
+            if current_time - last_scan_time > 1800:
                 try:
                     logger.info("📡 Сканування ринку...")
                     new_pairs = scanner.get_top_volatile_pairs(limit=10)
@@ -91,12 +91,10 @@ def main():
                                    f"🟠 SELL: {opportunity['sell_ex']} @ {opportunity['sell_price']}")
                             logger.info(msg)
                             notifier.send_message(msg)
-                            # Тут можна додати логіку виконання, якщо є баланси на обох біржах
                     except Exception as e:
-                        # logger.debug(f"Arb check failed for {symbol}")
                         pass
 
-                # === СКАЛЬПІНГ БЛОК (Звичайний) ===
+                # === СКАЛЬПІНГ БЛОК ===
                 try: 
                     if symbol not in tickers: continue
                     current_price = tickers[symbol]['last']
@@ -106,7 +104,7 @@ def main():
                         trader.check_auto_exits(symbol, current_price)
                     
                     # AI Analysis
-                    if current_time - last_analysis_time.get(symbol, 0) > 300:
+                    if current_time - last_analysis_time.get(symbol, 0) > 60:
                         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=Config.TIMEFRAME, limit=500)
                         if not ohlcv: continue
                         
@@ -118,10 +116,17 @@ def main():
                         signal, meta = strategy.get_signal(df_tech, ai_confidence=ai_conf, in_position=in_pos)
                         
                         if signal == "BUY" and not in_pos:
-                            atr = meta.get('atr', 0)
-                            if atr > 0:
-                                trader.buy(symbol, current_price, atr)
-                                notifier.send_trade_notification("BUY", symbol, current_price, trader.usdt_balance, str(meta))
+                            # --- НОВЕ: Перевірка глобального тренду (MTFA) ---
+                            is_global_uptrend = strategy.check_global_trend(exchange, symbol)
+                            
+                            if is_global_uptrend:
+                                atr = meta.get('atr', 0)
+                                if atr > 0:
+                                    trader.buy(symbol, current_price, atr)
+                                    notifier.send_trade_notification("BUY", symbol, current_price, trader.usdt_balance, str(meta))
+                                    logger.info(f"✅ Вхід дозволено: Глобальний тренд {symbol} висхідний.")
+                            else:
+                                logger.info(f"⛔ Вхід скасовано: Глобальний тренд {symbol} спадний (MTFA Фільтр).")
                         
                         elif signal == "SELL" and in_pos:
                             trader.sell(symbol, current_price, reason=meta.get('reason', 'Signal'))
@@ -131,12 +136,11 @@ def main():
                         time.sleep(0.5) 
 
                 except KeyError as e:
-                    # Zombie-Killer (залишаємо, бо він працює!)
                     if 'stop_loss' in str(e):
                         logger.warning(f"🧹 ВИДАЛЕННЯ ПОШКОДЖЕНОЇ ПОЗИЦІЇ {symbol}...")
                         if symbol in trader.positions:
                             del trader.positions[symbol]
-                            logger.info(f"✅ Позицію {symbol} успішно видалено. Бот продовжує роботу.")
+                            logger.info(f"✅ Позицію {symbol} успішно видалено.")
                 except Exception as e:
                     logger.error(f"❌ Error {symbol}: {e}")
                     continue 

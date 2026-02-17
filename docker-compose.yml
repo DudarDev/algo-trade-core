@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # --- СЕРВІС 1: ТОРГОВИЙ БОТ ---
+  # --- СЕРВІС 1: ТОРГОВИЙ БОТ (v8.1.0 Safe Mode) ---
   trading-bot:
     build: .
     container_name: algo_sniper
@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./data:/app/data  # Спільна папка з БД
+      - ./data:/app/data  # 🟢 Єдина правильна папка для бази
       - ./logs:/app/logs
     command: python main.py
     deploy:
@@ -26,10 +26,11 @@ services:
     env_file:
       - .env
     ports:
-      - "8080:8000"       # Прокидаємо порт 8080 (Cloud Shell любить 8080)
+      - "8000:8000"
     volumes:
-      - ./data:/app/data  # Та сама папка, щоб читати bot_data.db!
+      - ./data:/app/data  # 🟢 Django тепер читає ту саму базу, що і бот!
       - ./logs:/app/logs
+    # Застосовуємо міграції та запускаємо сервер при кожному старті
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     depends_on:
       - trading-bot

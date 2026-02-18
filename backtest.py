@@ -1,20 +1,29 @@
+import os
+import sys
 import pandas as pd
-import ccxt
 import pandas_ta as ta
 import logging
-# ✅ Імпорт налаштований під структуру app/config.py
-try:
-    from app.config import Config
-except ImportError:
-    from config import Config
+
+# Гарантуємо, що Python бачить корінь проекту
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from app.config import Config
 from app.ai_brain import TradingAI
+from app.exchange_manager import ExchangeManager
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger("Backtest")
 
 class Backtester:
     def __init__(self):
-        self.exchange = ccxt.binance()
+        # 🔥 ФІКС ХАРДКОДУ: Використовуємо ExchangeManager для обходу блокування
+        try:
+            self.mgr = ExchangeManager("binanceus")
+            self.exchange = self.mgr.exchange
+        except Exception as e:
+            logger.critical(f"🔥 Помилка підключення до біржі: {e}")
+            sys.exit(1)
+            
         self.ai = TradingAI()
         self.symbols = Config.SYMBOLS
         self.timeframe = Config.TIMEFRAME
@@ -61,9 +70,7 @@ class Backtester:
                 for i in range(200, len(processed_df) - 1):
                     row = processed_df.iloc[i]
                     
-                    # 🔥 SNIPER FILTER (Твій запит):
-                    # 1. ADX < 0.20: Немає тренду (флет)
-                    # 2. RVOL < 1.0: Об'єм менший за середній (немає палива)
+                    # 🔥 SNIPER FILTER:
                     if row['ADX'] < 0.20 or row['RVOL'] < 1.0: 
                         continue 
 
@@ -82,7 +89,6 @@ class Backtester:
                         outcome = "HOLD"
                         
                         # Перевірка майбутнього (Look-forward loop)
-                        # Дивимося на 60 свічок вперед (5 годин), щоб дати угоді відпрацювати
                         for j in range(i + 1, min(i + 60, len(processed_df))):
                             future_candle = processed_df.iloc[j]
                             
@@ -97,11 +103,9 @@ class Backtester:
                             trades_count += 1
                             if outcome == "WIN":
                                 wins += 1
-                                # Прибуток
                                 pnl = (self.risk_per_trade / entry_price) * (tp_price - entry_price)
                                 balance += pnl
                             else:
-                                # Збиток
                                 pnl = (self.risk_per_trade / entry_price) * (entry_price - sl_price)
                                 balance -= abs(pnl)
 

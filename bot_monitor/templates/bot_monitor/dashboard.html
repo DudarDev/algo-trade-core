@@ -1,7 +1,6 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<!-- Кастомні стилі для дашборда -->
 <style>
     .mono-font { font-family: 'Courier New', Courier, monospace; }
     .pro-panel { 
@@ -14,17 +13,13 @@
     .text-loss { color: #FF3D00; }
 </style>
 
-<!-- РЯДОК 1: ОСНОВНІ ПОКАЗНИКИ (KPI) -->
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
-    
-    <!-- Balance -->
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
         <div class="text-2xl font-bold text-white mono-font">${{ balance }}</div>
         <div class="text-xs text-green-500 mt-2">USDT Wallet</div>
     </div>
 
-    <!-- Total PnL -->
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Total PnL</div>
         <div class="text-2xl font-bold mono-font {% if total_pnl_usd >= 0 %}text-profit{% else %}text-loss{% endif %}">
@@ -34,17 +29,13 @@
         <div class="text-xs text-gray-500 mt-2">{{ total_trades }} Trades Executed</div>
     </div>
 
-    <!-- Profit Factor -->
     <div class="pro-panel p-4 relative overflow-hidden">
-        <!-- Видалено inline-style, додано ID для JS -->
         <div id="pf-bar" class="absolute right-0 top-0 w-1 h-full"></div>
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Profit Factor</div>
-        <!-- Видалено inline-style, додано ID для JS -->
         <div id="pf-value" class="text-2xl font-bold mono-font">{{ profit_factor }}</div>
         <div class="text-xs text-gray-500 mt-2">Target: > 1.5</div>
     </div>
 
-    <!-- Win Rate -->
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Win Rate</div>
         <div class="text-2xl font-bold mono-font {% if win_rate > 50 %}text-profit{% else %}text-[#FDD835]{% endif %}">
@@ -54,31 +45,25 @@
     </div>
 </div>
 
-<!-- РЯДОК 2: АНАЛІЗ РИЗИКІВ -->
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-    
-    <!-- Max Drawdown -->
     <div class="pro-panel p-4 border-l-2 border-red-500/30">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Max Drawdown</div>
         <div class="text-2xl font-bold text-red-400 mono-font">-{{ max_drawdown }}%</div>
         <div class="text-xs text-gray-500 mt-2">Peak to Valley</div>
     </div>
 
-    <!-- Risk / Reward -->
     <div class="pro-panel p-4 border-l-2 border-blue-500/30">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Risk / Reward</div>
         <div class="text-2xl font-bold text-blue-400 mono-font">{{ risk_reward }}</div>
         <div class="text-xs text-gray-500 mt-2">Avg Win / Avg Loss</div>
     </div>
 
-    <!-- Avg Win -->
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Avg Win</div>
         <div class="text-2xl font-bold text-profit mono-font">+{{ avg_win }}%</div>
         <div class="text-xs text-gray-500 mt-2">Per Winning Trade</div>
     </div>
 
-    <!-- Avg Loss -->
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Avg Loss</div>
         <div class="text-2xl font-bold text-loss mono-font">{{ avg_loss }}%</div>
@@ -86,7 +71,6 @@
     </div>
 </div>
 
-<!-- РЯДОК 3: ГРАФІК ПРИБУТКОВОСТІ -->
 <div class="pro-panel p-4 mb-6">
     <div class="flex justify-between items-center mb-4">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Performance Growth</h3>
@@ -100,7 +84,6 @@
     </div>
 </div>
 
-<!-- РЯДОК 4: ТАБЛИЦЯ УГОД -->
 <div class="pro-panel overflow-hidden">
     <div class="px-4 py-3 border-b border-[#2a2e39]">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>
@@ -145,43 +128,30 @@
     </div>
 </div>
 
-<!-- 🔥 БЕЗПЕЧНА ПЕРЕДАЧА ДАНИХ (БЕЗ ПОМИЛОК РЕДАКТОРА) -->
 {{ chart_labels|json_script:"chart-labels-data" }}
 {{ chart_data|json_script:"chart-data-data" }}
 {{ chart_colors|json_script:"chart-colors-data" }}
 {{ chart_radius|json_script:"chart-radius-data" }}
-{{ pf_color|json_script:"pf-color-data" }} <!-- Передаємо колір -->
+{{ pf_color|json_script:"pf-color-data" }}
 
-<!-- Chart.js Script -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Допоміжна функція для безпечного отримання даних з JSON
         function getJsonData(id, defaultValue) {
             const element = document.getElementById(id);
-            if (!element) {
-                console.warn(`Element with id '${id}' not found. Using default value.`);
-                return defaultValue;
-            }
-            try {
-                return JSON.parse(element.textContent);
-            } catch (e) {
-                console.error(`Error parsing JSON from '${id}':`, e);
-                return defaultValue;
-            }
+            if (!element) return defaultValue;
+            try { return JSON.parse(element.textContent); } 
+            catch (e) { return defaultValue; }
         }
 
-        // 1. Оновлюємо кольори Profit Factor через JS
-        const pfColor = getJsonData('pf-color-data', '#848e9c'); // Сірий за замовчуванням
+        const pfColor = getJsonData('pf-color-data', '#848e9c');
         const pfBar = document.getElementById('pf-bar');
         const pfValue = document.getElementById('pf-value');
-        
         if(pfBar) pfBar.style.backgroundColor = pfColor;
         if(pfValue) pfValue.style.color = pfColor;
 
-        // 2. Будуємо графік
         const canvas = document.getElementById('profitChart');
-        if (!canvas) return; // Якщо елемента немає, виходимо
+        if (!canvas) return; 
         
         const ctx = canvas.getContext('2d');
         const labels = getJsonData('chart-labels-data', []);
@@ -242,10 +212,7 @@
                         ticks: { color: '#848e9c', font: { family: "'Courier New', monospace", size: 10 } }
                     }
                 },
-                interaction: {
-                    intersect: false,
-                    mode: 'nearest',
-                },
+                interaction: { intersect: false, mode: 'nearest' }
             }
         };
 

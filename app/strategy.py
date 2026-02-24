@@ -88,7 +88,7 @@ class Strategy:
     ) -> Tuple[Optional[Literal["BUY", "SELL"]], Dict]:
         """
         Головна логіка прийняття рішень.
-        Повертає: ("BUY" або "SELL" або None, словник з причинами)
+        Повертає: ("BUY" або None, словник з причинами)
         """
         required_cols = ['atr', 'ema200', 'adx', 'rsi', 'macd']
         if df.empty or not all(col in df.columns for col in required_cols):
@@ -107,25 +107,11 @@ class Strategy:
         }
 
         # ==========================================
-        # 🔴 ЛОГІКА ВИХОДУ (SELL)
+        # 🔴 ЛОГІКА ВИХОДУ (SELL) - ВИДАЛЕНО!
+        # Тепер PaperTrader закриває позиції ТІЛЬКИ по SL або TP.
         # ==========================================
         if in_position:
-            macd_death_cross = (prev['macd'] > prev['macd_signal']) and (curr['macd'] < curr['macd_signal'])
-            rsi_extreme = curr['rsi'] > self.rsi_sell_limit
-            trend_broken = (prev['close'] > prev['ema200']) and (curr['close'] < curr['ema200'])
-
-            if rsi_extreme:
-                meta['reason'] = f"RSI_Overbought({round(curr['rsi'],1)})"
-                return "SELL", meta
-            
-            if macd_death_cross and curr['rsi'] > 50:
-                meta['reason'] = "MACD_Cross_Down"
-                return "SELL", meta
-            
-            if trend_broken:
-                meta['reason'] = "Trend_Broken_EMA200"
-                return "SELL", meta
-            
+            # Повертаємо None, щоб стратегія не втручалася у відкриту позицію
             return None, meta
 
         # ==========================================
@@ -137,6 +123,7 @@ class Strategy:
             
             # --- СЦЕНАРІЙ 1: AI Sniper ---
             if ai_confidence >= Config.AI_CONFIDENCE_THRESHOLD:
+                # Додаємо умову: купуємо тільки якщо RSI не в зоні перекупленості (<70)
                 if (is_uptrend or ai_confidence > 0.90) and curr['rsi'] < 70:
                     meta['reason'] = f"AI_Sniper(Conf={ai_confidence:.2f})"
                     return "BUY", meta

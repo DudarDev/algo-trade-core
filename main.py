@@ -54,7 +54,7 @@ def main():
     last_scan_time = 0
     last_analysis_time = {symbol: 0 for symbol in active_pairs}
 
-    notifier.send_message(f"🤖 <b>{Config.PROJECT_NAME}</b>: Скальпінг + Арбітраж активовано. MTFA увімкнено.")
+    notifier.send_message(f"🤖 <b>{Config.PROJECT_NAME}</b>: Скальпінг + Арбітраж активовано. AI-Exit активовано.")
 
     while True:
         try:
@@ -99,16 +99,19 @@ def main():
                     if symbol not in tickers: continue
                     current_price = tickers[symbol]['last']
                     
-                    # Risk Check
+                    # 🔥 НОВЕ: Risk Check з передачею ai_bot для AI-Exit
                     if symbol in trader.positions:
-                        trader.check_auto_exits(symbol, current_price)
+                        # Ми передаємо ai_bot як аргумент 'brain' для аналізу доцільності виходу
+                        trader.check_auto_exits(symbol, current_price, brain=ai_bot)
                     
-                    # AI Analysis
+                    # AI Analysis & Entry Logic
                     if current_time - last_analysis_time.get(symbol, 0) > 60:
                         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=Config.TIMEFRAME, limit=500)
                         if not ohlcv: continue
                         
                         df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+                        
+                        # Отримуємо прогноз AI
                         _, ai_conf = ai_bot.predict(df, symbol)
                         df_tech = strategy.calculate_indicators(df)
                         in_pos = symbol in trader.positions
@@ -116,31 +119,28 @@ def main():
                         signal, meta = strategy.get_signal(df_tech, ai_confidence=ai_conf, in_position=in_pos)
                         
                         if signal == "BUY" and not in_pos:
-                            # --- НОВЕ: Перевірка глобального тренду (MTFA) ---
                             is_global_uptrend = strategy.check_global_trend(exchange, symbol)
                             
                             if is_global_uptrend:
                                 atr = meta.get('atr', 0)
                                 if atr > 0:
-                                    trader.buy(symbol, current_price, atr)
-                                    notifier.send_trade_notification("BUY", symbol, current_price, trader.usdt_balance, str(meta))
+                                    trader.buy(symbol, current_price, atr, reason=f"AI Conf: {ai_conf:.2f}")
                                     logger.info(f"✅ Вхід дозволено: Глобальний тренд {symbol} висхідний.")
                             else:
-                                logger.info(f"⛔ Вхід скасовано: Глобальний тренд {symbol} спадний (MTFA Фільтр).")
+                                logger.info(f"⛔ Вхід скасовано: Глобальний тренд {symbol} спадний.")
                         
                         elif signal == "SELL" and in_pos:
+                            # Стандартний вихід по стратегії
                             trader.sell(symbol, current_price, reason=meta.get('reason', 'Signal'))
-                            notifier.send_trade_notification("SELL", symbol, current_price, trader.usdt_balance, str(meta))
 
                         last_analysis_time[symbol] = current_time
-                        time.sleep(0.5) 
+                        time.sleep(0.1) # Зменшено затримку для швидшої обробки списку
 
                 except KeyError as e:
                     if 'stop_loss' in str(e):
                         logger.warning(f"🧹 ВИДАЛЕННЯ ПОШКОДЖЕНОЇ ПОЗИЦІЇ {symbol}...")
                         if symbol in trader.positions:
                             del trader.positions[symbol]
-                            logger.info(f"✅ Позицію {symbol} успішно видалено.")
                 except Exception as e:
                     logger.error(f"❌ Error {symbol}: {e}")
                     continue 
@@ -148,6 +148,7 @@ def main():
             time.sleep(1)
 
         except KeyboardInterrupt:
+            logger.info("🛑 Бот зупинений користувачем.")
             break
         except Exception as e:
             logger.critical(f"🔥 CRITICAL: {e}")

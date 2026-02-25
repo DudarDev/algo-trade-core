@@ -29,7 +29,7 @@ class TelegramNotifier:
             payload = {
                 "chat_id": self.chat_id,
                 "text": message,
-                "parse_mode": "HTML", # Використовуємо HTML, він стабільніший за Markdown
+                "parse_mode": "HTML",
             }
             requests.post(url, data=payload, timeout=5)
         except Exception as e:
@@ -42,46 +42,40 @@ class PaperTrader:
     def __init__(self, initial_balance: float = 1000.0, fee_rate: float = 0.001):
         self.db = DatabaseManager()
         self.fee_rate = fee_rate
-        self.notifier = TelegramNotifier() # Підключаємо Телеграм
+        self.notifier = TelegramNotifier()
         
         # Завантаження стану
         self.usdt_balance = self.db.load_balance(initial_balance)
         self.positions: Dict[str, Any] = self.db.load_open_positions()
         
-        # 🔥 НОВЕ: Словник для зберігання часу карантину (Cooldown)
         self.cooldowns: Dict[str, float] = {}
-        self.cooldown_duration = 3 * 3600  # 3 години у секундах
+        self.cooldown_duration = 3 * 3600  # 3 години
         
         logger.info(f"💾 Баланс завантажено: {self.usdt_balance:.2f} USDT")
         if self.notifier.enabled:
             self.notifier.send(f"🤖 <b>Бот Успішно Запущений!</b>\n💰 Поточний баланс: <code>{self.usdt_balance:.2f} USDT</code>")
 
     def buy(self, symbol: str, price: float, atr: float, reason: str = ""):
-        """Відкриття позиції з динамічним лотом, ATR-захистом та Карантином."""
+        """Відкриття позиції з динамічним лотом та ATR-захистом."""
         if symbol in self.positions:
             return
 
-        # 🔥 НОВЕ: Перевірка на Карантин
         if symbol in self.cooldowns:
             if time.time() - self.cooldowns[symbol] < self.cooldown_duration:
-                # Монета ще в карантині, ігноруємо сигнал
                 return
             else:
-                # Карантин закінчився, видаляємо зі списку
                 del self.cooldowns[symbol]
 
-        # Динамічний розмір позиції
         suggested_amount = self.usdt_balance * Config.POSITION_SIZE_FRACTION
         trade_amount = max(Config.USDT_PER_TRADE, min(suggested_amount, self.usdt_balance))
         
         if trade_amount < 10.0:
-            logger.warning(f"⚠️ Недостатньо балансу для {symbol} (Available: {self.usdt_balance:.2f})")
+            logger.warning(f"⚠️ Недостатньо балансу для {symbol} ({self.usdt_balance:.2f})")
             return
 
         fee_cost = trade_amount * self.fee_rate
         coin_amount = (trade_amount - fee_cost) / price
 
-        # Розрахунок рівнів виходу
         sl_level = price - (atr * Config.STOP_LOSS_ATR_MULT)
         tp_level = price + (atr * Config.TAKE_PROFIT_ATR_MULT)
 
@@ -106,7 +100,6 @@ class PaperTrader:
             
             logger.info(f"🟢 [BUY {symbol}] Entry: {price} | SL: {sl_level:.2f} | TP: {tp_level:.2f}")
             
-            # 📲 Телеграм сповіщення
             msg = (
                 f"🟢 <b>BUY {symbol}</b>\n"
                 f"💵 Ціна: <code>{price:.4f}</code>\n"
@@ -119,8 +112,9 @@ class PaperTrader:
         except Exception as e:
             logger.error(f"❌ DB Error (Buy): {e}")
 
-    def check_auto_exits(self, symbol: str, current_price: float):
-        """Перевірка SL/TP та безпечний Trailing Stop."""
+    # 🔥 НОВЕ: Додано параметр ai_brain для перевірки настроїв ринку в реальному часі
+    def check_auto_exits(self, symbol: str, current_price: float, brain: Any = None):
+        """Перевірка SL/TP, Trailing Stop та Розумний вихід через ШІ."""
         if symbol not in self.positions:
             return
 
@@ -129,32 +123,38 @@ class PaperTrader:
         if current_price > pos["highest_price"]:
             pos["highest_price"] = current_price
 
-        # 🔥 ВИПРАВЛЕНА ЛОГІКА TRAILING STOP 🔥
-        # Активуємо, якщо чистий прибуток > 0.7%
+        # --- Trailing Stop Logic ---
         activation_threshold = pos["entry_price"] * 1.007
         
         if not pos.get("trailing_active", False):
             if current_price >= activation_threshold:
                 pos["trailing_active"] = True
-                
-                # Коли трейлінг активується, ставимо стоп в БЕЗЗБИТОК + мікро-профіт
                 breakeven_sl = pos["entry_price"] * 1.003
                 
                 if breakeven_sl > pos["stop_loss"]:
                     pos["stop_loss"] = breakeven_sl
                     logger.info(f"⚓ {symbol}: Trailing Stop ACTIVATED. Stop moved to Breakeven ({breakeven_sl:.4f})")
-                    self.notifier.send(f"🛡 <b>{symbol}</b>: Трейлінг-стоп активовано! Беззбиток гарантовано.")
+                    self.notifier.send(f"🛡 <b>{symbol}</b>: Трейлінг-стоп активовано!")
 
-        # Якщо трейлінг вже активний і ціна продовжує рости
         if pos.get("trailing_active", False):
-            # Підтягуємо стоп за ціною (відступ = 0.5%)
             new_sl = current_price * 0.995 
             if new_sl > pos["stop_loss"]:
                 pos["stop_loss"] = new_sl
 
-        # -----------------------------------------------------------
-        # Перевірка виходу (Sell Condition)
-        # -----------------------------------------------------------
+        # --- 🔥 НОВЕ: AI-SMART EXIT LOGIC ---
+        # Якщо ми в профіті і ШІ каже, що тренд помирає (conf < 0.35)
+        if brain and current_price > pos["entry_price"]:
+            try:
+                # Отримуємо свіжий прогноз від ШІ
+                ai_conf = brain.predict(symbol) 
+                if ai_conf < 0.35:
+                    logger.info(f"🧠 AI-Exit: Низька впевненість ({ai_conf:.2f}). Закриваємо {symbol} превентивно.")
+                    self.sell(symbol, current_price, reason="AI_SMART_EXIT 🧠")
+                    return
+            except Exception as e:
+                logger.error(f"⚠️ Помилка AI-Exit: {e}")
+
+        # --- Standard Exits ---
         if current_price <= pos["stop_loss"]:
             reason = "TRAILING_STOP 📉" if pos.get("trailing_active") else "STOP_LOSS 🛑"
             self.sell(symbol, current_price, reason=reason)
@@ -163,12 +163,11 @@ class PaperTrader:
             self.sell(symbol, current_price, reason="TAKE_PROFIT 🎯")
 
     def sell(self, symbol: str, price: float, reason: str = "Signal"):
-        """Закриття позиції, очистка стану та встановлення карантину."""
+        """Закриття позиції та очистка стану."""
         if symbol not in self.positions:
             return
 
         pos = self.positions[symbol]
-        
         slippage = 0.9995 if "TAKE_PROFIT" not in reason else 1.0
         execution_price = price * slippage
         
@@ -178,10 +177,9 @@ class PaperTrader:
 
         self.usdt_balance += net_revenue
         
-        # 🔥 НОВЕ: Відправляємо монету в карантин, якщо це був Stop-Loss
         if "STOP_LOSS" in reason:
             self.cooldowns[symbol] = time.time()
-            logger.warning(f"⏳ {symbol} відправлено в карантин на 3 години.")
+            logger.warning(f"⏳ {symbol} відправлено в карантин.")
         
         try:
             self.db.save_balance(self.usdt_balance)
@@ -191,13 +189,11 @@ class PaperTrader:
             del self.positions[symbol]
             
             color = "🤑" if profit_usdt > 0 else "🔻"
-            logger.info(f"🔴 [SELL {symbol}] {reason} | PnL: {profit_pct:.2f}% | Bal: {self.usdt_balance:.2f} {color}")
+            logger.info(f"🔴 [SELL {symbol}] {reason} | PnL: {profit_pct:.2f}% | Bal: {self.usdt_balance:.2f}")
             
-            # 📲 Телеграм сповіщення
             msg = (
                 f"{color} <b>SELL {symbol}</b>\n"
                 f"Причина: <b>{reason}</b>\n"
-                f"Ціна: <code>{execution_price:.4f}</code>\n"
                 f"PnL: <b>{profit_pct:.2f}%</b> (<code>{profit_usdt:.2f} USDT</code>)\n"
                 f"💼 Баланс: <code>{self.usdt_balance:.2f} USDT</code>"
             )

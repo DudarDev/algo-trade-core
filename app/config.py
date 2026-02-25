@@ -29,9 +29,9 @@ class Config:
     # 🔥 РІШЕННЯ ПРОБЛЕМИ: Переходимо на 5 хвилин для надійності
     TIMEFRAME = "5m" 
     
-    MAX_OPEN_POSITIONS = 1      
+    MAX_OPEN_POSITIONS = 3      
     USDT_PER_TRADE = 50.0       
-    POSITION_SIZE_FRACTION = 0.95 
+    POSITION_SIZE_FRACTION = 0.15
     
     # 🔥 РІШЕННЯ ПРОБЛЕМИ: Ширші стопи, щоб не вибивало ринковим шумом
     STOP_LOSS_ATR_MULT = 3.5    

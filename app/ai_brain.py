@@ -19,7 +19,6 @@ class TradingAI:
         self.loaded_models: Dict[str, RandomForestClassifier] = {}
         
         # Базові фічі
-        # 🔥 НОВЕ: Додано фічу VOL_SPIKE для детекції аномальних об'ємів
         self.base_features = [
             'RSI', 'BB_WIDTH', 'BB_POS', 'RVOL', 
             'ATR_PCT', 'EMA_DIST', 'ADX', 'LOG_RET', 'VOL_SPIKE'
@@ -59,8 +58,7 @@ class TradingAI:
         vol_sma = data['volume'].rolling(window=20).mean()
         data['RVOL'] = data['volume'] / (vol_sma + 1e-9)
 
-        # 🔥 НОВЕ: Детекція сплеску об'єму (Volume Spike)
-        # Визначаємо як відхилення поточного об'єму від 2-х стандартних відхилень
+        # Детекція сплеску об'єму (Volume Spike)
         vol_std = data['volume'].rolling(window=20).std()
         data['VOL_SPIKE'] = (data['volume'] > (vol_sma + 2 * vol_std)).astype(int)
 
@@ -77,11 +75,13 @@ class TradingAI:
 
     def _get_model_path(self, symbol: str) -> str:
         safe_symbol = symbol.replace('/', '_')
-        return os.path.join(self.model_dir, f"{safe_symbol}.pkl")
+        # 🔥 СУПЕР ВАЖЛИВО: Суфікс _v2 ігнорує будь-які старі моделі
+        return os.path.join(self.model_dir, f"{safe_symbol}_v2.pkl")
 
     def train_model(self, df: pd.DataFrame, symbol: str):
         data = self.prepare_features(df)
-        if len(data) < 100: return
+        if len(data) < 100: 
+            return
 
         feature_cols = self._get_feature_names()
         future_max = data['high'].rolling(window=4).max().shift(-4)
@@ -91,7 +91,8 @@ class TradingAI:
         valid_data = data.dropna(subset=['Target'])
         X, y = valid_data[feature_cols], valid_data['Target']
 
-        if len(np.unique(y)) < 2: return
+        if len(np.unique(y)) < 2: 
+            return
 
         model = RandomForestClassifier(
             n_estimators=100, max_depth=12, min_samples_split=10,
@@ -100,38 +101,52 @@ class TradingAI:
         model.fit(X, y)
         joblib.dump(model, self._get_model_path(symbol))
         self.loaded_models[symbol] = model
-        logger.info(f"✅ AI Brain: {symbol} навчена з Volume Spike аналізом.")
+        logger.info(f"✅ AI Brain: {symbol} (v2) успішно навчена з Volume Spike аналізом.")
 
-    # 🔥 ОНОВЛЕНО: Тепер приймає або DataFrame, або автоматично визначає тип
     def predict(self, data_input: Any, symbol: str) -> Tuple[str, float]:
         """
-        Універсальний предикт. 
-        data_input може бути DataFrame (для входу) або symbol (якщо викликається з PaperTrader)
+        Універсальний предикт з автоматичним перенавчанням, якщо моделі немає.
         """
         model = self.loaded_models.get(symbol)
+        
+        # 1. Спроба завантажити існуючу модель v2
         if model is None:
             path = self._get_model_path(symbol)
             if os.path.exists(path):
-                model = joblib.load(path)
-                self.loaded_models[symbol] = model
-            else:
-                return "HOLD", 0.0
-
-        # Якщо на вхід прийшов DataFrame (з main.py)
-        if isinstance(data_input, pd.DataFrame):
-            processed_df = self.prepare_features(data_input)
-        else:
-            # Тут можна додати логіку отримання даних за символом, якщо потрібно
+                try:
+                    model = joblib.load(path)
+                    self.loaded_models[symbol] = model
+                except Exception as e:
+                    logger.warning(f"⚠️ Не вдалося завантажити модель {symbol}: {e}")
+                    model = None
+            
+            # 2. Якщо моделі все ще немає (або вона пошкоджена), і у нас є дані - ВЧИМО!
+            if model is None and isinstance(data_input, pd.DataFrame):
+                logger.info(f"🧠 Моделі v2 для {symbol} не знайдено. Запускаю термінове навчання...")
+                self.train_model(data_input, symbol)
+                model = self.loaded_models.get(symbol)
+        
+        # Якщо після всього цього моделі немає (наприклад, мало даних) - виходимо
+        if model is None:
             return "HOLD", 0.0
 
-        if processed_df.empty: return "HOLD", 0.0
+        processed_df = self.prepare_features(data_input) if isinstance(data_input, pd.DataFrame) else pd.DataFrame()
+        if processed_df.empty: 
+            return "HOLD", 0.0
 
         try:
             feature_cols = self._get_feature_names()
             last_row = processed_df[feature_cols].iloc[[-1]]
+            
+            # Перевіряємо, чи кількість колонок у даних співпадає з тим, чого очікує модель
+            if len(feature_cols) != model.n_features_in_:
+                logger.error(f"❌ Невідповідність фіч для {symbol}. Перенавчаю примусово...")
+                self.train_model(data_input, symbol)
+                model = self.loaded_models.get(symbol)
+                if model is None: return "HOLD", 0.0
+                
             proba = model.predict_proba(last_row)[0][1]
 
-            # Логіка сигналу
             signal = "BUY" if proba >= self.CONFIDENCE_THRESHOLD else "HOLD"
             return signal, float(proba)
             

@@ -55,8 +55,9 @@ class PaperTrader:
         if self.notifier.enabled:
             self.notifier.send(f"🤖 <b>Бот Успішно Запущений!</b>\n💰 Поточний баланс: <code>{self.usdt_balance:.2f} USDT</code>")
 
-    def buy(self, symbol: str, price: float, atr: float, reason: str = ""):
-        """Відкриття позиції з динамічним лотом та ATR-захистом."""
+    # 🔥 ОНОВЛЕНО: Додано параметр ai_conf
+    def buy(self, symbol: str, price: float, atr: float, reason: str = "", ai_conf: float = 0.5):
+        """Відкриття позиції з динамічним лотом, ATR-захистом та збереженням AI впевненості."""
         if symbol in self.positions:
             return
 
@@ -87,7 +88,8 @@ class PaperTrader:
             "stop_loss": sl_level,
             "take_profit": tp_level,
             "atr_at_entry": atr,
-            "trailing_active": False
+            "trailing_active": False,
+            "current_conf": ai_conf  # 🔥 НОВЕ: Зберігаємо початкову впевненість
         }
 
         self.usdt_balance -= trade_amount
@@ -112,8 +114,13 @@ class PaperTrader:
         except Exception as e:
             logger.error(f"❌ DB Error (Buy): {e}")
 
-    # 🔥 НОВЕ: Додано параметр ai_brain для перевірки настроїв ринку в реальному часі
-    def check_auto_exits(self, symbol: str, current_price: float, brain: Any = None):
+    # 🔥 НОВЕ: Метод для оновлення впевненості моделі для відкритої позиції
+    def update_position_confidence(self, symbol: str, new_conf: float):
+        if symbol in self.positions:
+            self.positions[symbol]["current_conf"] = new_conf
+
+    # 🔥 ОНОВЛЕНО: Прибрано параметр brain, тепер перевіряємо збережене значення
+    def check_auto_exits(self, symbol: str, current_price: float):
         """Перевірка SL/TP, Trailing Stop та Розумний вихід через ШІ."""
         if symbol not in self.positions:
             return
@@ -141,18 +148,14 @@ class PaperTrader:
             if new_sl > pos["stop_loss"]:
                 pos["stop_loss"] = new_sl
 
-        # --- 🔥 НОВЕ: AI-SMART EXIT LOGIC ---
-        # Якщо ми в профіті і ШІ каже, що тренд помирає (conf < 0.35)
-        if brain and current_price > pos["entry_price"]:
-            try:
-                # Отримуємо свіжий прогноз від ШІ
-                ai_conf = brain.predict(symbol) 
-                if ai_conf < 0.35:
-                    logger.info(f"🧠 AI-Exit: Низька впевненість ({ai_conf:.2f}). Закриваємо {symbol} превентивно.")
-                    self.sell(symbol, current_price, reason="AI_SMART_EXIT 🧠")
-                    return
-            except Exception as e:
-                logger.error(f"⚠️ Помилка AI-Exit: {e}")
+        # --- 🔥 ОНОВЛЕНО: AI-SMART EXIT LOGIC ---
+        # Читаємо впевненість, яку оновив main.py. Якщо вона впала нижче 0.35, а ми в профіті — виходимо.
+        if current_price > pos["entry_price"]:
+            current_conf = pos.get("current_conf", 0.5)
+            if current_conf < 0.35:
+                logger.info(f"🧠 AI-Exit: Низька впевненість ({current_conf:.2f}). Закриваємо {symbol} превентивно.")
+                self.sell(symbol, current_price, reason="AI_SMART_EXIT 🧠")
+                return
 
         # --- Standard Exits ---
         if current_price <= pos["stop_loss"]:

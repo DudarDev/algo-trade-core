@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
 import joblib
 import os
 import logging
@@ -16,12 +17,13 @@ class TradingAI:
         self.CONFIDENCE_THRESHOLD = 0.60 
         os.makedirs(self.model_dir, exist_ok=True)
         
-        self.loaded_models: Dict[str, RandomForestClassifier] = {}
+        self.loaded_models: Dict[str, CalibratedClassifierCV] = {}
         
-        # Базові фічі
+        # 🔥 Додано нові фічі: ADX_SLOPE (Фаза ринку) та BUY_PRESSURE (Замінник Order Book)
         self.base_features = [
             'RSI', 'BB_WIDTH', 'BB_POS', 'RVOL', 
-            'ATR_PCT', 'EMA_DIST', 'ADX', 'LOG_RET', 'VOL_SPIKE'
+            'ATR_PCT', 'EMA_DIST', 'ADX', 'ADX_SLOPE', 
+            'BUY_PRESSURE', 'LOG_RET', 'VOL_SPIKE'
         ]
         self.lag_features = ['RSI', 'LOG_RET', 'RVOL']
         self.lags = [1, 2]
@@ -54,6 +56,9 @@ class TradingAI:
         
         adx_df = ta.adx(data['high'], data['low'], data['close'], length=14)
         data['ADX'] = adx_df.iloc[:, 0] / 100.0 if adx_df is not None else 0
+        
+        # 🔥 НОВЕ: Нахил ADX (Чи наростає сила тренду?)
+        data['ADX_SLOPE'] = data['ADX'].diff()
 
         vol_sma = data['volume'].rolling(window=20).mean()
         data['RVOL'] = data['volume'] / (vol_sma + 1e-9)
@@ -61,6 +66,9 @@ class TradingAI:
         # Детекція сплеску об'єму (Volume Spike)
         vol_std = data['volume'].rolling(window=20).std()
         data['VOL_SPIKE'] = (data['volume'] > (vol_sma + 2 * vol_std)).astype(int)
+
+        # 🔥 НОВЕ: Buying Pressure (Форма свічки: чи закриваємось ми під хай?)
+        data['BUY_PRESSURE'] = (data['close'] - data['low']) / (data['high'] - data['low'] + 1e-9)
 
         ema_period = 200 if len(data) > 300 else 50
         ema = ta.ema(data['close'], length=ema_period)
@@ -75,8 +83,8 @@ class TradingAI:
 
     def _get_model_path(self, symbol: str) -> str:
         safe_symbol = symbol.replace('/', '_')
-        # 🔥 СУПЕР ВАЖЛИВО: Суфікс _v2 ігнорує будь-які старі моделі
-        return os.path.join(self.model_dir, f"{safe_symbol}_v2.pkl")
+        # 🔥 ЗМІНЕНО НА _v3: Щоб бот скинув старі моделі і перенавчився з калібруванням
+        return os.path.join(self.model_dir, f"{safe_symbol}_v3.pkl")
 
     def train_model(self, df: pd.DataFrame, symbol: str):
         data = self.prepare_features(df)
@@ -84,6 +92,7 @@ class TradingAI:
             return
 
         feature_cols = self._get_feature_names()
+        # Таргет: чи досягнемо ми 1.5 ATR протягом наступних 4 свічок
         future_max = data['high'].rolling(window=4).max().shift(-4)
         target_price = data['close'] + (data['ATR'] * 1.5)
         data['Target'] = (future_max > target_price).astype(int)
@@ -94,62 +103,23 @@ class TradingAI:
         if len(np.unique(y)) < 2: 
             return
 
-        model = RandomForestClassifier(
+        # 🔥 НОВЕ: Обгортаємо RF у CalibratedClassifierCV
+        rf_base = RandomForestClassifier(
             n_estimators=100, max_depth=12, min_samples_split=10,
             min_samples_leaf=5, class_weight='balanced', n_jobs=-1, random_state=42
         )
-        model.fit(X, y)
-        joblib.dump(model, self._get_model_path(symbol))
-        self.loaded_models[symbol] = model
-        logger.info(f"✅ AI Brain: {symbol} (v2) успішно навчена з Volume Spike аналізом.")
+        
+        # Використовуємо Sigmoid (Platt Scaling) для калібрування ймовірностей
+        calibrated_model = CalibratedClassifierCV(estimator=rf_base, method='sigmoid', cv=5)
+        calibrated_model.fit(X, y)
+        
+        joblib.dump(calibrated_model, self._get_model_path(symbol))
+        self.loaded_models[symbol] = calibrated_model
+        logger.info(f"✅ AI Brain: {symbol} (v3) успішно навчена з Probability Calibration та Buy Pressure.")
 
     def predict(self, data_input: Any, symbol: str) -> Tuple[str, float]:
-        """
-        Універсальний предикт з автоматичним перенавчанням, якщо моделі немає.
-        """
         model = self.loaded_models.get(symbol)
         
-        # 1. Спроба завантажити існуючу модель v2
         if model is None:
             path = self._get_model_path(symbol)
-            if os.path.exists(path):
-                try:
-                    model = joblib.load(path)
-                    self.loaded_models[symbol] = model
-                except Exception as e:
-                    logger.warning(f"⚠️ Не вдалося завантажити модель {symbol}: {e}")
-                    model = None
-            
-            # 2. Якщо моделі все ще немає (або вона пошкоджена), і у нас є дані - ВЧИМО!
-            if model is None and isinstance(data_input, pd.DataFrame):
-                logger.info(f"🧠 Моделі v2 для {symbol} не знайдено. Запускаю термінове навчання...")
-                self.train_model(data_input, symbol)
-                model = self.loaded_models.get(symbol)
-        
-        # Якщо після всього цього моделі немає (наприклад, мало даних) - виходимо
-        if model is None:
-            return "HOLD", 0.0
-
-        processed_df = self.prepare_features(data_input) if isinstance(data_input, pd.DataFrame) else pd.DataFrame()
-        if processed_df.empty: 
-            return "HOLD", 0.0
-
-        try:
-            feature_cols = self._get_feature_names()
-            last_row = processed_df[feature_cols].iloc[[-1]]
-            
-            # Перевіряємо, чи кількість колонок у даних співпадає з тим, чого очікує модель
-            if len(feature_cols) != model.n_features_in_:
-                logger.error(f"❌ Невідповідність фіч для {symbol}. Перенавчаю примусово...")
-                self.train_model(data_input, symbol)
-                model = self.loaded_models.get(symbol)
-                if model is None: return "HOLD", 0.0
-                
-            proba = model.predict_proba(last_row)[0][1]
-
-            signal = "BUY" if proba >= self.CONFIDENCE_THRESHOLD else "HOLD"
-            return signal, float(proba)
-            
-        except Exception as e:
-            logger.error(f"❌ Predict Error {symbol}: {e}")
-            return "HOLD", 0.0
+            if os.path

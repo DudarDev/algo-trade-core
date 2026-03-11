@@ -84,6 +84,85 @@
     </div>
 </div>
 
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-6">
+    
+    <div class="pro-panel xl:col-span-2 overflow-hidden">
+        <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center">
+            <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">📡 Live Market Positions</h3>
+            <span class="relative flex h-3 w-3">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+            </span>
+        </div>
+        <div class="overflow-x-auto">
+            {% if active_trades %}
+            <table class="w-full text-left text-sm">
+                <thead class="bg-[#161a1e] text-xs uppercase text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3 font-medium">Pair</th>
+                        <th class="px-4 py-3 font-medium">Entry Price</th>
+                        <th class="px-4 py-3 font-medium text-red-400">Stop Loss</th>
+                        <th class="px-4 py-3 font-medium text-green-400">Take Profit</th>
+                        <th class="px-4 py-3 font-medium text-right">AI Brain</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-[#2a2e39] text-gray-300 mono-font">
+                    {% for trade in active_trades %}
+                    <tr class="hover:bg-[#252a33] transition-colors">
+                        <td class="px-4 py-3 font-bold text-white">{{ trade.symbol }}</td>
+                        <td class="px-4 py-3">{{ trade.entry_price }}</td>
+                        <td class="px-4 py-3">{{ trade.stop_loss }}</td>
+                        <td class="px-4 py-3">{{ trade.take_profit }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <span class="px-2 py-1 rounded text-xs border 
+                                {% if trade.status_color == 'success' %}text-[#00C853] bg-[#00C853]/10 border-[#00C853]/30
+                                {% elif trade.status_color == 'warning' %}text-[#FFD600] bg-[#FFD600]/10 border-[#FFD600]/30
+                                {% else %}text-[#FF3D00] bg-[#FF3D00]/10 border-[#FF3D00]/30{% endif %}">
+                                {{ trade.ai_confidence }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="p-6 text-center text-gray-500 text-sm">
+                No active positions right now. AI is scanning the market...
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="pro-panel p-4 border-l-2 border-red-500/30 flex flex-col">
+        <div class="flex items-center gap-2 mb-3">
+            <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">🧹 AutoPruner Banlist</h3>
+        </div>
+        <p class="text-xs text-gray-500 mb-4">Pairs with Historical Win Rate < 35% are temporarily blocked by Risk Engine.</p>
+        
+        <div class="flex-grow">
+            {% if banned_coins %}
+            <div class="flex flex-wrap gap-2">
+                {% for coin in banned_coins %}
+                    <span class="px-2 py-1 rounded text-xs bg-red-900/20 text-red-400 border border-red-500/20 mono-font">{{ coin }}</span>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="h-full flex items-center justify-center text-xs text-green-500 bg-[#00C853]/10 border border-[#00C853]/20 rounded p-3 text-center">
+                System is profitable across all active pairs!
+            </div>
+            {% endif %}
+        </div>
+        
+        {% if banned_coins %}
+        <div class="mt-4 pt-3 border-t border-[#2a2e39] text-xs text-gray-500 flex justify-between">
+            <span>Total Blocked:</span>
+            <span class="text-white font-bold">{{ banned_count }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+
 <div class="pro-panel overflow-hidden">
     <div class="px-4 py-3 border-b border-[#2a2e39]">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>

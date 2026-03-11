@@ -122,4 +122,43 @@ class TradingAI:
         
         if model is None:
             path = self._get_model_path(symbol)
-            if os.path
+            # 👇 ВИПРАВЛЕНО: Повний блок завантаження або навчання
+            if os.path.exists(path):
+                try:
+                    model = joblib.load(path)
+                    self.loaded_models[symbol] = model
+                except Exception as e:
+                    logger.warning(f"⚠️ Не вдалося завантажити модель {symbol}: {e}")
+                    model = None
+            
+            if model is None and isinstance(data_input, pd.DataFrame):
+                logger.info(f"🧠 Моделі v3 для {symbol} не знайдено. Запускаю термінове навчання...")
+                self.train_model(data_input, symbol)
+                model = self.loaded_models.get(symbol)
+        
+        if model is None:
+            return "HOLD", 0.0
+
+        processed_df = self.prepare_features(data_input) if isinstance(data_input, pd.DataFrame) else pd.DataFrame()
+        if processed_df.empty: 
+            return "HOLD", 0.0
+
+        try:
+            feature_cols = self._get_feature_names()
+            last_row = processed_df[feature_cols].iloc[[-1]]
+            
+            # Якщо згенерувався інший набір фіч (через оновлення) - перенавчаємо
+            if len(feature_cols) != getattr(model, "n_features_in_", len(feature_cols)):
+                logger.warning(f"🔄 Оновлення архітектури фіч для {symbol}. Перенавчаю примусово...")
+                self.train_model(data_input, symbol)
+                model = self.loaded_models.get(symbol)
+                if model is None: return "HOLD", 0.0
+                
+            proba = model.predict_proba(last_row)[0][1]
+
+            signal = "BUY" if proba >= self.CONFIDENCE_THRESHOLD else "HOLD"
+            return signal, float(proba)
+            
+        except Exception as e:
+            logger.error(f"❌ Predict Error {symbol}: {e}")
+            return "HOLD", 0.0

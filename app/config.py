@@ -41,7 +41,7 @@ class Config:
     MODEL_DIR = DATA_DIR / "models"
     LOG_DIR = BASE_DIR / "logs"
     
-    AI_CONFIDENCE_THRESHOLD = 0.72  
+    AI_CONFIDENCE_THRESHOLD = 0.62  
     ADX_THRESHOLD = 20 
 
     MIN_TRAINING_SAMPLES = 500      

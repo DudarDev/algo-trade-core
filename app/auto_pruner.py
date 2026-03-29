@@ -39,7 +39,7 @@ class AutoPruner:
         logger.warning("⚠️ AutoPruner: БД з історією угод не знайдено!")
         return None
 
-    def update_blacklist(self, min_trades: int = 5, min_win_rate: float = 35.0) -> set:
+    def update_blacklist(self, min_trades: int = 10, min_win_rate: float = 15.0) -> set:
         """Аналізує БД і банить монети з низьким Win Rate."""
         if not self.db_path:
             return self.blacklist

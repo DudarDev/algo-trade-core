@@ -1,36 +1,26 @@
 version: '3.8'
 
 services:
-  # --- СЕРВІС 1: ТОРГОВИЙ БОТ (v8.1.0 Safe Mode) ---
-  trading-bot:
+  bot:
     build: .
     container_name: algo_sniper
-    restart: always
+    restart: unless-stopped
+    command: python main.py
+    volumes:
+      - ./logs:/app/logs
+      - ./bot_data:/app/bot_data
     env_file:
       - .env
-    volumes:
-      - ./data:/app/data  # 🟢 Єдина правильна папка для бази
-      - ./logs:/app/logs
-    command: python main.py
-    deploy:
-      resources:
-        limits:
-          cpus: '0.50'
-          memory: 512M
 
-  # --- СЕРВІС 2: WEB DASHBOARD (Django) ---
-  dashboard:
+  web:
     build: .
     container_name: algo_web
-    restart: always
-    env_file:
-      - .env
+    restart: unless-stopped
+    command: python manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data  # 🟢 Django тепер читає ту саму базу, що і бот!
       - ./logs:/app/logs
-    # Застосовуємо міграції та запускаємо сервер при кожному старті
-    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
-    depends_on:
-      - trading-bot
+      - ./bot_data:/app/bot_data
+    env_file:
+      - .env

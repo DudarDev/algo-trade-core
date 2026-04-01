@@ -10,3 +10,6 @@ pandas_ta
 scikit-learn
 joblib
 numpy
+pydantic
+pydantic-settings
+django

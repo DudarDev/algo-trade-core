@@ -1,128 +1,113 @@
-import os
-import sys
 import pandas as pd
-import pandas_ta as ta
+import numpy as np
 import logging
+import time
+from app.ai_brain import GlobalTradingAI
+from app.risk_management import RiskManager, RiskConfig
 
-# Гарантуємо, що Python бачить корінь проекту
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from app.config import Config
-from app.ai_brain import TradingAI
-from app.exchange_manager import ExchangeManager
-
-logging.basicConfig(level=logging.INFO, format='%(message)s')
-logger = logging.getLogger("Backtest")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger("Backtester")
 
 class Backtester:
-    def __init__(self):
-        # 🔥 ФІКС ХАРДКОДУ: Використовуємо ExchangeManager для обходу блокування
+    """Швидкий бектестер для оцінки ефективності AI-моделі та Risk Manager."""
+    
+    def __init__(self, symbol: str, data_path: str, starting_balance: float = 1000.0):
+        self.symbol = symbol
+        self.data_path = data_path
+        self.balance = starting_balance
+        self.ai = GlobalTradingAI()
+        self.risk_manager = RiskManager(RiskConfig(max_risk_pct=2.0, min_risk_reward=1.5))
+        
+    def run(self):
+        logger.info(f"📊 Запуск бектесту для {self.symbol}...")
+        start_time = time.time()
+        
+        # 1. Завантаження та підготовка даних
         try:
-            self.mgr = ExchangeManager("binanceus")
-            self.exchange = self.mgr.exchange
-        except Exception as e:
-            logger.critical(f"🔥 Помилка підключення до біржі: {e}")
-            sys.exit(1)
+            df = pd.read_csv(self.data_path)
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        except FileNotFoundError:
+            logger.error(f"❌ Файл {self.data_path} не знайдено.")
+            return
+
+        df = self.ai.prepare_features(df)
+        if df.empty:
+            logger.error("Недостатньо даних після генерації фіч.")
+            return
+
+        # 2. Векторизоване передбачення (щоб не чекати годинами)
+        logger.info("🧠 AI аналізує історію...")
+        features = df[self.ai.feature_cols]
+        # Отримуємо ймовірності класу "1" (BUY) для всього датасету одразу
+        probabilities = self.ai.model.predict_proba(features)[:, 1]
+        df['ai_prob'] = probabilities
+        logger.info(f'📊 Макс впевненість AI: {df["ai_prob"].max():.4f}')
+        logger.info(f'📊 Сер впевненість AI: {df["ai_prob"].mean():.4f}')
+        
+        # 3. Симуляція торгів
+        in_position = False
+        entry_price = 0.0
+        stop_loss = 0.0
+        take_profit = 0.0
+        position_size = 0.0
+        
+        trades = []
+        
+        for index, row in df.iterrows():
+            current_price = row['close']
             
-        self.ai = TradingAI()
-        self.symbols = Config.SYMBOLS
-        self.timeframe = Config.TIMEFRAME
-        
-        # Завантажуємо параметри з Config
-        self.sl_multiplier = Config.STOP_LOSS_ATR_MULT
-        self.tp_multiplier = Config.TAKE_PROFIT_ATR_MULT
-        self.risk_per_trade = Config.USDT_PER_TRADE
-        self.initial_balance = 1000.0
-
-    def run(self, days=7):
-        # Розрахунок ліміту свічок
-        limit = int(days * 24 * (60 / 5))
-        
-        print(f"\n📊 ЗАПУСК БЕКТЕСТУ (Останні {days} днів)...")
-        print(f"⚙️  Конфіг: SL={self.sl_multiplier}xATR | TP={self.tp_multiplier}xATR | Threshold={Config.AI_CONFIDENCE_THRESHOLD}")
-        print(f"🎯 Фільтри: ADX > 0.20 | RVOL > 1.0 (Sniper Mode)")
-        print("-" * 65)
-        print(f"{'PAIR':<10} | {'TRADES':<6} | {'WIN RATE':<9} | {'PnL (USDT)':<10} | {'FINAL BAL':<10}")
-        print("-" * 65)
-
-        total_pnl = 0
-        
-        for symbol in self.symbols:
-            try:
-                # 1. Завантаження історичних даних
-                ohlcv = self.exchange.fetch_ohlcv(symbol, self.timeframe, limit=limit)
-                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-                
-                # 2. Підготовка AI-фіч (тут розраховується RVOL та ADX)
-                processed_df = self.ai.prepare_features(df)
-                if processed_df.empty: continue
-
-                # Перестраховка: якщо ATR не порахувався в ai_brain, рахуємо тут
-                if 'ATR' not in processed_df.columns:
-                    processed_df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-                
-                balance = self.initial_balance
-                trades_count = 0
-                wins = 0
-                
-                # 3. Основний цикл симуляції
-                # Пропускаємо перші 200 свічок для коректності індикаторів
-                for i in range(200, len(processed_df) - 1):
-                    row = processed_df.iloc[i]
+            # --- ЛОГІКА ВИХОДУ ---
+            if in_position:
+                # Перевіряємо, чи зачепило SL або TP (спрощено по close, в ідеалі по high/low)
+                if row['low'] <= stop_loss:
+                    loss = position_size * ((stop_loss - entry_price) / entry_price)
+                    self.balance += loss
+                    trades.append({'type': 'LOSS', 'pnl': loss, 'balance': self.balance})
+                    in_position = False
                     
-                    # 🔥 SNIPER FILTER:
-                    if row['ADX'] < 0.20 or row['RVOL'] < 1.0: 
-                        continue 
-
-                    # Якщо фільтри пройдені, запитуємо AI
-                    slice_df = df.iloc[:i+1]
-                    signal, conf = self.ai.predict(slice_df, symbol)
-
-                    if signal == "BUY":
-                        entry_price = row['close']
-                        atr = row['ATR']
-                        
-                        # Розрахунок рівнів
-                        sl_price = entry_price - (atr * self.sl_multiplier)
-                        tp_price = entry_price + (atr * self.tp_multiplier)
-                        
-                        outcome = "HOLD"
-                        
-                        # Перевірка майбутнього (Look-forward loop)
-                        for j in range(i + 1, min(i + 60, len(processed_df))):
-                            future_candle = processed_df.iloc[j]
-                            
-                            if future_candle['low'] <= sl_price:
-                                outcome = "LOSS"
-                                break
-                            elif future_candle['high'] >= tp_price:
-                                outcome = "WIN"
-                                break
-                        
-                        if outcome != "HOLD":
-                            trades_count += 1
-                            if outcome == "WIN":
-                                wins += 1
-                                pnl = (self.risk_per_trade / entry_price) * (tp_price - entry_price)
-                                balance += pnl
-                            else:
-                                pnl = (self.risk_per_trade / entry_price) * (entry_price - sl_price)
-                                balance -= abs(pnl)
-
-                # Статистика по парі
-                win_rate = (wins / trades_count * 100) if trades_count > 0 else 0
-                net_pnl = balance - self.initial_balance
-                pnl_str = f"{net_pnl:>10.2f}"
+                elif row['high'] >= take_profit:
+                    profit = position_size * ((take_profit - entry_price) / entry_price)
+                    self.balance += profit
+                    trades.append({'type': 'WIN', 'pnl': profit, 'balance': self.balance})
+                    in_position = False
+                    
+                continue # Якщо в позиції, нові не відкриваємо
                 
-                print(f"{symbol:<10} | {trades_count:<6} | {win_rate:>7.1f}% | {pnl_str} | {balance:>10.2f}")
-                total_pnl += net_pnl
+            # --- ЛОГІКА ВХОДУ ---
+            if row['ai_prob'] >= self.ai.confidence_threshold:
+                trade_params = self.risk_manager.evaluate_trade(
+                    df_row=row, 
+                    entry_price=current_price, 
+                    capital=self.balance,
+                    trade_type='BUY'
+                )
+                
+                if trade_params:
+                    in_position = True
+                    entry_price = trade_params.entry_price
+                    stop_loss = trade_params.stop_loss
+                    take_profit = trade_params.take_profit
+                    position_size = trade_params.position_size_usdt
 
-            except Exception as e:
-                print(f"❌ Error testing {symbol}: {e}")
-
-        print("-" * 65)
-        print(f"💰 ЗАГАЛЬНИЙ PnL: {total_pnl:.2f} USDT")
+        # 4. Розрахунок метрик
+        total_trades = len(trades)
+        winning_trades = len([t for t in trades if t['type'] == 'WIN'])
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+        
+        logger.info("\n" + "="*40)
+        logger.info(f"📈 РЕЗУЛЬТАТИ БЕКТЕСТУ: {self.symbol}")
+        logger.info(f"Час виконання: {time.time() - start_time:.2f} сек")
+        logger.info(f"Початковий баланс: $1000.00")
+        logger.info(f"Кінцевий баланс:   ${self.balance:.2f}")
+        logger.info(f"Чистий прибуток (PnL): ${self.balance - 1000.00:.2f} ({(self.balance - 1000.00)/10:.2f}%)")
+        logger.info(f"Всього угод:       {total_trades}")
+        logger.info(f"Win Rate:          {win_rate:.2f}%")
+        logger.info("="*40 + "\n")
 
 if __name__ == "__main__":
-    tester = Backtester()
-    tester.run()
+    # Тестуємо на BTC та SOL
+    tester_btc = Backtester("BTC/USDT", "app/data/history/BTC_USDT_5m.csv")
+    tester_btc.run()
+    
+    tester_sol = Backtester("SOL/USDT", "app/data/history/SOL_USDT_5m.csv")
+    tester_sol.run()

@@ -5,17 +5,20 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Спочатку копіюємо залежності (щоб кешувати цей крок)
+# Встановлюємо системні залежності для коректної збірки ML-бібліотек
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копіюємо залежності та встановлюємо їх
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-# Додатково ставимо Django, якщо його немає в requirements
-RUN pip install django
 
 # Копіюємо весь код проекту
 COPY . .
 
-# Створюємо папку для бази даних
-RUN mkdir -p bot_data
+# Створюємо папки для логів та баз даних
+RUN mkdir -p logs app/data/models bot_data
 
-# Ця команда буде перезаписана в docker-compose, але хай буде
 CMD ["python", "main.py"]

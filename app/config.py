@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     BINANCE_SECRET_KEY: str = Field(default="", description="Секретний ключ")
     CONFIDENCE_THRESHOLD: float = Field(default=0.35, ge=0.0, le=1.0, description="Поріг AI")
     RISK_REWARD_RATIO: float = Field(default=2.0, ge=1.0, description="R:R")
-    DATABASE_URL: str = Field(default="sqlite:///./algo_bot.db", description="DB URL")
+    DATABASE_URL: str = Field(default="sqlite:////app/data/bot_data.db", description="DB URL")
     LOG_LEVEL: str = Field(default="INFO", description="Log level")
 
     model_config = SettingsConfigDict(

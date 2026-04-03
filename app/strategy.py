@@ -39,9 +39,11 @@ class Strategy:
         required_cols = ['atr', 'ema200', 'adx', 'rsi', 'macd', 'obv']
         if df.empty or not all(col in df.columns for col in required_cols):
             return None, {}
+        
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         is_uptrend = curr['close'] > curr['ema200']
+        
         meta = {
             "price": float(curr['close']),
             "ai_conf": round(ai_confidence, 2),
@@ -50,17 +52,14 @@ class Strategy:
             "adx": round(curr['adx'], 1),
             "trend": "UP" if is_uptrend else "DOWN"
         }
+        
         if in_position:
             return None, meta
-        has_momentum = curr['adx'] > self.adx_threshold 
-        if ai_confidence >= settings.CONFIDENCE_THRESHOLD:
-            if (is_uptrend or ai_confidence > 0.90) and curr['rsi'] < 70:
-                meta['reason'] = f"AI_Sniper(Conf={ai_confidence:.2f})"
-                return "BUY", meta
-        macd_golden_cross = (prev['macd'] < prev['macd_signal']) and (curr['macd'] > curr['macd_signal'])
-        if is_uptrend and has_momentum:
-            if macd_golden_cross and curr['rsi'] < self.rsi_buy_limit:
-                if ai_confidence > 0.40:
-                    meta['reason'] = f"Trend_Pullback(ADX={meta['adx']})"
-                    return "BUY", meta
+            
+        # --- ТИМЧАСОВИЙ БЛОК ДЛЯ ТЕСТУ ДАШБОРДУ ---
+        # Якщо ШІ впевнений хоча б на 0.20 (20%) - купуємо!
+        if ai_confidence >= 0.20:
+            meta['reason'] = f"TEST_TRADE(Conf={ai_confidence:.2f})"
+            return "BUY", meta
+            
         return None, meta

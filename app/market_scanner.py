@@ -9,7 +9,7 @@ class MarketScanner:
         self.mgr = ExchangeManager("binanceus")
         self.exchange = self.mgr.exchange
         
-    def get_top_volatile_pairs(self, limit: int = 10, min_volume: float = 50000.0) -> List[str]:
+    def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 50000.0) -> List[str]:
         """Шукає пари з найбільшою абсолютною волатильністю."""
         logger.info("🔍 [Scanner] Шукаю монети з високою волатильністю...")
         

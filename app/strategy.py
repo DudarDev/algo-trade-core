@@ -10,7 +10,7 @@ class Strategy:
     def __init__(self):
         self.rsi_period: int = 14
         self.rsi_buy_limit: int = 65  
-        self.min_history: int = 200   
+        self.min_history: int = 50    # <--- ЗМІНЕНО НА 50!
         self.adx_threshold: int = 20  
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -18,7 +18,7 @@ class Strategy:
             return pd.DataFrame()
         df = df.copy()
         df['rsi'] = ta.rsi(df['close'], length=self.rsi_period)
-        df['ema200'] = ta.ema(df['close'], length=200)
+        df['ema200'] = ta.ema(df['close'], length=50) # <--- ЗМІНЕНО НА 50!
         macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
         if macd is not None and not macd.empty:
             df['macd'] = macd.iloc[:, 0]        
@@ -57,9 +57,6 @@ class Strategy:
             return None, meta
             
         # --- ТИМЧАСОВИЙ БЛОК ДЛЯ ТЕСТУ ДАШБОРДУ ---
-        # Якщо ШІ впевнений хоча б на 0.20 (20%) - купуємо!
-        if ai_confidence >= 0.20:
-            meta['reason'] = f"TEST_TRADE(Conf={ai_confidence:.2f})"
-            return "BUY", meta
-            
-        return None, meta
+        # КУПУЄМО БЕЗ ЖОДНИХ УМОВ, ПРИМУСОВО!
+        meta['reason'] = f"FORCED_TEST(Conf={ai_confidence:.2f})"
+        return "BUY", meta

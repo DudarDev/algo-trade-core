@@ -10,15 +10,16 @@ class Strategy:
     def __init__(self):
         self.rsi_period: int = 14
         self.rsi_buy_limit: int = 65  
-        self.min_history: int = 200   
+        self.min_history: int = 50    
         self.adx_threshold: int = 20  
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty or len(df) < self.min_history:
+            print(f"🚨 [STRATEGY] Недостатньо свічок! Отримано: {len(df)}, Треба: {self.min_history}")
             return pd.DataFrame()
         df = df.copy()
         df['rsi'] = ta.rsi(df['close'], length=self.rsi_period)
-        df['ema200'] = ta.ema(df['close'], length=200)
+        df['ema200'] = ta.ema(df['close'], length=50) # Тимчасово 50 для тесту
         macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
         if macd is not None and not macd.empty:
             df['macd'] = macd.iloc[:, 0]        
@@ -37,11 +38,17 @@ class Strategy:
 
     def get_signal(self, df: pd.DataFrame, ai_confidence: float, in_position: bool = False) -> Tuple[Optional[Literal["BUY", "SELL"]], Dict]:
         required_cols = ['atr', 'ema200', 'adx', 'rsi', 'macd', 'obv']
+        
+        # --- ДОДАЛИ ПЕРЕВІРКУ СЮДИ ---
         if df.empty or not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            print(f"🚨 [STRATEGY] ПРОБЛЕМА З ДАНИМИ! Пустий df: {df.empty}. Відсутні колонки: {missing}")
             return None, {}
+        
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         is_uptrend = curr['close'] > curr['ema200']
+        
         meta = {
             "price": float(curr['close']),
             "ai_conf": round(ai_confidence, 2),
@@ -50,17 +57,11 @@ class Strategy:
             "adx": round(curr['adx'], 1),
             "trend": "UP" if is_uptrend else "DOWN"
         }
+        
         if in_position:
             return None, meta
-        has_momentum = curr['adx'] > self.adx_threshold 
-        if ai_confidence >= settings.CONFIDENCE_THRESHOLD:
-            if (is_uptrend or ai_confidence > 0.90) and curr['rsi'] < 70:
-                meta['reason'] = f"AI_Sniper(Conf={ai_confidence:.2f})"
-                return "BUY", meta
-        macd_golden_cross = (prev['macd'] < prev['macd_signal']) and (curr['macd'] > curr['macd_signal'])
-        if is_uptrend and has_momentum:
-            if macd_golden_cross and curr['rsi'] < self.rsi_buy_limit:
-                if ai_confidence > 0.40:
-                    meta['reason'] = f"Trend_Pullback(ADX={meta['adx']})"
-                    return "BUY", meta
-        return None, meta
+            
+        # --- ТИМЧАСОВИЙ БЛОК ДЛЯ ТЕСТУ ДАШБОРДУ ---
+        # КУПУЄМО БЕЗ ЖОДНИХ УМОВ, ПРИМУСОВО!
+        meta['reason'] = f"FORCED_TEST(Conf={ai_confidence:.2f})"
+        return "BUY", meta

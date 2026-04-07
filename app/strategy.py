@@ -10,15 +10,16 @@ class Strategy:
     def __init__(self):
         self.rsi_period: int = 14
         self.rsi_buy_limit: int = 65  
-        self.min_history: int = 50    # <--- ЗМІНЕНО НА 50!
+        self.min_history: int = 50    
         self.adx_threshold: int = 20  
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty or len(df) < self.min_history:
+            print(f"🚨 [STRATEGY] Недостатньо свічок! Отримано: {len(df)}, Треба: {self.min_history}")
             return pd.DataFrame()
         df = df.copy()
         df['rsi'] = ta.rsi(df['close'], length=self.rsi_period)
-        df['ema200'] = ta.ema(df['close'], length=50) # <--- ЗМІНЕНО НА 50!
+        df['ema200'] = ta.ema(df['close'], length=50) # Тимчасово 50 для тесту
         macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
         if macd is not None and not macd.empty:
             df['macd'] = macd.iloc[:, 0]        
@@ -37,7 +38,11 @@ class Strategy:
 
     def get_signal(self, df: pd.DataFrame, ai_confidence: float, in_position: bool = False) -> Tuple[Optional[Literal["BUY", "SELL"]], Dict]:
         required_cols = ['atr', 'ema200', 'adx', 'rsi', 'macd', 'obv']
+        
+        # --- ДОДАЛИ ПЕРЕВІРКУ СЮДИ ---
         if df.empty or not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            print(f"🚨 [STRATEGY] ПРОБЛЕМА З ДАНИМИ! Пустий df: {df.empty}. Відсутні колонки: {missing}")
             return None, {}
         
         curr = df.iloc[-1]

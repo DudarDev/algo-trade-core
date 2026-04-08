@@ -8,7 +8,7 @@ services:
     command: python main.py
     volumes:
       - ./logs:/app/logs
-      - ./bot_data:/app/bot_data
+      - ./data:/app/data     # <--- ЗМІНИЛИ ТУТ
     env_file:
       - .env
 
@@ -21,6 +21,6 @@ services:
       - "8000:8000"
     volumes:
       - ./logs:/app/logs
-      - ./bot_data:/app/bot_data
+      - ./data:/app/data     # <--- І ЗМІНИЛИ ТУТ
     env_file:
       - .env

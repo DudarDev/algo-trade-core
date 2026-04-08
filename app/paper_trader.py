@@ -1,4 +1,6 @@
 import logging
+import sqlite3
+from datetime import datetime
 from typing import Dict
 from dataclasses import dataclass
 from app.config import settings
@@ -16,11 +18,55 @@ class Position:
     tp: float
 
 class PaperTrader:
-    """Симулятор торгів (Paper Trading) для перевірки стратегій без ризику."""
+    """Симулятор торгів (Paper Trading) із записом у базу даних для дашборду."""
     def __init__(self, initial_balance: float = 1000.0):
-        self.balance = initial_balance
+        self.db_path = "data/bot_data.db"
         self.positions: Dict[str, Position] = {}
+        
+        # Завантажуємо баланс із бази даних, або створюємо новий
+        self.balance = self._load_balance(initial_balance)
         logger.info(f"💾 Баланс завантажено: {self.balance:.2f} USDT")
+
+    def _execute_db(self, query: str, params: tuple = ()):
+        """Допоміжна функція для запису в базу даних SQLite."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                conn.commit()
+        except Exception as e:
+            logger.error(f"❌ Помилка БД: {e}")
+
+    def _load_balance(self, default_balance: float) -> float:
+        """Читає поточний баланс із бази даних."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT usdt_balance FROM wallet ORDER BY id DESC LIMIT 1")
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+                else:
+                    # Якщо база порожня, записуємо стартовий баланс
+                    cursor.execute("INSERT INTO wallet (usdt_balance) VALUES (?)", (default_balance,))
+                    conn.commit()
+                    return default_balance
+        except Exception:
+            return default_balance
+
+    def _update_db_balance(self):
+        """Оновлює баланс у базі даних."""
+        # Оновлюємо всі записи балансу (зазвичай там один)
+        self._execute_db("UPDATE wallet SET usdt_balance = ?", (self.balance,))
+
+    def _log_trade_to_db(self, symbol: str, side: str, price: float, amount_coins: float, cost: float, pnl: float):
+        """Записує торгову операцію в таблицю trades для відображення на дашборді."""
+        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        query = """
+            INSERT INTO trades (symbol, side, price, amount, cost, pnl, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """
+        self._execute_db(query, (symbol, side, price, amount_coins, cost, pnl, now))
 
     def get_balance(self) -> float:
         return self.balance
@@ -30,11 +76,10 @@ class PaperTrader:
 
     def open_position(self, symbol: str, side: str, amount_usdt: float, price: float, sl: float, tp: float):
         if symbol in self.positions:
-            logger.warning(f"⚠️ Позиція по {symbol} вже відкрита.")
             return
 
         if amount_usdt > self.balance:
-            logger.warning(f"⚠️ Недостатньо коштів для відкриття позиції {symbol}. Баланс: {self.balance:.2f}")
+            logger.warning(f"⚠️ Недостатньо коштів для {symbol}. Баланс: {self.balance:.2f}")
             return
 
         amount_coins = amount_usdt / price
@@ -45,27 +90,23 @@ class PaperTrader:
             amount_usdt=amount_usdt, amount_coins=amount_coins, 
             sl=sl, tp=tp
         )
-        logger.info(f"✅ ВІДКРИТО {side} {symbol} | Ціна: {price:.4f} | Об'єм: {amount_usdt:.2f}$ | SL: {sl:.4f} | TP: {tp:.4f}")
+        
+        # ОНОВЛЮЄМО БАЗУ ДАНИХ
+        self._update_db_balance()
+        self._log_trade_to_db(symbol, side, price, amount_coins, amount_usdt, 0.0)
+        
+        logger.info(f"✅ ВІДКРИТО {side} {symbol} | Ціна: {price:.4f} | Об'єм: {amount_usdt:.2f}$")
 
     def update_position(self, symbol: str, current_price: float):
-        """Оновлює стан позиції, перевіряє перетин SL або TP."""
         if symbol not in self.positions:
             return
 
         pos = self.positions[symbol]
         
-        # Логіка для Long
         if pos.side == "BUY":
             if current_price <= pos.sl:
                 self._close_position(symbol, current_price, "Stop Loss")
             elif current_price >= pos.tp:
-                self._close_position(symbol, current_price, "Take Profit")
-                
-        # Логіка для Short (на майбутнє)
-        elif pos.side == "SELL":
-            if current_price >= pos.sl:
-                self._close_position(symbol, current_price, "Stop Loss")
-            elif current_price <= pos.tp:
                 self._close_position(symbol, current_price, "Take Profit")
 
     def _close_position(self, symbol: str, close_price: float, reason: str):
@@ -78,6 +119,10 @@ class PaperTrader:
 
         return_amount = pos.amount_usdt + pnl
         self.balance += return_amount
+        
+        # ОНОВЛЮЄМО БАЗУ ДАНИХ
+        self._update_db_balance()
+        self._log_trade_to_db(symbol, "SELL", close_price, pos.amount_coins, return_amount, pnl)
         
         emoji = "🟢" if pnl > 0 else "🔴"
         logger.info(f"{emoji} ЗАКРИТО {pos.side} {symbol} ({reason}) | Ціна: {close_price:.4f} | PnL: {pnl:.2f}$ | Баланс: {self.balance:.2f}$")

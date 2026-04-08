@@ -10,7 +10,7 @@ class Strategy:
     def __init__(self):
         self.rsi_period: int = 14
         self.rsi_buy_limit: int = 65  
-        self.min_history: int = 50    # Залишаємо 50, щоб працювало зі стандартним лімітом Binance
+        self.min_history: int = 50
         self.adx_threshold: int = 20  
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -19,7 +19,6 @@ class Strategy:
         
         df = df.copy()
         df['rsi'] = ta.rsi(df['close'], length=self.rsi_period)
-        # Використовуємо 50 періодів, щоб відповідати min_history
         df['ema_fast'] = ta.ema(df['close'], length=50) 
         
         macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
@@ -44,7 +43,6 @@ class Strategy:
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # Логіка тренду: ціна вище середньої
         is_uptrend = curr['close'] > curr['ema_fast']
         
         meta = {
@@ -57,10 +55,14 @@ class Strategy:
         if in_position:
             return None, meta
 
-        # --- ТИМЧАСОВИЙ ТЕСТ ДЛЯ ДАШБОРДУ (КАМІКАДЗЕ) ---
-        # Купуємо абсолютно все, де ШІ видає хоча б 10% впевненості
-        if ai_confidence >= 0.10:
-            meta['reason'] = f"TEST_DASHBOARD(Conf={ai_confidence:.2f})"
+        if ai_confidence >= settings.CONFIDENCE_THRESHOLD:
+            if is_uptrend and curr['rsi'] < 70:
+                meta['reason'] = f"AI_Sniper(Conf={ai_confidence:.2f})"
+                return "BUY", meta
+
+        macd_cross = (prev['macd'] < prev['macd_signal']) and (curr['macd'] > curr['macd_signal'])
+        if macd_cross and is_uptrend and ai_confidence > 0.45:
+            meta['reason'] = "MACD_Bullish_AI_Confirmed"
             return "BUY", meta
             
         return None, meta

@@ -78,24 +78,31 @@ class PaperTrader:
         if symbol in self.positions:
             return
 
-        if amount_usdt > self.balance:
-            logger.warning(f"⚠️ Недостатньо коштів для {symbol}. Баланс: {self.balance:.2f}")
+        # РИЗИК-МЕНЕДЖМЕНТ: Беремо 20% від загального балансу (або залишок, якщо його менше)
+        trade_fraction = 0.20
+        max_trade_amount = 1000.0 * trade_fraction # 1000.0 - це базовий депозит, щоб завжди брати $200
+        
+        # Захист: якщо на балансі менше $200, беремо все що є
+        actual_amount = min(max_trade_amount, self.balance * 0.98)
+
+        if actual_amount < 10.0: # Захист від відкриття мікро-угод
+            logger.warning(f"⚠️ Недостатньо коштів для {symbol}. Потрібно мін $10, є: {self.balance:.2f}")
             return
 
-        amount_coins = amount_usdt / price
-        self.balance -= amount_usdt
+        amount_coins = actual_amount / price
+        self.balance -= actual_amount
         
         self.positions[symbol] = Position(
             symbol=symbol, side=side, entry_price=price, 
-            amount_usdt=amount_usdt, amount_coins=amount_coins, 
+            amount_usdt=actual_amount, amount_coins=amount_coins, 
             sl=sl, tp=tp
         )
         
         # ОНОВЛЮЄМО БАЗУ ДАНИХ
         self._update_db_balance()
-        self._log_trade_to_db(symbol, side, price, amount_coins, amount_usdt, 0.0)
+        self._log_trade_to_db(symbol, side, price, amount_coins, actual_amount, 0.0)
         
-        logger.info(f"✅ ВІДКРИТО {side} {symbol} | Ціна: {price:.4f} | Об'єм: {amount_usdt:.2f}$")
+        logger.info(f"✅ ВІДКРИТО {side} {symbol} | Ціна: {price:.4f} | Об'єм: {actual_amount:.2f}$")
 
     def update_position(self, symbol: str, current_price: float):
         if symbol not in self.positions:

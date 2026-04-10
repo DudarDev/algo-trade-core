@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 class MarketScanner:
     def __init__(self):
-        self.mgr = ExchangeManager("binanceus")
+        self.mgr = ExchangeManager("kraken") # Гарантуємо, що тут Kraken
         self.exchange = self.mgr.exchange
         
     def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 1000.0) -> List[str]:
@@ -17,8 +17,15 @@ class MarketScanner:
             tickers = self.exchange.fetch_tickers()
             pairs_data = []
             
+            stablecoins = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USD']
+            
             for symbol, data in tickers.items():
                 if '/USDT' not in symbol and '/USD' not in symbol: 
+                    continue
+                
+                # ФІЛЬТР: Відкидаємо стейблкоїни (напр. USDT/USD)
+                base_coin = symbol.split('/')[0]
+                if base_coin in stablecoins:
                     continue
                 
                 quote_vol = data.get('quoteVolume', 0.0)

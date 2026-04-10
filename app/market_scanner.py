@@ -18,7 +18,7 @@ class MarketScanner:
             pairs_data = []
             
             for symbol, data in tickers.items():
-                if '/USDT' not in symbol: 
+                if '/USDT' not in symbol and '/USD' not in symbol: 
                     continue
                 
                 quote_vol = data.get('quoteVolume', 0.0)

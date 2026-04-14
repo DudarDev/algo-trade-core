@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict
 from dataclasses import dataclass
 from app.config import settings
+from app.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +18,17 @@ class Position:
     amount_coins: float
     sl: float
     tp: float
-    entry_time: float = 0.0      # Час відкриття позиції
-    highest_price: float = 0.0   # Найвища ціна для трейлінг-стопу
+    entry_time: float = 0.0
+    highest_price: float = 0.0
 
 class PaperTrader:
-    """Симулятор торгів із динамічним ризик-менеджментом та трейлінг-стопом."""
     def __init__(self, initial_balance: float = 1000.0):
         self.db_path = "data/bot_data.db"
         self.positions: Dict[str, Position] = {}
+        self.notifier = TelegramNotifier()
         self.balance = self._load_balance(initial_balance)
         logger.info(f"💾 Баланс завантажено: {self.balance:.2f} USDT")
+        self.notifier.send_message(f"🤖 <b>Бот Успішно Запущений!</b>\n💰 Поточний баланс: <b>{self.balance:.2f} USDT</b>")
 
     def _execute_db(self, query: str, params: tuple = ()):
         try:
@@ -43,7 +45,6 @@ class PaperTrader:
                 cursor = conn.cursor()
                 cursor.execute("CREATE TABLE IF NOT EXISTS wallet (id INTEGER PRIMARY KEY AUTOINCREMENT, usdt_balance REAL)")
                 cursor.execute("CREATE TABLE IF NOT EXISTS trades (id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT, side TEXT, price REAL, amount REAL, cost REAL, pnl REAL, timestamp TEXT)")
-                
                 cursor.execute("SELECT usdt_balance FROM wallet ORDER BY id DESC LIMIT 1")
                 row = cursor.fetchone()
                 if row:
@@ -93,46 +94,34 @@ class PaperTrader:
         self._update_db_balance()
         self._log_trade_to_db(symbol, side, price, amount_coins, actual_amount, 0.0)
         
+        msg = f"🟢 <b>BUY {symbol}</b>\n💵 Ціна: {price:.4f}\n🎯 TP: {tp:.4f}\n🛑 SL: {sl:.4f}"
+        self.notifier.send_message(msg)
         logger.info(f"✅ ВІДКРИТО {side} {symbol} | Ціна: {price:.4f} | Об'єм: {actual_amount:.2f}$")
 
     def update_position(self, symbol: str, current_price: float):
         if symbol not in self.positions:
             return
-
         pos = self.positions[symbol]
-        
         if pos.side == "BUY":
-            # 1. Трейлінг-стоп (Оновлюємо хай)
             if current_price > pos.highest_price:
                 pos.highest_price = current_price
-                
-            # Якщо ми в плюсі на 2%, тягнемо стоп-лос в беззбиток (+1%)
             activation_price = pos.entry_price * 1.02
             if pos.highest_price >= activation_price:
-                new_sl = pos.highest_price * 0.99 # Стоп на 1% нижче від піку
+                new_sl = pos.highest_price * 0.99
                 if new_sl > pos.sl:
                     pos.sl = new_sl
-                    logger.info(f"🛡️ Trailing Stop для {symbol} пересунуто на {pos.sl:.4f}")
-
-            # 2. Звичайний вихід по SL / TP
             if current_price <= pos.sl:
-                reason = "Trailing Stop" if pos.sl > pos.entry_price else "Stop Loss"
+                reason = "Trailing Stop 🛡️" if pos.sl > pos.entry_price else "Stop Loss 🛑"
                 self._close_position(symbol, current_price, reason)
             elif current_price >= pos.tp:
-                self._close_position(symbol, current_price, "Take Profit")
+                self._close_position(symbol, current_price, "Take Profit 🎯")
             else:
-                # 3. Тайм-аут: Закриваємо угоду, якщо вона висить понад 2 години
                 if (time.time() - pos.entry_time) > 7200:
-                    self._close_position(symbol, current_price, "Тайм-аут (2 год)")
+                    self._close_position(symbol, current_price, "Тайм-аут (2 год) ⏳")
 
     def _close_position(self, symbol: str, close_price: float, reason: str):
         pos = self.positions.pop(symbol)
-        
-        if pos.side == "BUY":
-            pnl = (close_price - pos.entry_price) * pos.amount_coins
-        else:
-            pnl = (pos.entry_price - close_price) * pos.amount_coins
-
+        pnl = (close_price - pos.entry_price) * pos.amount_coins
         return_amount = pos.amount_usdt + pnl
         self.balance += return_amount
         
@@ -140,4 +129,6 @@ class PaperTrader:
         self._log_trade_to_db(symbol, "SELL", close_price, pos.amount_coins, return_amount, pnl)
         
         emoji = "🟢" if pnl > 0 else "🔴"
+        msg = f"{emoji} <b>SELL {symbol}</b>\nПричина: {reason}\nPnL: {pnl:.2f}$\n💼 Баланс: {self.balance:.2f} USDT"
+        self.notifier.send_message(msg)
         logger.info(f"{emoji} ЗАКРИТО {pos.side} {symbol} ({reason}) | PnL: {pnl:.2f}$ | Баланс: {self.balance:.2f}$")

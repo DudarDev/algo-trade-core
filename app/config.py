@@ -17,5 +17,6 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"  # Ось ця магічна лінія врятує нас від помилок!
 
 settings = Settings()

@@ -14,9 +14,10 @@ class Settings(BaseSettings):
     TIMEFRAME: str = "5m"
     CONFIDENCE_THRESHOLD: float = 0.30
     MIN_R_R_RATIO: float = 1.5
+    RISK_REWARD_RATIO: float = 1.5  # Додаємо це для risk_management.py
 
     class Config:
         env_file = ".env"
-        extra = "ignore"  # Ось ця магічна лінія врятує нас від помилок!
+        extra = "ignore"
 
 settings = Settings()

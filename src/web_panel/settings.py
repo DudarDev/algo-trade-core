@@ -1,14 +1,16 @@
 from pathlib import Path
 import os
 
+# BASE_DIR тепер вказує на папку src/
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = 'django-insecure-update-me'
+# PROJECT_ROOT вказує на корінь проєкту (algo-trade-core)
+PROJECT_ROOT = BASE_DIR.parent 
+
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-update-me')
 DEBUG = True
 ALLOWED_HOSTS = ['*']
 
-# --- ВИПРАВЛЕННЯ ДЛЯ CLOUD SHELL ---
 CSRF_TRUSTED_ORIGINS = ['https://*.cloudshell.dev']
-# -----------------------------------
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -17,8 +19,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'bot_monitor',
-    'app', # <--- ДОДАНО: Тепер Django бачить папку app
+    'bot_monitor', # Наш єдиний актуальний додаток
+    # Папку 'app' видалено, бо її більше не існує
 ]
 
 MIDDLEWARE = [
@@ -36,8 +38,8 @@ ROOT_URLCONF = 'web_panel.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        # ДОДАНО: Явно вказуємо шлях до глобальних шаблонів
-        'DIRS': [BASE_DIR / 'app' / 'templates'], 
+        # Прибрали старий шлях до 'app'. APP_DIRS=True сам знайде шаблони у bot_monitor
+        'DIRS': [], 
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -55,15 +57,9 @@ WSGI_APPLICATION = 'web_panel.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        # Використовуємо абсолютний шлях, який точно існує
-        'NAME': '/app/data/bot_data.db',
+        # ВИПРАВЛЕНО: Тепер Django шукає базу в правильній папці нової архітектури
+        'NAME': PROJECT_ROOT / 'data_storage' / 'bot_data.db',
     }
 }
 
-AUTH_PASSWORD_VALIDATORS = []
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
-USE_I18N = True
-USE_TZ = True
-STATIC_URL = 'static/'
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# ... (все інше нижче, починаючи з AUTH_PASSWORD_VALIDATORS, залишай як було)

@@ -1,12 +1,25 @@
 import time
 import logging
-from app.exchange_manager import ExchangeManager
-from app.market_scanner import MarketScanner
-from app.strategy import Strategy
-from app.ai_brain import GlobalTradingAI
-from app.risk_management import RiskManager, RiskConfig
-from app.paper_trader import PaperTrader
+import asyncio
+from typing import List
 
+# ==========================================
+# 1. ІМПОРТИ НОВОЇ АРХІТЕКТУРИ
+# ==========================================
+from src.shared.config import settings
+from src.shared.db.session import SessionLocal
+from src.shared.db.repositories import TradingRepository
+
+from src.engine.infrastructure.telegram_notifier import TelegramNotifier
+from src.engine.infrastructure.exchange_manager import ExchangeManager
+from src.engine.infrastructure.market_scanner import MarketScanner
+
+from src.engine.application.ai_brain import GlobalTradingAI
+from src.engine.application.strategy import HybridStrategy
+from src.engine.application.risk_management import RiskManager, RiskConfig
+from src.engine.application.paper_trader import PaperTrader
+
+# Налаштування логування
 logging.basicConfig(
     level=logging.INFO, 
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
@@ -14,88 +27,181 @@ logging.basicConfig(
 logger = logging.getLogger("Main")
 
 class CryptoBot:
-    def __init__(self):
-        logger.info("🚀 Ініціалізація Quantum Scalper Core...")
+    """Головний Оркестратор Бота (Trading Loop)"""
+    
+    def __init__(
+        self,
+        exchange: ExchangeManager,
+        scanner: MarketScanner,
+        ai: GlobalTradingAI,
+        strategy: HybridStrategy,
+        risk_manager: RiskManager,
+        trader: PaperTrader
+    ):
+        logger.info("🚀 Ініціалізація Quantum Scalper Core (Senior Async Edition)...")
         
-        # Ініціалізація інфраструктури
-        self.exchange = ExchangeManager() 
-        self.scanner = MarketScanner()  # ВИПРАВЛЕНО: без аргументів
+        # 💉 Dependency Injection
+        self.exchange = exchange 
+        self.scanner = scanner  
+        self.ai = ai
+        self.strategy = strategy
+        self.risk_manager = risk_manager
+        self.trader = trader
         
-        # Ініціалізація Quant-модулів
-        self.strategy = Strategy()
-        self.ai = GlobalTradingAI()
-        self.risk_manager = RiskManager(RiskConfig(max_risk_pct=2.0, min_risk_reward=1.5))
-        
-        # Ініціалізація симулятора торгів
-        self.trader = PaperTrader(initial_balance=1000.0)
+        # 🛡️ Семафор для захисту CPU від перенавантаження Pandas/Sklearn
+        self.concurrency_limit = asyncio.Semaphore(5)
 
-    def run_cycle(self):
+    async def setup(self):
+        """Асинхронна підготовка (відновлення стану з БД)."""
+        await self.trader.initialize()
+
+    async def cleanup(self):
+        """Коректне закриття з'єднань при зупинці бота."""
+        logger.info("🧹 Очищення ресурсів...")
+        await self.exchange.close()
+
+    async def process_pair(self, symbol: str):
+        """Асинхронний конвеєр обробки однієї торгової пари під захистом семафора."""
+        async with self.concurrency_limit:
+            try:
+                # 1. Отримуємо сирі дані з біржі
+                df = await self.exchange.fetch_data(symbol, timeframe=settings.TIMEFRAME, limit=100)
+                if df is None or df.empty:
+                    return
+
+                # 2. Перевіряємо відкриті позиції (Трейлінг стоп)
+                if symbol in self.trader.positions:
+                    await self.trader.update_position(symbol, df.iloc[-1]['close'])
+                    return 
+                
+                # 3. Генерація фіч (в окремому потоці, щоб не блокувати Event Loop)
+                df_features = await asyncio.to_thread(self.ai.prepare_features, df)
+                if df_features.empty:
+                    return
+                    
+                # 4. Прогноз ШІ
+                ai_signal, confidence = await asyncio.to_thread(self.ai.predict, df)
+                
+                # 5. Валідація класичним Технічним Аналізом (Гібридна Стратегія)
+                final_signal, meta = self.strategy.get_signal(
+                    df=df_features, 
+                    ai_confidence=confidence, 
+                    in_position=(symbol in self.trader.positions)
+                )
+                
+                # 6. Управління ризиками та відкриття ордера
+                if final_signal == "BUY":
+                    current_price = float(df_features.iloc[-1]['close'])
+                    current_atr = float(df_features.iloc[-1]['ATR'])
+                    current_balance = self.trader.balance 
+                    
+                    trade_params = self.risk_manager.evaluate_trade(
+                        entry_price=current_price, 
+                        atr=current_atr,
+                        capital=current_balance,
+                        trade_type='BUY'
+                    )
+                    
+                    if trade_params:
+                        reason = meta.get('reason', 'AI_Signal')
+                        logger.info(f"🔥 ВХІД: {symbol} | Conf: {confidence:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason}")
+                        
+                        await self.trader.open_position(
+                            symbol=symbol,
+                            side="BUY",
+                            price=trade_params.entry_price,
+                            sl=trade_params.stop_loss,
+                            tp=trade_params.take_profit
+                        )
+
+            except Exception as e:
+                logger.error(f"❌ Помилка обробки {symbol}: {e}", exc_info=True)
+
+    async def run_cycle(self):
+        """Один повний цикл опитування ринку."""
         logger.info("📡 Пошук волатильних пар...")
-        # ВИПРАВЛЕНО: правильна назва методу
-        active_pairs = self.scanner.get_top_volatile_pairs(min_volume=500_000)
+        active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=500_000)
         
         if not active_pairs:
             logger.warning("⚠️ Ринок неліквідний. Чекаю...")
             return
 
-        for symbol in active_pairs:
-            try:
-                # 1. Отримуємо сирі дані
-                df = self.exchange.fetch_data(symbol, timeframe='5m', limit=100)
-                if df is None or df.empty:
-                    continue
-                    
-                # 2. Перевіряємо відкриті позиції
-                if self.trader.has_open_position(symbol):
-                    self.trader.update_position(symbol, df.iloc[-1]['close'])
-                    continue
-                
-                # 3. Генерація фіч (потрібна для отримання ATR для Risk Manager)
-                df_features = self.ai.prepare_features(df)
-                if df_features.empty:
-                    continue
-                    
-                # 4. Прогноз AI (ВИПРАВЛЕНО: передаємо сирий df, як очікує метод)
-                signal, confidence = self.ai.predict(df)
-                
-                # 5. Фільтрація через Risk Management
-                if signal == "BUY":
-                    current_price = df_features.iloc[-1]['close']
-                    trade_params = self.risk_manager.evaluate_trade(
-                        df_row=df_features.iloc[-1], # Містить ATR для розрахунку стопів
-                        entry_price=current_price, 
-                        capital=self.trader.get_balance(),
-                        trade_type='BUY'
-                    )
-                    
-                    # 6. Відкриття ордера
-                    if trade_params:
-                        logger.info(f"🔥 ВХІД: {symbol} | Conf: {confidence:.2f} | R:R: {trade_params.risk_reward_ratio:.2f}")
-                        self.trader.open_position(
-                            symbol=symbol,
-                            side="BUY",
-                            amount_usdt=trade_params.position_size_usdt,
-                            price=trade_params.entry_price,
-                            sl=trade_params.stop_loss,
-                            tp=trade_params.take_profit
-                        )
-            except Exception as e:
-                logger.error(f"❌ Помилка обробки {symbol}: {e}", exc_info=True)
+        logger.info(f"📊 Обчислення {len(active_pairs)} пар (Max 5 паралельно)...")
+        tasks = [self.process_pair(symbol) for symbol in active_pairs]
+        await asyncio.gather(*tasks)
+        
+        logger.info("✅ Цикл завершено.")
 
-    def start(self):
-        logger.info("🟢 Бот запущено!")
+    async def start(self):
+        """Головний нескінченний цикл."""
+        logger.info("🟢 Бот успішно стартував і готовий до роботи!")
         while True:
             try:
-                self.run_cycle()
-                logger.info("💤 Очікування наступного циклу (5хв)...")
-                time.sleep(300)
-            except KeyboardInterrupt:
-                logger.info("🛑 Зупинка бота користувачем.")
+                start_time = time.time()
+                await self.run_cycle()
+                
+                elapsed = time.time() - start_time
+                sleep_time = max(0, 300 - elapsed) # 5 хвилин між циклами
+                
+                logger.info(f"💤 Очікування наступного циклу ({sleep_time:.1f}с)...")
+                await asyncio.sleep(sleep_time)
+                
+            except asyncio.CancelledError:
+                logger.info("🛑 Отримано сигнал зупинки бота...")
                 break
             except Exception as e:
                 logger.error(f"❌ Критична помилка у головному циклі: {e}", exc_info=True)
-                time.sleep(60)
+                await asyncio.sleep(60)
+
+# ==========================================
+# 🏗️ COMPOSITION ROOT (Місце зборки бота)
+# ==========================================
+async def main():
+    # 1. Ініціалізуємо БД
+    db_session = SessionLocal()
+    repo = TradingRepository(session=db_session)
+    
+    # 2. Інфраструктура
+    notifier = TelegramNotifier() if settings.ENABLE_TELEGRAM else None
+    exchange = ExchangeManager(settings=settings)
+    scanner = MarketScanner(exchange_manager=exchange)
+    
+    # 3. Бізнес-логіка (AI, Стратегія, Ризики)
+    ai = GlobalTradingAI(settings=settings)
+    strategy = HybridStrategy(settings=settings)
+    
+    risk_config = RiskConfig(
+        max_risk_pct=2.0, 
+        min_risk_reward=settings.RISK_REWARD_RATIO
+    )
+    risk_manager = RiskManager(config=risk_config)
+    
+    # 4. Трейдер
+    trader = PaperTrader(
+        settings=settings,
+        repo=repo,
+        notifier=notifier
+    )
+    
+    # 5. Ін'єкція залежностей в Оркестратор
+    bot = CryptoBot(
+        exchange=exchange,
+        scanner=scanner,
+        ai=ai,
+        strategy=strategy,
+        risk_manager=risk_manager,
+        trader=trader
+    )
+    
+    try:
+        await bot.setup() 
+        await bot.start() 
+    finally:
+        await bot.cleanup()
+        db_session.close()
 
 if __name__ == "__main__":
-    bot = CryptoBot()
-    bot.start()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("👋 Бот вимкнений користувачем (KeyboardInterrupt).")

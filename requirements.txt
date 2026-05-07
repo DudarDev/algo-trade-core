@@ -1,15 +1,30 @@
+# --- Core Trading & Data ---
 ccxt
 pandas
-python-dotenv
-schedule
-colorama
-matplotlib
-requests
-pyTelegramBotAPI
+numpy
 pandas_ta
+
+# --- Machine Learning ---
 scikit-learn
 joblib
-numpy
+
+# --- Async Infrastructure (New) ---
+aiosqlite
+aiohttp
+
+# --- Web Panel ---
+django
+
+# --- Config & Utils ---
 pydantic
 pydantic-settings
-django
+python-dotenv
+colorama
+
+# --- Notifications ---
+requests
+pyTelegramBotAPI
+
+# --- Misc ---
+schedule
+matplotlib

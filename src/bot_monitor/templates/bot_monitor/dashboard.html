@@ -16,7 +16,7 @@
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
-        <div class="text-2xl font-bold text-white mono-font">${{ balance }}</div>
+        <div class="text-2xl font-bold text-white mono-font" id="display-balance">${{ balance }}</div>
         <div class="text-xs text-green-500 mt-2">USDT Wallet</div>
     </div>
 
@@ -45,6 +45,22 @@
     </div>
 </div>
 
+<div class="pro-panel p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-4">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">System Control</h3>
+        <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400">
+            CHECKING...
+        </div>
+    </div>
+    <div class="flex gap-3">
+        <button onclick="controlBot('start')" id="btn-start" class="px-6 py-2 bg-[#00C853] hover:bg-[#00E676] text-black font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            START TRADING
+        </button>
+        <button onclick="controlBot('stop')" id="btn-stop" class="px-6 py-2 bg-[#FF3D00] hover:bg-[#FF6E40] text-white font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            STOP BOT
+        </button>
+    </div>
+</div>
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
     <div class="pro-panel p-4 border-l-2 border-red-500/30">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Max Drawdown</div>
@@ -296,6 +312,78 @@
         };
 
         new Chart(ctx, chartConfig);
+    });
+
+    // ДОДАНО: Скрипт для зв'язку з FastAPI
+    // Важливо: за потреби зміни URL на свій публічний
+    const API_BASE = "https://8080-cs-1033101337160-default.cs-europe-west4-fycr.cloudshell.dev";
+
+    async function updateBotStatus() {
+        try {
+            const response = await fetch(`${API_BASE}/api/v1/bot/status`);
+            if (!response.ok) throw new Error('API Error');
+            const data = await response.json();
+            
+            const badge = document.getElementById('bot-status-badge');
+            const btnStart = document.getElementById('btn-start');
+            const btnStop = document.getElementById('btn-stop');
+
+            if (data.status === "online") {
+                badge.innerText = "RUNNING";
+                badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30";
+                btnStart.disabled = true;
+                btnStop.disabled = false;
+            } else {
+                badge.innerText = "OFFLINE";
+                badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-red-900/20 text-red-400 border border-red-500/30";
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+            }
+
+            // Оновлюємо баланс
+            const balanceEl = document.getElementById('display-balance');
+            if (balanceEl) balanceEl.innerText = `$${data.balance}`;
+
+        } catch (error) {
+            console.error("Помилка отримання статусу:", error);
+            const badge = document.getElementById('bot-status-badge');
+            if(badge) {
+                badge.innerText = "ERROR / DISCONNECTED";
+                badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-gray-900/50 text-gray-500 border border-gray-700";
+            }
+        }
+    }
+
+    async function controlBot(action) {
+        const btn = action === 'start' ? document.getElementById('btn-start') : document.getElementById('btn-stop');
+        const originalText = btn.innerText;
+        btn.innerText = "WAIT...";
+        btn.disabled = true;
+
+        try {
+            const response = await fetch(`${API_BASE}/api/v1/bot/${action}`, { method: 'POST' });
+            const data = await response.json();
+            
+            // Створюємо гарне сповіщення замість звичайного alert
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 p-4 rounded shadow-lg text-white font-bold z-50 ${action === 'start' ? 'bg-[#00C853]' : 'bg-[#FF3D00]'}`;
+            notification.innerText = data.message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => notification.remove(), 3000);
+
+        } catch (error) {
+            alert("Помилка зв'язку з сервером бота. Перевірте CORS.");
+        } finally {
+            btn.innerText = originalText;
+            updateBotStatus();
+        }
+    }
+
+    // Запускаємо перевірку статусу після завантаження сторінки
+    document.addEventListener('DOMContentLoaded', () => {
+        updateBotStatus();
+        setInterval(updateBotStatus, 5000); // Оновлювати кожні 5 секунд
     });
 </script>
 {% endblock %}

@@ -1,8 +1,6 @@
 import logging
 from typing import Optional, Literal
 from dataclasses import dataclass
-import pandas as pd
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +8,7 @@ logger = logging.getLogger(__name__)
 class RiskConfig:
     """Конфігурація ризик-менеджменту."""
     taker_fee: float = 0.001          
-    min_risk_reward: float = settings.RISK_REWARD_RATIO # Синхронізація з глобальним конфігом
+    min_risk_reward: float = 1.5 
     max_risk_pct: float = 2.0         
     atr_multiplier: float = 1.5       
 
@@ -27,23 +25,23 @@ class TradeParameters:
 class RiskManager:
     """Головний клас для оцінки угод та розрахунку ризиків."""
     
-    def __init__(self, config: Optional[RiskConfig] = None):
-        self.config = config or RiskConfig()
+    def __init__(self, config: RiskConfig):
+        # 💉 DI: Конфіг завжди передається ззовні (з main.py)
+        self.config = config
 
     def evaluate_trade(
         self, 
-        df_row: pd.Series, 
         entry_price: float, 
+        atr: float, # ✅ Приймаємо просто число, ніяких pd.Series
         capital: float, 
         trade_type: Literal['BUY', 'SELL'] = 'BUY'
     ) -> Optional[TradeParameters]:
         """Розраховує SL/TP, розмір позиції та валідує угоду."""
         
-        if 'ATR' not in df_row or pd.isna(df_row['ATR']) or df_row['ATR'] <= 0:
-            logger.warning("⚠️ Відсутній або некоректний ATR. Відміна розрахунку ризиків.")
+        if atr <= 0:
+            logger.warning("⚠️ Некоректний ATR (<= 0). Відміна розрахунку ризиків.")
             return None
 
-        atr = float(df_row['ATR'])
         stop_loss_dist = atr * self.config.atr_multiplier
         fee_impact = entry_price * (self.config.taker_fee * 2) 
         
@@ -59,6 +57,7 @@ class RiskManager:
             logger.error(f"❌ Невідомий тип угоди: {trade_type}.")
             return None
 
+        # Максимальний збиток у доларах, який ми готові понести
         max_loss_usdt = capital * (self.config.max_risk_pct / 100) 
         risk_per_coin = abs(entry_price - stop_loss)
         
@@ -68,6 +67,7 @@ class RiskManager:
         position_size_coins = max_loss_usdt / risk_per_coin
         position_size_usdt = position_size_coins * entry_price
 
+        # Перевірка на нестачу маржі
         if position_size_usdt > capital:
             logger.debug("Об'єм позиції перевищує капітал. Використовуємо 98% від доступного.")
             position_size_usdt = capital * 0.98
@@ -81,8 +81,8 @@ class RiskManager:
         return TradeParameters(
             trade_type=trade_type,
             entry_price=entry_price,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-            position_size_usdt=position_size_usdt,
+            stop_loss=round(stop_loss, 4),
+            take_profit=round(take_profit, 4),
+            position_size_usdt=round(position_size_usdt, 2),
             risk_reward_ratio=round(rr_ratio, 2)
         )

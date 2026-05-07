@@ -1,32 +1,38 @@
+# --- СЕКРЕТИ (Найважливіше!) ---
+.env
+.env.*
+! .env.example
+
 # --- Python сміття (кеш) ---
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+
+# --- Дані, Логи та Моделі ШІ (Нова архітектура) ---
+data_storage/
+logs/
+*.sqlite
+*.sqlite3
+*.db
 
 # --- Віртуальні середовища ---
 venv/
 env/
 .venv/
-.env_test/
+Pipfile.lock
+poetry.lock
 
-# --- СЕКРЕТИ (Найважливіше!) ---
-.env
-.env.local
-config/secrets.json
+# --- Звіти, графіки та бектести ---
+*.png
+*.jpg
+*.pdf
+htmlcov/
+.pytest_cache/
 
-# --- Логи та бази даних ---
-*.log
-*.sqlite
-data/trades_history.csv
-
-# --- Картинки (можна не зберігати історію графіків) ---
-data/trading_chart.png
-
-# --- Операційні системи ---
-.DS_Store
-Thumbs.db
-
-# --- Налаштування редакторів ---
+# --- Налаштування редакторів та ОС ---
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
 bot_deploy.tar.gz

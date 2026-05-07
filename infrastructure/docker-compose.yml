@@ -1,26 +1,33 @@
 version: '3.8'
 
 services:
-  bot:
-    build: .
-    container_name: algo_sniper
+  engine:
+    build:
+      context: ../  # Контекст збірки — корінь проєкту
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    container_name: algo_engine
     restart: unless-stopped
     command: python main.py
     volumes:
-      - ./logs:/app/logs
-      - ./data:/app/data     # <--- ЗМІНИЛИ ТУТ
+      # Правильні шляхи до нової структури
+      - ../logs:/app/logs
+      - ../data_storage:/app/data_storage
     env_file:
-      - .env
+      - ../.env
 
-  web:
-    build: .
+  web_panel:
+    build:
+      context: ../
+      dockerfile: infrastructure/docker/engine.Dockerfile
     container_name: algo_web
     restart: unless-stopped
-    command: python manage.py runserver 0.0.0.0:8000
+    # Використовуємо Gunicorn для Production замість runserver
+    # (Переконайся, що gunicorn є у твоєму requirements.txt)
+    command: gunicorn src.web_panel.wsgi:application --bind 0.0.0.0:8000 --workers 3
     ports:
       - "8000:8000"
     volumes:
-      - ./logs:/app/logs
-      - ./data:/app/data     # <--- І ЗМІНИЛИ ТУТ
+      - ../logs:/app/logs
+      - ../data_storage:/app/data_storage
     env_file:
-      - .env
+      - ../.env

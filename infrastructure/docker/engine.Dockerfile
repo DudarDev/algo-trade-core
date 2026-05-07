@@ -1,7 +1,10 @@
+# Використовуємо офіційний легкий образ Python
 FROM python:3.12-slim
 
-# Вимикаємо буферизацію (щоб логи було видно одразу)
-ENV PYTHONUNBUFFERED=1
+# Вимикаємо буферизацію логів та генерацію .pyc файлів
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
 
 WORKDIR /app
 
@@ -11,14 +14,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Копіюємо залежності та встановлюємо їх
+# Спочатку копіюємо requirements.txt для кешування шару Docker
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копіюємо весь код проекту
+# Копіюємо весь код проєкту
 COPY . .
 
-# Створюємо папки для логів та баз даних
-RUN mkdir -p logs app/data/models bot_data
+# Створюємо правильні папки для нової архітектури
+RUN mkdir -p logs data_storage/models data_storage/history
 
+# Запуск оркестратора
 CMD ["python", "main.py"]

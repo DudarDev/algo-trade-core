@@ -5,6 +5,7 @@ import joblib
 import logging
 from typing import Tuple, Optional, List
 from sklearn.calibration import CalibratedClassifierCV
+from pathlib import Path
 
 from src.shared.config import Settings
 
@@ -15,8 +16,12 @@ class GlobalTradingAI:
     
     def __init__(self, settings: Settings):
         self.settings = settings
-        # Шлях до моделі тепер береться з конфігу або вказується відносно нової структури
-        self.model_path = "data_storage/models/global_rf_v4.pkl"
+        
+        # 🛡️ БЕЗПЕЧНИЙ АБСОЛЮТНИЙ ШЛЯХ
+        # Знаходимо корінь проєкту (піднімаємося на 3 рівні вгору від ai_brain.py: application -> engine -> src -> algo-trade-core)
+        BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+        self.model_path = BASE_DIR / "data_storage" / "models" / "global_rf_v4.pkl"
+        
         self.confidence_threshold = self.settings.CONFIDENCE_THRESHOLD 
         
         self.model: Optional[CalibratedClassifierCV] = self._load_model()

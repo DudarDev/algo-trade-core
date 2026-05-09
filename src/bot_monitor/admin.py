@@ -4,8 +4,8 @@ from django.contrib import admin
 from django.http import HttpRequest
 from django.utils.html import format_html
 
-# Імпортуємо наші дзеркальні моделі з shared додатку
-from shared.db.models import ActivePosition, Trade, Wallet
+# Використовуємо відносний імпорт моделей з поточного додатку (bot_monitor)
+from .models import ActivePosition, Trade, Wallet
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -23,8 +23,8 @@ class ReadOnlyAdmin(admin.ModelAdmin):
         return False
 
 
-#@admin.register(Trade)
-#class TradeAdmin(ReadOnlyAdmin):
+@admin.register(Trade)
+class TradeAdmin(ReadOnlyAdmin):
     list_display = (
         'timestamp', 
         'symbol', 
@@ -70,8 +70,8 @@ class ReadOnlyAdmin(admin.ModelAdmin):
         )
 
 
-#@admin.register(Wallet)
-#class WalletAdmin(ReadOnlyAdmin):
+@admin.register(Wallet)
+class WalletAdmin(ReadOnlyAdmin):
     list_display = ('id', 'formatted_balance', 'status_display')
     
     @admin.display(description='Баланс (USDT)')
@@ -84,8 +84,8 @@ class ReadOnlyAdmin(admin.ModelAdmin):
         return format_html('<span style="color: green; font-weight: bold;">Active</span>')
 
 
-#@admin.register(ActivePosition)
-#class ActivePositionAdmin(ReadOnlyAdmin):
+@admin.register(ActivePosition)
+class ActivePositionAdmin(ReadOnlyAdmin):
     list_display = (
         'symbol', 
         'amount', 

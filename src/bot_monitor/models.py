@@ -1,5 +1,6 @@
 from django.db import models
 
+
 class Trade(models.Model):
     """
     Дзеркальна модель для SQLAlchemy 'TradeRecord' (таблиця 'trades').
@@ -47,7 +48,6 @@ class ActivePosition(models.Model):
     Дзеркальна модель для SQLAlchemy 'ActivePosition' (таблиця 'active_positions').
     Read-Only для Django.
     """
-    # У SQLAlchemy symbol є primary_key, тому тут теж вказуємо це
     symbol = models.CharField(max_length=20, primary_key=True)
     amount = models.FloatField()
     entry_price = models.FloatField()

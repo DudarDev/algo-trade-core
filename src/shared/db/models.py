@@ -3,7 +3,7 @@ from sqlalchemy import String, Float, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from src.shared.db.session import Base
 
-class TradeRecord(Base):
+class Trade(Base):
     __tablename__ = "trades"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

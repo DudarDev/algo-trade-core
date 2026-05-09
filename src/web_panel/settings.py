@@ -64,4 +64,4 @@ DATABASES = {
     }
 }
 
-# ... (все інше нижче, починаючи з AUTH_PASSWORD_VALIDATORS, залишай як було)
+# ... (все інше нижче, починаючи з AUTH_PASSWORD_VALIDATORS, залишай як було)STATIC_URL = '/static/'

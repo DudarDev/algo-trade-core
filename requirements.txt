@@ -27,4 +27,6 @@ pyTelegramBotAPI
 
 # --- Misc ---
 schedule
-matplotlibgunicorn==21.2.0
+matplotlib
+gunicorn==21.2.0
+sqlalchemy

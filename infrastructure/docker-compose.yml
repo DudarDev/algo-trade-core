@@ -1,15 +1,12 @@
-version: '3.8'
-
 services:
   engine:
     build:
-      context: ../  # Контекст збірки — корінь проєкту
+      context: ..
       dockerfile: infrastructure/docker/engine.Dockerfile
     container_name: algo_engine
     restart: unless-stopped
     command: python main.py
     volumes:
-      # Правильні шляхи до нової структури
       - ../logs:/app/logs
       - ../data_storage:/app/data_storage
     env_file:
@@ -17,16 +14,16 @@ services:
 
   web_panel:
     build:
-      context: .
-      dockerfile: infrastructure/engine.Dockerfile
+      context: ..
+      dockerfile: infrastructure/docker/engine.Dockerfile
     container_name: algo_web
-    working_dir: /app/src    # <--- ДОДАЙ ЦЕЙ РЯДОК
-    command: gunicorn web_panel.wsgi:application --bind 0.0.0.0:8000 # <--- ПРИБЕРИ ВСІ ЗАЙВІ src. звідси
+    working_dir: /app/src
+    command: gunicorn web_panel.wsgi:application --bind 0.0.0.0:8000
     volumes:
-      - .:/app
+      - ..:/app
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - ../.env
     depends_on:
       - engine

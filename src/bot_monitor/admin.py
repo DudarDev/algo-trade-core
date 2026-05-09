@@ -1,49 +1,101 @@
+from typing import Any, Optional
+
 from django.contrib import admin
-from .models import Trade, Wallet
+from django.http import HttpRequest
 from django.utils.html import format_html
 
+# Імпортуємо наші дзеркальні моделі з shared додатку
+from shared.db.models import ActivePosition, Trade, Wallet
+
+
+class ReadOnlyAdmin(admin.ModelAdmin):
+    """
+    Базовий абстрактний клас для Read-Only моделей.
+    Блокує будь-які спроби зміни даних через Django Admin.
+    """
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Optional[Any] = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Optional[Any] = None) -> bool:
+        return False
+
+
 @admin.register(Trade)
-class TradeAdmin(admin.ModelAdmin):
-    # Які колонки показувати в таблиці
-    list_display = ('timestamp', 'symbol', 'colored_side', 'price', 'amount', 'colored_pnl')
-    # Фільтри справа
+class TradeAdmin(ReadOnlyAdmin):
+    list_display = (
+        'timestamp', 
+        'symbol', 
+        'colored_side', 
+        'price', 
+        'amount', 
+        'colored_pnl'
+    )
     list_filter = ('symbol', 'side')
-    # Пошук
     search_fields = ('symbol',)
     
-    # Вимикаємо можливість додавати/видаляти угоди вручну (тільки перегляд)
-    def has_add_permission(self, request):
-        return False
-    
-    def has_delete_permission(self, request, obj=None):
-        return False
+    # Оптимізація: пагінація та сортування (нові зверху)
+    list_per_page = 50
+    ordering = ('-timestamp',)
 
-    # Робимо "BUY" зеленим, "SELL" червоним/синім
-    def colored_side(self, obj):
-        color = 'blue' if obj.side == 'BUY' else 'orange'
-        return format_html('<span style="color: {}; font-weight: bold;">{}</span>', color, obj.side)
-    colored_side.short_description = 'Тип'
+    @admin.display(description='Тип')
+    def colored_side(self, obj: Trade) -> str:
+        if not obj.side:
+            return "-"
+            
+        side_upper = obj.side.upper()
+        color = 'blue' if side_upper == 'BUY' else 'orange'
+        
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>', 
+            color, 
+            side_upper
+        )
 
-    # Робимо PnL кольоровим
-    def colored_pnl(self, obj):
-        if obj.side == 'BUY': return "-"
-        color = 'green' if obj.pnl > 0 else 'red'
+    @admin.display(description='PnL (%)')
+    def colored_pnl(self, obj: Trade) -> str:
+        if not obj.side or obj.side.upper() == 'BUY':
+            return "-"
+            
+        # Захист від None (якщо в БД пусто)
+        pnl_value = obj.pnl or 0.0
+        color = 'green' if pnl_value > 0 else 'red'
         
-        # --- ВИПРАВЛЕННЯ ---
-        # Форматуємо число заздалегідь у f-строці
-        pnl_text = f"{obj.pnl:.2f}%"
-        
-        # Передаємо вже готовий текст у format_html
-        return format_html('<span style="color: {}; font-weight: bold;">{}</span>', color, pnl_text)
-    colored_pnl.short_description = 'PnL (%)'
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{:.2f}%</span>', 
+            color, 
+            pnl_value
+        )
+
 
 @admin.register(Wallet)
-class WalletAdmin(admin.ModelAdmin):
-    list_display = ('usdt_balance', 'status_display')
+class WalletAdmin(ReadOnlyAdmin):
+    list_display = ('id', 'formatted_balance', 'status_display')
     
-    def status_display(self, obj):
-        return "Active"
-    status_display.short_description = 'Статус'
+    @admin.display(description='Баланс (USDT)')
+    def formatted_balance(self, obj: Wallet) -> str:
+        balance = obj.usdt_balance or 0.0
+        return f"{balance:.2f} USDT"
+
+    @admin.display(description='Статус')
+    def status_display(self, obj: Wallet) -> str:
+        return format_html('<span style="color: green; font-weight: bold;">Active</span>')
+
+
+@admin.register(ActivePosition)
+class ActivePositionAdmin(ReadOnlyAdmin):
+    list_display = (
+        'symbol', 
+        'amount', 
+        'entry_price', 
+        'highest_price', 
+        'cost', 
+        'opened_at'
+    )
+    search_fields = ('symbol',)
+    list_filter = ('symbol',)
     
-    def has_add_permission(self, request):
-        return False
+    list_per_page = 50
+    ordering = ('-opened_at',)

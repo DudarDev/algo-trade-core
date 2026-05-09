@@ -19,8 +19,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'bot_monitor', # Наш єдиний актуальний додаток
-    # Папку 'app' видалено, бо її більше не існує
+    
+    # --- НАШІ ДОДАТКИ ---
+    'bot_monitor', # Додаток для UI та дзеркальних моделей
+    'shared',      # ДОДАНО: Реєстрація модуля спільних даних (щоб Django бачив shared/apps.py)
 ]
 
 MIDDLEWARE = [

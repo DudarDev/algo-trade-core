@@ -4,23 +4,15 @@ from pathlib import Path
 # ==========================================
 # 1. PATH CONFIGURATION (АРХІТЕКТУРА ШЛЯХІВ)
 # ==========================================
-# BASE_DIR вказує на папку src/
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# PROJECT_ROOT вказує на корінь проєкту (algo-trade-core)
-PROJECT_ROOT = BASE_DIR.parent 
+BASE_DIR = Path(__file__).resolve().parent.parent         # src/
+PROJECT_ROOT = BASE_DIR.parent                            # корінь проєкту
 
 # ==========================================
 # 2. SECURITY & CORE SETTINGS (БЕЗПЕКА)
 # ==========================================
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-update-me-in-production')
-
-# Суворий підхід: в Production DEBUG завжди False, якщо явно не вказано інше
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
-
-# У Production тут мають бути конкретні домени (наприклад, ['my-bot.com', '13.50.111.158'])
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
-
 CSRF_TRUSTED_ORIGINS = ['https://*.cloudshell.dev']
 
 # ==========================================
@@ -33,14 +25,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
-    # --- НАШІ ДОДАТКИ ---
-    'bot_monitor', # Додаток для UI та дзеркальних моделей
-    'shared',      # Модуль спільних даних бази
+
+    # наші додатки
+    'bot_monitor',
+    'shared',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # --- Whitenoise: роздача статики прямо з Gunicorn ---
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -54,7 +48,7 @@ ROOT_URLCONF = 'web_panel.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [], 
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -75,7 +69,6 @@ WSGI_APPLICATION = 'web_panel.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        # База лежить у спільному томі Docker
         'NAME': PROJECT_ROOT / 'data_storage' / 'bot_data.db',
     }
 }
@@ -99,11 +92,14 @@ USE_I18N = True
 USE_TZ = True
 
 # ==========================================
-# 7. STATIC FILES (Nginx Integration)
+# 7. STATIC FILES (Whitenoise)
 # ==========================================
 STATIC_URL = '/static/'
-# Папка, куди Django збиратиме статику для роздачі через Nginx
+# Папка, куди Django збиратиме статику (collectstatic)
 STATIC_ROOT = PROJECT_ROOT / 'staticfiles'
+
+# Whitenoise storage для стиснення та кешування (manifests)
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

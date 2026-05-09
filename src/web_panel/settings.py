@@ -1,17 +1,31 @@
-from pathlib import Path
 import os
+from pathlib import Path
 
-# BASE_DIR тепер вказує на папку src/
+# ==========================================
+# 1. PATH CONFIGURATION (АРХІТЕКТУРА ШЛЯХІВ)
+# ==========================================
+# BASE_DIR вказує на папку src/
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 # PROJECT_ROOT вказує на корінь проєкту (algo-trade-core)
 PROJECT_ROOT = BASE_DIR.parent 
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-update-me')
-DEBUG = True
-ALLOWED_HOSTS = ['*']
+# ==========================================
+# 2. SECURITY & CORE SETTINGS (БЕЗПЕКА)
+# ==========================================
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-update-me-in-production')
+
+# Суворий підхід: в Production DEBUG завжди False, якщо явно не вказано інше
+DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
+
+# У Production тут мають бути конкретні домени (наприклад, ['my-bot.com', '13.50.111.158'])
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
 CSRF_TRUSTED_ORIGINS = ['https://*.cloudshell.dev']
 
+# ==========================================
+# 3. APPLICATIONS (ДОДАТКИ)
+# ==========================================
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -22,7 +36,7 @@ INSTALLED_APPS = [
     
     # --- НАШІ ДОДАТКИ ---
     'bot_monitor', # Додаток для UI та дзеркальних моделей
-    'shared',      # ДОДАНО: Реєстрація модуля спільних даних (щоб Django бачив shared/apps.py)
+    'shared',      # Модуль спільних даних бази
 ]
 
 MIDDLEWARE = [
@@ -40,7 +54,6 @@ ROOT_URLCONF = 'web_panel.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        # Прибрали старий шлях до 'app'. APP_DIRS=True сам знайде шаблони у bot_monitor
         'DIRS': [], 
         'APP_DIRS': True,
         'OPTIONS': {
@@ -56,12 +69,70 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'web_panel.wsgi.application'
 
+# ==========================================
+# 4. DATABASE (ІНФРАСТРУКТУРА ДАНИХ)
+# ==========================================
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        # ВИПРАВЛЕНО: Тепер Django шукає базу в правильній папці нової архітектури
+        # База лежить у спільному томі Docker
         'NAME': PROJECT_ROOT / 'data_storage' / 'bot_data.db',
     }
 }
 
-# ... (все інше нижче, починаючи з AUTH_PASSWORD_VALIDATORS, залишай як було)STATIC_URL = '/static/'
+# ==========================================
+# 5. PASSWORD VALIDATION
+# ==========================================
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
+# ==========================================
+# 6. INTERNATIONALIZATION
+# ==========================================
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_TZ = True
+
+# ==========================================
+# 7. STATIC FILES (Nginx Integration)
+# ==========================================
+STATIC_URL = '/static/'
+# Папка, куди Django збиратиме статику для роздачі через Nginx
+STATIC_ROOT = PROJECT_ROOT / 'staticfiles'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ==========================================
+# 8. LOGGING (ОБРОБКА ПОМИЛОК)
+# ==========================================
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'console': {
+            'format': '%(asctime)s %(levelname)s [%(name)s:%(lineno)s] %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'console',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+    },
+}

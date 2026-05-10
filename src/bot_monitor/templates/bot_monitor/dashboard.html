@@ -229,161 +229,53 @@
 {{ chart_radius|json_script:"chart-radius-data" }}
 {{ pf_color|json_script:"pf-color-data" }}
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        function getJsonData(id, defaultValue) {
-            const element = document.getElementById(id);
-            if (!element) return defaultValue;
-            try { return JSON.parse(element.textContent); } 
-            catch (e) { return defaultValue; }
-        }
+document.addEventListener('DOMContentLoaded', function() {
+    var canvas = document.getElementById('profitChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var labels = JSON.parse(document.getElementById('chart-labels-data').textContent);
+    var dataPoints = JSON.parse(document.getElementById('chart-data-data').textContent);
+    var pointColors = JSON.parse(document.getElementById('chart-colors-data').textContent);
+    var pointRadii = JSON.parse(document.getElementById('chart-radius-data').textContent);
+    try { var pfColor = JSON.parse(document.getElementById('pf-color-data').textContent); }
+    catch(e) { pfColor = '#848e9c'; }
+    var pfBar = document.getElementById('pf-bar');
+    if(pfBar) pfBar.style.backgroundColor = pfColor;
+    var pfVal = document.getElementById('pf-value');
+    if(pfVal) pfVal.style.color = pfColor;
 
-        const pfColor = getJsonData('pf-color-data', '#848e9c');
-        const pfBar = document.getElementById('pf-bar');
-        const pfValue = document.getElementById('pf-value');
-        if(pfBar) pfBar.style.backgroundColor = pfColor;
-        if(pfValue) pfValue.style.color = pfColor;
-
-        const canvas = document.getElementById('profitChart');
-        if (!canvas) return; 
-        
-        const ctx = canvas.getContext('2d');
-        const labels = getJsonData('chart-labels-data', []);
-        const dataPoints = getJsonData('chart-data-data', []);
-        const pointColors = getJsonData('chart-colors-data', []);
-        const pointRadii = getJsonData('chart-radius-data', []);
-
-        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
-        gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
-        gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
-
-        const chartConfig = {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Equity (USDT)',
-                    data: dataPoints,
-                    borderColor: '#0ecb81',
-                    borderWidth: 2,
-                    backgroundColor: gradient,
-                    pointBackgroundColor: pointColors,
-                    pointBorderColor: '#131722',
-                    pointBorderWidth: 1,
-                    pointRadius: pointRadii,
-                    pointHoverRadius: 6,
-                    tension: 0.2, 
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { 
-                    legend: { display: false },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        backgroundColor: 'rgba(19, 23, 34, 0.95)',
-                        titleColor: '#848e9c',
-                        bodyColor: '#fff',
-                        borderColor: '#2a2e39',
-                        borderWidth: 1,
-                        callbacks: {
-                            label: function(context) {
-                                return '$' + context.parsed.y.toFixed(2);
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: { 
-                        grid: { display: false, drawBorder: false },
-                        ticks: { color: '#848e9c', font: { family: "'Courier New', monospace", size: 10 }, maxTicksLimit: 8 }
-                    },
-                    y: { 
-                        grid: { color: '#2a2e39', borderDash: [5, 5] },
-                        ticks: { color: '#848e9c', font: { family: "'Courier New', monospace", size: 10 } }
-                    }
-                },
-                interaction: { intersect: false, mode: 'nearest' }
+    var gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
+    gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Equity (USDT)',
+                data: dataPoints,
+                borderColor: '#0ecb81',
+                borderWidth: 2,
+                backgroundColor: gradient,
+                pointBackgroundColor: pointColors,
+                pointBorderColor: '#131722',
+                pointBorderWidth: 1,
+                pointRadius: pointRadii,
+                pointHoverRadius: 6,
+                tension: 0.2,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: '#848e9c', maxTicksLimit: 8 } },
+                y: { grid: { color: '#2a2e39' }, ticks: { color: '#848e9c' } }
             }
-        };
-
-        new Chart(ctx, chartConfig);
+        }
     });
-
-    // ДОДАНО: Скрипт для зв'язку з FastAPI
-    // Важливо: за потреби зміни URL на свій публічний
-    const API_BASE = "https://8080-cs-1033101337160-default.cs-europe-west4-fycr.cloudshell.dev";
-
-    async function updateBotStatus() {
-        try {
-            const response = await fetch(`${API_BASE}/api/v1/bot/status`);
-            if (!response.ok) throw new Error('API Error');
-            const data = await response.json();
-            
-            const badge = document.getElementById('bot-status-badge');
-            const btnStart = document.getElementById('btn-start');
-            const btnStop = document.getElementById('btn-stop');
-
-            if (data.status === "online") {
-                badge.innerText = "RUNNING";
-                badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30";
-                btnStart.disabled = true;
-                btnStop.disabled = false;
-            } else {
-                badge.innerText = "OFFLINE";
-                badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-red-900/20 text-red-400 border border-red-500/30";
-                btnStart.disabled = false;
-                btnStop.disabled = true;
-            }
-
-            // Оновлюємо баланс
-            const balanceEl = document.getElementById('display-balance');
-            if (balanceEl) balanceEl.innerText = `$${data.balance}`;
-
-        } catch (error) {
-            console.error("Помилка отримання статусу:", error);
-            const badge = document.getElementById('bot-status-badge');
-            if(badge) {
-                badge.innerText = "ERROR / DISCONNECTED";
-                badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-gray-900/50 text-gray-500 border border-gray-700";
-            }
-        }
-    }
-
-    async function controlBot(action) {
-        const btn = action === 'start' ? document.getElementById('btn-start') : document.getElementById('btn-stop');
-        const originalText = btn.innerText;
-        btn.innerText = "WAIT...";
-        btn.disabled = true;
-
-        try {
-            const response = await fetch(`${API_BASE}/api/v1/bot/${action}`, { method: 'POST' });
-            const data = await response.json();
-            
-            // Створюємо гарне сповіщення замість звичайного alert
-            const notification = document.createElement('div');
-            notification.className = `fixed top-4 right-4 p-4 rounded shadow-lg text-white font-bold z-50 ${action === 'start' ? 'bg-[#00C853]' : 'bg-[#FF3D00]'}`;
-            notification.innerText = data.message;
-            document.body.appendChild(notification);
-            
-            setTimeout(() => notification.remove(), 3000);
-
-        } catch (error) {
-            alert("Помилка зв'язку з сервером бота. Перевірте CORS.");
-        } finally {
-            btn.innerText = originalText;
-            updateBotStatus();
-        }
-    }
-
-    // Запускаємо перевірку статусу після завантаження сторінки
-    document.addEventListener('DOMContentLoaded', () => {
-        updateBotStatus();
-        setInterval(updateBotStatus, 5000); // Оновлювати кожні 5 секунд
-    });
+});
 </script>
-{% endblock %}

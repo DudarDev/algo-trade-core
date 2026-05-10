@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from src.shared.db.models import TradeRecord, Wallet, ActivePosition
+from src.shared.db.models import Trade, Wallet, ActivePosition
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,8 @@ class TradingRepository:
         return wallet
 
     # --- TRADES ---
-    def log_trade(self, symbol: str, side: str, price: float, amount: float, cost: float, pnl: float = 0.0) -> TradeRecord:
-        trade = TradeRecord(
+    def log_trade(self, symbol: str, side: str, price: float, amount: float, cost: float, pnl: float = 0.0) -> Trade:
+        trade = Trade(
             symbol=symbol, side=side, price=price, 
             amount=amount, cost=cost, pnl=pnl
         )

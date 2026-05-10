@@ -1,6 +1,8 @@
 import time
 import logging
 import asyncio
+import json
+from pathlib import Path
 from typing import List
 
 # ==========================================
@@ -25,6 +27,20 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
 )
 logger = logging.getLogger("Main")
+
+# ⚙️ Спільний файл для керування станом (зупинка/запуск з веб-панелі)
+STATUS_FILE = Path("/app/data_storage/bot_status.json")
+
+def is_bot_active() -> bool:
+    """Перевіряє, чи дозволено боту торгувати. За замовчуванням – так."""
+    if not STATUS_FILE.exists():
+        return True
+    try:
+        with open(STATUS_FILE, "r") as f:
+            data = json.load(f)
+            return data.get("status") != "stopped"
+    except Exception:
+        return True  # при помилці читання продовжуємо роботу
 
 class CryptoBot:
     """Головний Оркестратор Бота (Trading Loop)"""
@@ -133,9 +149,15 @@ class CryptoBot:
         logger.info("✅ Цикл завершено.")
 
     async def start(self):
-        """Головний нескінченний цикл."""
+        """Головний нескінченний цикл із перевіркою статусу."""
         logger.info("🟢 Бот успішно стартував і готовий до роботи!")
         while True:
+            # 🔒 Перевірка: чи не зупинили бота через веб-панель
+            if not is_bot_active():
+                logger.info("⏸️ Бот зупинений через Веб-панель. Очікування команди START...")
+                await asyncio.sleep(10)
+                continue
+
             try:
                 start_time = time.time()
                 await self.run_cycle()

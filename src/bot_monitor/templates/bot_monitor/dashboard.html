@@ -28,7 +28,7 @@
         </div>
         <div class="text-xs text-gray-500 mt-2">{{ total_trades }} Trades Executed</div>
     </div>
-
+        
     <div class="pro-panel p-4 relative overflow-hidden">
         <div id="pf-bar" class="absolute right-0 top-0 w-1 h-full"></div>
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Profit Factor</div>
@@ -61,6 +61,7 @@
         </button>
     </div>
 </div>
+
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
     <div class="pro-panel p-4 border-l-2 border-red-500/30">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Max Drawdown</div>
@@ -229,53 +230,109 @@
 {{ chart_radius|json_script:"chart-radius-data" }}
 {{ pf_color|json_script:"pf-color-data" }}
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    var canvas = document.getElementById('profitChart');
-    if (!canvas) return;
-    var ctx = canvas.getContext('2d');
-    var labels = JSON.parse(document.getElementById('chart-labels-data').textContent);
-    var dataPoints = JSON.parse(document.getElementById('chart-data-data').textContent);
-    var pointColors = JSON.parse(document.getElementById('chart-colors-data').textContent);
-    var pointRadii = JSON.parse(document.getElementById('chart-radius-data').textContent);
-    try { var pfColor = JSON.parse(document.getElementById('pf-color-data').textContent); }
-    catch(e) { pfColor = '#848e9c'; }
-    var pfBar = document.getElementById('pf-bar');
-    if(pfBar) pfBar.style.backgroundColor = pfColor;
-    var pfVal = document.getElementById('pf-value');
-    if(pfVal) pfVal.style.color = pfColor;
-
-    var gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
-    gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
-    new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Equity (USDT)',
-                data: dataPoints,
-                borderColor: '#0ecb81',
-                borderWidth: 2,
-                backgroundColor: gradient,
-                pointBackgroundColor: pointColors,
-                pointBorderColor: '#131722',
-                pointBorderWidth: 1,
-                pointRadius: pointRadii,
-                pointHoverRadius: 6,
-                tension: 0.2,
-                fill: true
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { display: false }, ticks: { color: '#848e9c', maxTicksLimit: 8 } },
-                y: { grid: { color: '#2a2e39' }, ticks: { color: '#848e9c' } }
+    // ========== Функції керування ботом ==========
+    async function controlBot(command) {
+        const btn = document.getElementById(`btn-${command}`);
+        const originalText = btn.innerText;
+        btn.innerText = "WAIT...";
+        btn.disabled = true;
+        try {
+            const response = await fetch('/api/monitor/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: command })
+            });
+            const data = await response.json();
+            if (data.status === "success") {
+                updateStatusBadge(data.bot_status);
             }
+        } catch (error) {
+            alert("Помилка зв'язку з API");
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
         }
+    }
+
+    function updateStatusBadge(status) {
+        const badge = document.getElementById('bot-status-badge');
+        if (!badge) return;
+        if (status === 'active') {
+            badge.innerText = 'ACTIVE';
+            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30';
+        } else {
+            badge.innerText = 'STOPPED';
+            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
+        }
+    }
+
+    async function fetchBotStatus() {
+        try {
+            const response = await fetch('/api/monitor/status');
+            const data = await response.json();
+            updateStatusBadge(data.bot_status);
+        } catch (e) {
+            const badge = document.getElementById('bot-status-badge');
+            if (badge) badge.innerText = 'ERROR';
+        }
+    }
+
+    // ========== Графік та ініціалізація ==========
+    document.addEventListener('DOMContentLoaded', function() {
+        // Графік
+        var canvas = document.getElementById('profitChart');
+        if (canvas) {
+            var ctx = canvas.getContext('2d');
+            var labels = JSON.parse(document.getElementById('chart-labels-data')?.textContent || '[]');
+            var dataPoints = JSON.parse(document.getElementById('chart-data-data')?.textContent || '[]');
+            var pointColors = JSON.parse(document.getElementById('chart-colors-data')?.textContent || '[]');
+            var pointRadii = JSON.parse(document.getElementById('chart-radius-data')?.textContent || '[]');
+            try { var pfColor = JSON.parse(document.getElementById('pf-color-data')?.textContent || '#848e9c'); }
+            catch(e) { pfColor = '#848e9c'; }
+            var pfBar = document.getElementById('pf-bar');
+            if(pfBar) pfBar.style.backgroundColor = pfColor;
+            var pfVal = document.getElementById('pf-value');
+            if(pfVal) pfVal.style.color = pfColor;
+
+            var gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
+            gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Equity (USDT)',
+                        data: dataPoints,
+                        borderColor: '#0ecb81',
+                        borderWidth: 2,
+                        backgroundColor: gradient,
+                        pointBackgroundColor: pointColors,
+                        pointBorderColor: '#131722',
+                        pointBorderWidth: 1,
+                        pointRadius: pointRadii,
+                        pointHoverRadius: 6,
+                        tension: 0.2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#848e9c', maxTicksLimit: 8 } },
+                        y: { grid: { color: '#2a2e39' }, ticks: { color: '#848e9c' } }
+                    }
+                }
+            });
+        }
+
+        // Завантажити статус бота
+        fetchBotStatus();
     });
-});
 </script>
+
+{% endblock %}

@@ -5,6 +5,7 @@ class TradingRepository:
     def __init__(self, session: Session):
         self.session = session
 
+    # ---------- Wallet ----------
     def load_balance(self, initial_balance: float = 1000.0) -> float:
         wallet = self.session.query(Wallet).first()
         if wallet is None:
@@ -13,6 +14,7 @@ class TradingRepository:
             self.session.commit()
         return wallet.usdt_balance
 
+    # ---------- Positions ----------
     def save_position(self, symbol, position):
         existing = self.session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
         if existing:
@@ -43,6 +45,7 @@ class TradingRepository:
             position.highest_price = highest_price
             self.session.commit()
 
+    # ---------- Trades ----------
     def record_trade(self, trade):
         self.session.add(trade)
         self.session.commit()

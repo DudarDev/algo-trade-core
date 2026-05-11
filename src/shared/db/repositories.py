@@ -1,62 +1,73 @@
 import logging
-from typing import List, Optional
+from typing import Optional, List
 from sqlalchemy.orm import Session
-from src.shared.db.models import Trade, Wallet, ActivePosition
+from .models import Trade, Wallet, ActivePosition
 
 logger = logging.getLogger(__name__)
 
 class TradingRepository:
-    """Репозиторій для роботи з торговими даними. 
-    Ізолює базу даних від бізнес-логіки бота."""
-    
     def __init__(self, session: Session):
         self.session = session
 
-    # --- WALLET ---
-    def load_balance(self, default: float = 1000.0) -> float:
-        wallet = self.session.query(Wallet).filter(Wallet.id == 1).first()
-        return wallet.usdt_balance if wallet else default
+    # ---------- Wallet ----------
+    def get_wallet(self) -> Optional[Wallet]:
+        try:
+            return self.session.query(Wallet).first()
+        except Exception as e:
+            logger.error(f"Помилка отримання гаманця: {e}")
+            return None
 
-    def save_balance(self, balance: float) -> Wallet:
-        wallet = self.session.query(Wallet).filter(Wallet.id == 1).first()
-        if not wallet:
-            wallet = Wallet(id=1, usdt_balance=balance)
-            self.session.add(wallet)
-        else:
+    def save_wallet(self, balance: float) -> Wallet:
+        wallet = self.get_wallet()
+        if wallet:
             wallet.usdt_balance = balance
-        
+        else:
+            wallet = Wallet(usdt_balance=balance)
+            self.session.add(wallet)
         self.session.commit()
         return wallet
 
-    # --- TRADES ---
-    def log_trade(self, symbol: str, side: str, price: float, amount: float, cost: float, pnl: float = 0.0) -> Trade:
-        trade = Trade(
-            symbol=symbol, side=side, price=price, 
-            amount=amount, cost=cost, pnl=pnl
-        )
+    # ---------- Trade ----------
+    def save_trade(self, trade_data: dict) -> Trade:
+        trade = Trade(**trade_data)
         self.session.add(trade)
         self.session.commit()
         return trade
 
-    # --- ACTIVE POSITIONS ---
-    def get_all_positions(self) -> List[ActivePosition]:
-        return self.session.query(ActivePosition).all()
+    def get_trades(self, limit: int = 100) -> List[Trade]:
+        try:
+            return self.session.query(Trade).order_by(Trade.timestamp.desc()).limit(limit).all()
+        except Exception as e:
+            logger.error(f"Помилка отримання угод: {e}")
+            return []
 
+    # ---------- ActivePosition ----------
     def get_position(self, symbol: str) -> Optional[ActivePosition]:
-        return self.session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
+        """Безпечне отримання позиції. У разі помилки повертає None."""
+        try:
+            return self.session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
+        except Exception as e:
+            logger.error(f"Помилка отримання позиції {symbol}: {e}")
+            # Не робимо rollback глобально, щоб не зламати активну транзакцію
+            return None
 
-    def save_position(self, symbol: str, amount: float, entry_price: float, highest_price: float, cost: float) -> ActivePosition:
+    def save_position(self, symbol: str, amount: float, entry_price: float,
+                      highest_price: float, cost: float) -> ActivePosition:
         position = self.get_position(symbol)
-        
-        if not position:
-            position = ActivePosition(symbol=symbol)
+        if position:
+            position.amount = amount
+            position.entry_price = entry_price
+            position.highest_price = highest_price
+            position.cost = cost
+        else:
+            position = ActivePosition(
+                symbol=symbol,
+                amount=amount,
+                entry_price=entry_price,
+                highest_price=highest_price,
+                cost=cost
+            )
             self.session.add(position)
-            
-        position.amount = amount
-        position.entry_price = entry_price
-        position.highest_price = highest_price
-        position.cost = cost
-        
         self.session.commit()
         return position
 
@@ -71,3 +82,10 @@ class TradingRepository:
         if position:
             self.session.delete(position)
             self.session.commit()
+
+    def get_all_positions(self) -> List[ActivePosition]:
+        try:
+            return self.session.query(ActivePosition).all()
+        except Exception as e:
+            logger.error(f"Помилка отримання позицій: {e}")
+            return []

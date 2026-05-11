@@ -15,16 +15,24 @@ class TradingRepository:
         return wallet.usdt_balance
 
     # ---------- Positions ----------
-    def save_position(self, symbol, position):
+    def save_position(self, symbol, **kwargs):
+        """Зберігає або оновлює активну позицію.
+        Очікує аргументи: symbol, amount, entry_price, cost, opened_at (та інші)
+        """
         existing = self.session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
         if existing:
-            existing.amount = position.amount
-            existing.entry_price = position.entry_price
-            existing.highest_price = position.highest_price
-            existing.cost = position.cost
-            existing.opened_at = position.opened_at
+            for key, value in kwargs.items():
+                if hasattr(existing, key):
+                    setattr(existing, key, value)
         else:
-            self.session.add(position)
+            # Створюємо нову позицію, передаючи тільки відомі поля
+            pos_data = {'symbol': symbol}
+            pos_data.update(kwargs)
+            # Відкидаємо невідомі поля
+            valid_fields = {c.name for c in ActivePosition.__table__.columns}
+            filtered = {k: v for k, v in pos_data.items() if k in valid_fields}
+            new_pos = ActivePosition(**filtered)
+            self.session.add(new_pos)
         self.session.commit()
 
     def get_position(self, symbol):
@@ -46,6 +54,7 @@ class TradingRepository:
             self.session.commit()
 
     # ---------- Trades ----------
-    def record_trade(self, trade):
+    def record_trade(self, **kwargs):
+        trade = Trade(**kwargs)
         self.session.add(trade)
         self.session.commit()

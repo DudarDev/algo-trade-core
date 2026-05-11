@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 EXCHANGE_ID = "binance"  # використовуйте "binanceus" якщо ви в США
 TIMEFRAME = "5m"
-DAYS = 30
+DAYS = 60
 PAIRS = [
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT",
     "XRP/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT",

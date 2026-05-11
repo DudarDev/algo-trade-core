@@ -1,5 +1,8 @@
-from sqlalchemy.orm import Session
-from src.shared.db.models import Trade, Wallet, ActivePosition
+import logging
+from sqlalchemy.orm import Session, exc
+from .models import Trade, Wallet, ActivePosition
+
+logger = logging.getLogger(__name__)
 
 class TradingRepository:
     def __init__(self, session: Session):
@@ -7,33 +10,49 @@ class TradingRepository:
 
     # ---------- Wallet ----------
     def load_balance(self, initial_balance: float = 1000.0) -> float:
-        wallet = self.session.query(Wallet).first()
-        if wallet is None:
-            wallet = Wallet(usdt_balance=initial_balance)
-            self.session.add(wallet)
-            self.session.commit()
-        return wallet.usdt_balance
+        try:
+            wallet = self.session.query(Wallet).first()
+            if wallet is None:
+                wallet = Wallet(usdt_balance=initial_balance)
+                self.session.add(wallet)
+                self.session.commit()
+            return wallet.usdt_balance
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Помилка load_balance: {e}")
+            return initial_balance
 
-    # ---------- Positions ----------
+    def save_balance(self, balance: float):
+        """Оновлює баланс гаманця."""
+        try:
+            wallet = self.session.query(Wallet).first()
+            if wallet:
+                wallet.usdt_balance = balance
+            else:
+                wallet = Wallet(usdt_balance=balance)
+                self.session.add(wallet)
+            self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Помилка save_balance: {e}")
+
+    # ---------- Positions (потокобезпечні) ----------
     def save_position(self, symbol, **kwargs):
-        """Зберігає або оновлює активну позицію.
-        Очікує аргументи: symbol, amount, entry_price, cost, opened_at (та інші)
-        """
-        existing = self.session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
-        if existing:
-            for key, value in kwargs.items():
-                if hasattr(existing, key):
-                    setattr(existing, key, value)
-        else:
-            # Створюємо нову позицію, передаючи тільки відомі поля
-            pos_data = {'symbol': symbol}
-            pos_data.update(kwargs)
-            # Відкидаємо невідомі поля
-            valid_fields = {c.name for c in ActivePosition.__table__.columns}
-            filtered = {k: v for k, v in pos_data.items() if k in valid_fields}
-            new_pos = ActivePosition(**filtered)
-            self.session.add(new_pos)
-        self.session.commit()
+        """Вставляє або оновлює активну позицію (merge – безпечно при конкурентному доступі)."""
+        try:
+            # Створюємо тимчасовий об'єкт із переданих полів
+            pos = ActivePosition()
+            pos.symbol = symbol
+            for k, v in kwargs.items():
+                if hasattr(pos, k):
+                    setattr(pos, k, v)
+            # merge шукає існуючий запис за primary key (symbol) і оновлює його,
+            # або створює новий, якщо не знайдено
+            self.session.merge(pos)
+            self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Помилка save_position({symbol}): {e}")
 
     def get_position(self, symbol):
         return self.session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
@@ -42,19 +61,36 @@ class TradingRepository:
         return self.session.query(ActivePosition).all()
 
     def delete_position(self, symbol):
-        position = self.get_position(symbol)
-        if position:
-            self.session.delete(position)
-            self.session.commit()
+        try:
+            position = self.get_position(symbol)
+            if position:
+                self.session.delete(position)
+                self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Помилка delete_position({symbol}): {e}")
 
     def update_position_high(self, symbol, highest_price):
-        position = self.get_position(symbol)
-        if position:
-            position.highest_price = highest_price
-            self.session.commit()
+        try:
+            position = self.get_position(symbol)
+            if position:
+                position.highest_price = highest_price
+                self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Помилка update_position_high({symbol}): {e}")
 
     # ---------- Trades ----------
     def record_trade(self, **kwargs):
-        trade = Trade(**kwargs)
-        self.session.add(trade)
-        self.session.commit()
+        """Зберігає угоду (запис у таблицю trades)."""
+        try:
+            trade = Trade(**kwargs)
+            self.session.add(trade)
+            self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"Помилка record_trade: {e}")
+
+    def log_trade(self, **kwargs):
+        """Псевдонім для record_trade, який очікує PaperTrader."""
+        self.record_trade(**kwargs)

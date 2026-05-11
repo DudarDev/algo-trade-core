@@ -28,6 +28,9 @@ class TradingRepository:
     def get_position(self, symbol):
         return self.session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
 
+    def get_all_positions(self):
+        return self.session.query(ActivePosition).all()
+
     def delete_position(self, symbol):
         position = self.get_position(symbol)
         if position:

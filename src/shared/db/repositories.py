@@ -1,78 +1,116 @@
 import logging
-from contextlib import contextmanager
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
-from src.shared.db.models import ActivePosition, Wallet, Trade
-from src.shared.config import settings
+from sqlalchemy.orm import Session
+from .models import Trade, Wallet, ActivePosition
+from .session import SessionLocal   # фабрика сесій, вже налаштована
 
 logger = logging.getLogger(__name__)
 
-# Ініціалізуємо фабрику сесій
-# Переконайся, що DATABASE_URL імпортується або береться з settings правильно
-engine = create_engine(settings.DATABASE_URL, echo=False)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+class TradingRepository:
+    def __init__(self, session: Session = None):
+        # session ігнорується, кожен метод створює власну сесію
+        pass
 
-@contextmanager
-def get_session():
-    """Контекстний менеджер для безпечного керування сесіями БД у різних потоках"""
-    session = SessionLocal()
-    try:
-        yield session
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        logger.error(f"❌ Помилка транзакції БД: {e}")
-        raise
-    finally:
-        session.close()
+    def _get_session(self):
+        return SessionLocal()
 
-class DatabaseRepository:
-    """Репозиторій для роботи з БД. Тепер потокобезпечний (Thread-Safe)!"""
-    
-    def save_position(self, position: ActivePosition):
-        with get_session() as session:
-            session.merge(position)
+    # ---------- Wallet ----------
+    def load_balance(self, initial_balance: float = 1000.0) -> float:
+        session = self._get_session()
+        try:
+            wallet = session.query(Wallet).first()
+            if wallet is None:
+                wallet = Wallet(usdt_balance=initial_balance)
+                session.add(wallet)
+                session.commit()
+            return wallet.usdt_balance
+        finally:
+            session.close()
 
-    def get_position(self, symbol: str) -> ActivePosition:
-        # Для читання теж відкриваємо коротку сесію
-        with get_session() as session:
-            # Використовуємо .first() і повертаємо об'єкт (він буде від'єднаний від сесії після with, 
-            # але для читання даних у пам'ять цього достатньо)
-            pos = session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
-            if pos:
-                # Змушуємо SQLAlchemy завантажити дані в пам'ять перед закриттям сесії
-                session.expunge(pos)
-            return pos
+    def save_balance(self, balance: float):
+        session = self._get_session()
+        try:
+            wallet = session.query(Wallet).first()
+            if wallet:
+                wallet.usdt_balance = balance
+            else:
+                wallet = Wallet(usdt_balance=balance)
+                session.add(wallet)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"save_balance: {e}")
+        finally:
+            session.close()
 
-    def delete_position(self, symbol: str):
-        with get_session() as session:
+    # ---------- Positions ----------
+    def save_position(self, symbol, **kwargs):
+        session = self._get_session()
+        try:
+            pos = ActivePosition()
+            pos.symbol = symbol
+            for k, v in kwargs.items():
+                if hasattr(pos, k):
+                    setattr(pos, k, v)
+            session.merge(pos)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"save_position({symbol}): {e}")
+        finally:
+            session.close()
+
+    def get_position(self, symbol):
+        session = self._get_session()
+        try:
+            return session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
+        finally:
+            session.close()
+
+    def get_all_positions(self):
+        session = self._get_session()
+        try:
+            return session.query(ActivePosition).all()
+        finally:
+            session.close()
+
+    def delete_position(self, symbol):
+        session = self._get_session()
+        try:
             position = session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
             if position:
                 session.delete(position)
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"delete_position({symbol}): {e}")
+        finally:
+            session.close()
 
-    def update_position_high(self, symbol: str, highest_price: float):
-        with get_session() as session:
+    def update_position_high(self, symbol, highest_price):
+        session = self._get_session()
+        try:
             position = session.query(ActivePosition).filter(ActivePosition.symbol == symbol).first()
             if position:
                 position.highest_price = highest_price
-                # commit відбудеться автоматично при виході з блоку with
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"update_position_high({symbol}): {e}")
+        finally:
+            session.close()
 
-    def save_balance(self, balance: float):
-        with get_session() as session:
-            wallet = session.query(Wallet).first()
-            if not wallet:
-                wallet = Wallet(usdt_balance=balance)
-                session.add(wallet)
-            else:
-                wallet.usdt_balance = balance
-
-    def save_trade(self, trade: Trade):
-        with get_session() as session:
+    # ---------- Trades ----------
+    def record_trade(self, **kwargs):
+        session = self._get_session()
+        try:
+            trade = Trade(**kwargs)
             session.add(trade)
-            
-    def get_all_active_positions(self):
-        with get_session() as session:
-            positions = session.query(ActivePosition).all()
-            for pos in positions:
-                session.expunge(pos)
-            return positions
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"record_trade: {e}")
+        finally:
+            session.close()
+
+    def log_trade(self, **kwargs):
+        self.record_trade(**kwargs)

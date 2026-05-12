@@ -16,6 +16,6 @@ def test_with_trades():
     ])
     result = calculate_metrics(df, initial_balance=100.0)
     assert result['total_trades'] == 3
-    assert result['win_rate'] == 66.67  # 2 з 3 прибуткові
+    assert result['win_rate'] == 66.67  # 2 wins out of 3
     assert result['profit_factor'] == 4.0  # (5+3)/2
     assert result['total_pnl'] == 6.0

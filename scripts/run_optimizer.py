@@ -1,4 +1,4 @@
-"""Запускає аналітику та виводить рекомендації."""
+"""Run analytics and print recommended parameter changes."""
 import sys
 sys.path.insert(0, '.')
 
@@ -10,14 +10,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 if __name__ == '__main__':
-    logger.info("📊 Збір метрик за останні 30 днів...")
+    logger.info("📊 Collecting 30-day trade metrics...")
     df = get_trades_df(days_back=30)
     metrics = calculate_metrics(df)
-    logger.info(f"Метрики: {metrics}")
-    
-    logger.info("🔍 Пошук оптимальних параметрів...")
+    logger.info(f"Metrics: {metrics}")
+
+    logger.info("🔍 Searching for optimal parameters...")
     suggestions = optimize_parameters()
     if suggestions:
-        logger.info(f"Рекомендації: {suggestions}")
+        logger.info(f"Suggestions: {suggestions}")
     else:
-        logger.info("Немає нових рекомендацій")
+        logger.info("No new suggestions.")

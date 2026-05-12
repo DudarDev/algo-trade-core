@@ -47,7 +47,6 @@ def calculate_metrics(df: pd.DataFrame, initial_balance: float = 1000.0) -> dict
     avg_win = wins['pnl'].mean() if not wins.empty else 0.0
     avg_loss = losses['pnl'].mean() if not losses.empty else 0.0
 
-    # Max drawdown (simple version)
     balance = initial_balance
     curve = []
     for _, r in df.iterrows():

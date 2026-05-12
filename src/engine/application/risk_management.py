@@ -6,15 +6,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RiskConfig:
-    """Конфігурація ризик-менеджменту."""
     taker_fee: float = 0.001          
     min_risk_reward: float = 1.5 
     max_risk_pct: float = 2.0         
-    atr_multiplier: float = 1.5       
+    atr_multiplier: float = 2.0       # Збільшено з 1.5 до 2.0
+    min_stop_loss_pct: float = 1.5    # Новий параметр: мінімальний SL у відсотках
+    max_stop_loss_pct: float = 5.0    # Новий параметр: максимальний SL у відсотках
 
 @dataclass
 class TradeParameters:
-    """Структура даних розрахованого ордера."""
     trade_type: str
     entry_price: float
     stop_loss: float
@@ -23,26 +23,28 @@ class TradeParameters:
     risk_reward_ratio: float
 
 class RiskManager:
-    """Головний клас для оцінки угод та розрахунку ризиків."""
-    
     def __init__(self, config: RiskConfig):
-        # 💉 DI: Конфіг завжди передається ззовні (з main.py)
         self.config = config
 
     def evaluate_trade(
         self, 
         entry_price: float, 
-        atr: float, # ✅ Приймаємо просто число, ніяких pd.Series
+        atr: float,
         capital: float, 
         trade_type: Literal['BUY', 'SELL'] = 'BUY'
     ) -> Optional[TradeParameters]:
-        """Розраховує SL/TP, розмір позиції та валідує угоду."""
-        
         if atr <= 0:
             logger.warning("⚠️ Некоректний ATR (<= 0). Відміна розрахунку ризиків.")
             return None
 
+        # Базовий стоп за ATR
         stop_loss_dist = atr * self.config.atr_multiplier
+        
+        # Обмеження зверху та знизу у відсотках від ціни
+        min_dist = entry_price * (self.config.min_stop_loss_pct / 100.0)
+        max_dist = entry_price * (self.config.max_stop_loss_pct / 100.0)
+        stop_loss_dist = max(min_dist, min(stop_loss_dist, max_dist))
+        
         fee_impact = entry_price * (self.config.taker_fee * 2) 
         
         if trade_type == 'BUY':
@@ -57,17 +59,14 @@ class RiskManager:
             logger.error(f"❌ Невідомий тип угоди: {trade_type}.")
             return None
 
-        # Максимальний збиток у доларах, який ми готові понести
         max_loss_usdt = capital * (self.config.max_risk_pct / 100) 
         risk_per_coin = abs(entry_price - stop_loss)
-        
         if risk_per_coin == 0:
             return None
 
         position_size_coins = max_loss_usdt / risk_per_coin
         position_size_usdt = position_size_coins * entry_price
 
-        # Перевірка на нестачу маржі
         if position_size_usdt > capital:
             logger.debug("Об'єм позиції перевищує капітал. Використовуємо 98% від доступного.")
             position_size_usdt = capital * 0.98

@@ -6,13 +6,12 @@ from src.shared.config import Settings
 logger = logging.getLogger(__name__)
 
 class HybridStrategy:
-    """Гібридна стратегія: валідує сигнали AI за допомогою класичного Технічного Аналізу."""
-    
     def __init__(self, settings: Settings):
         self.settings = settings
-        # Виносимо магічні числа в конфігурацію класу
-        self.rsi_buy_limit: int = 70  
-        self.macd_conf_threshold: float = 0.45
+        # Тепер беремо з .env (якщо є), інакше за замовчуванням
+        self.conf_threshold = getattr(settings, 'CONFIDENCE_THRESHOLD', 0.6)
+        self.rsi_buy_limit = getattr(settings, 'RSI_BUY_LIMIT', 70)  
+        self.use_trend_filter = getattr(settings, 'TREND_FILTER', True)
 
     def get_signal(
         self, 
@@ -20,12 +19,6 @@ class HybridStrategy:
         ai_confidence: float, 
         in_position: bool = False
     ) -> Tuple[Optional[Literal["BUY", "SELL"]], Dict]:
-        """
-        Приймає DataFrame з ВЖЕ розрахованими індикаторами (від ai_brain) 
-        та впевненість ШІ.
-        """
-        # Наш ai_brain.py генерує колонку 'RSI', 'MACD_HIST', 'EMA_DIST_50'
-        # Адаптуємо логіку під ці нові назви колонок.
         required_cols = ['RSI', 'EMA_DIST_50', 'MACD_HIST']
         if df.empty or not all(col in df.columns for col in required_cols):
             logger.debug("Відсутні необхідні індикатори для стратегії.")
@@ -34,29 +27,35 @@ class HybridStrategy:
         curr = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # Якщо EMA_DIST_50 > 0, ціна вище за EMA50 (Висхідний тренд)
         is_uptrend = curr['EMA_DIST_50'] > 0
-        
         meta = {
             "price": float(curr['close']),
             "ai_conf": round(ai_confidence, 2),
-            "rsi": round(curr['RSI'] * 100, 1), # Повертаємо у формат 0-100
+            "rsi": round(curr['RSI'] * 100, 1),
             "trend": "UP" if is_uptrend else "DOWN"
         }
         
         if in_position:
             return None, meta
 
-        # 1. Снайперський вхід (Висока впевненість ШІ + Тренд + Не перекуплено)
-        if ai_confidence >= self.settings.CONFIDENCE_THRESHOLD:
-            if is_uptrend and (curr['RSI'] * 100) < self.rsi_buy_limit:
-                meta['reason'] = f"AI_Sniper(Conf={ai_confidence:.2f})"
-                return "BUY", meta
+        # 1. Жорсткий поріг впевненості AI
+        if ai_confidence < self.conf_threshold:
+            return None, meta
 
-        # 2. Підтвердження через гістограму MACD (перетин нульової лінії)
+        # 2. Трендовий фільтр (якщо увімкнено)
+        if self.use_trend_filter and not is_uptrend:
+            return None, meta
+
+        # 3. Перевірка RSI – не перекупленість
+        if (curr['RSI'] * 100) >= self.rsi_buy_limit:
+            return None, meta
+
+        # 4. Гістограма MACD (перетин нульової лінії) – додатковий підтверджуючий фактор
         macd_cross_up = prev['MACD_HIST'] <= 0 and curr['MACD_HIST'] > 0
-        if macd_cross_up and is_uptrend and ai_confidence > self.macd_conf_threshold:
+        if macd_cross_up:
             meta['reason'] = "MACD_Bullish_AI_Confirmed"
             return "BUY", meta
-            
-        return None, meta
+
+        # Якщо всі фільтри пройдено – вхід
+        meta['reason'] = f"AI_Sniper(Conf={ai_confidence:.2f})"
+        return "BUY", meta

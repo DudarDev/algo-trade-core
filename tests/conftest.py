@@ -2,10 +2,11 @@ import os
 import sys
 from pathlib import Path
 
-# Додаємо корінь проєкту в PYTHONPATH
+# Корінь проєкту
 ROOT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT_DIR))
+# Додаємо src, щоб Django знайшов bot_monitor, shared тощо
+sys.path.insert(0, str(ROOT_DIR / "src"))
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'src.web_panel.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'web_panel.settings')
 import django
 django.setup()

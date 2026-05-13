@@ -138,11 +138,10 @@ class GlobalTradingAI:
             proba = float(self.model.predict_proba(last_row)[0][1])   # ймовірність класу BUY
             signal = "BUY" if proba >= self.confidence_threshold else "HOLD"
 
-            # Додаткова діагностика – буде видно в логах
-            logger.debug(
-                f"🧠 AI предсказание: proba={proba:.4f}, threshold={self.confidence_threshold}, "
-                f"signal={signal}, активных пар в данных={len(df)}"
-            )
+            # Отримуємо символ (якщо є в даних)
+            symbol = df.get('symbol', pd.Series(['?'])).iloc[-1] if 'symbol' in df else '?'
+
+            logger.info(f"🧠 AI predict: symbol={symbol}, proba={proba:.4f}, threshold={self.confidence_threshold}, signal={signal}")
 
             return signal, proba
 

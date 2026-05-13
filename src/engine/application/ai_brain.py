@@ -13,22 +13,21 @@ logger = logging.getLogger(__name__)
 
 class GlobalTradingAI:
     """Модуль штучного інтелекту виключно для Інференсу (передбачення)."""
-    
+
     def __init__(self, settings: Settings):
         self.settings = settings
-        
+
         # 🛡️ БЕЗПЕЧНИЙ АБСОЛЮТНИЙ ШЛЯХ
-        # Знаходимо корінь проєкту (піднімаємося на 3 рівні вгору від ai_brain.py: application -> engine -> src -> algo-trade-core)
         BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
         self.model_path = BASE_DIR / "data_storage" / "models" / "global_rf_v4.pkl"
-        
-        self.confidence_threshold = self.settings.CONFIDENCE_THRESHOLD 
-        
+
+        self.confidence_threshold = getattr(settings, 'CONFIDENCE_THRESHOLD', 0.7)
+
         self.model: Optional[CalibratedClassifierCV] = self._load_model()
-        
+
         self.base_features: List[str] = [
-            'RSI', 'MACD_HIST', 'BB_WIDTH', 'BB_POS', 'ATR_PCT', 
-            'ADX', 'STOCH_K', 'STOCH_D', 'OBV_SLOPE', 'EMA_DIST_20', 
+            'RSI', 'MACD_HIST', 'BB_WIDTH', 'BB_POS', 'ATR_PCT',
+            'ADX', 'STOCH_K', 'STOCH_D', 'OBV_SLOPE', 'EMA_DIST_20',
             'EMA_DIST_50', 'LOG_RET', 'VOL_SPIKE', 'BUY_PRESSURE'
         ]
         self.lag_features: List[str] = ['RSI', 'LOG_RET', 'MACD_HIST']
@@ -37,14 +36,14 @@ class GlobalTradingAI:
 
     def _load_model(self) -> Optional[CalibratedClassifierCV]:
         try:
-            # У продакшені ми маємо "впасти" (Fail Fast), якщо моделі немає, 
-            # щоб бот не почав торгувати навмання.
-            return joblib.load(self.model_path)
-        except FileNotFoundError:
-            logger.critical(f"🚨 Модель не знайдено за шляхом: {self.model_path}")
-            return None
+            if not self.model_path.exists():
+                logger.critical(f"🚨 Модель не знайдено за шляхом: {self.model_path}")
+                return None
+            model = joblib.load(self.model_path)
+            logger.info(f"✅ Модель успішно завантажена з {self.model_path}")
+            return model
         except Exception as e:
-            logger.critical(f"🚨 Помилка завантаження моделі: {e}")
+            logger.critical(f"🚨 Помилка завантаження моделі: {e}", exc_info=True)
             return None
 
     def _get_feature_names(self) -> List[str]:
@@ -59,15 +58,17 @@ class GlobalTradingAI:
         if df.empty or len(df) < 60:
             logger.warning("Недостатньо даних для генерації фіч (потрібно мінімум 60 свічок).")
             return pd.DataFrame()
-        
+
         data = df.copy().sort_values('timestamp')
 
-        # Використовуємо .loc для безпечного запису без SettingWithCopyWarning
+        # RSI (нормалізований 0..1)
         data.loc[:, 'RSI'] = ta.rsi(data['close'], length=14) / 100.0
-        
+
+        # MACD hist
         macd = ta.macd(data['close'])
         data.loc[:, 'MACD_HIST'] = macd.iloc[:, 1] if macd is not None else 0.0
 
+        # Stochastic
         stoch = ta.stoch(data['high'], data['low'], data['close'])
         if stoch is not None:
             data.loc[:, 'STOCH_K'] = stoch.iloc[:, 0] / 100.0
@@ -75,62 +76,76 @@ class GlobalTradingAI:
         else:
             data.loc[:, ['STOCH_K', 'STOCH_D']] = 0.5
 
+        # Bollinger Bands
         bb = ta.bbands(data['close'], length=20, std=2.0)
         if bb is not None:
             data.loc[:, 'BB_WIDTH'] = (bb.iloc[:, 0] - bb.iloc[:, 2]) / bb.iloc[:, 1]
-            data.loc[:, 'BB_POS'] = (data['close'] - bb.iloc[:, 2]) / (bb.iloc[:, 0] - bb.iloc[:, 2])
+            data.loc[:, 'BB_POS'] = (data['close'] - bb.iloc[:, 2]) / (bb.iloc[:, 0] - bb.iloc[:, 2] + 1e-9)
         else:
             data.loc[:, ['BB_WIDTH', 'BB_POS']] = [0.0, 0.5]
 
+        # ATR%
         data.loc[:, 'ATR'] = ta.atr(data['high'], data['low'], data['close'], length=14)
-        data.loc[:, 'ATR_PCT'] = data['ATR'] / data['close']
+        data.loc[:, 'ATR_PCT'] = data['ATR'] / (data['close'] + 1e-9)
 
+        # ADX
         adx_df = ta.adx(data['high'], data['low'], data['close'], length=14)
         data.loc[:, 'ADX'] = adx_df.iloc[:, 0] / 100.0 if adx_df is not None else 0.0
 
+        # EMA distances
         ema20 = ta.ema(data['close'], length=20)
         ema50 = ta.ema(data['close'], length=50)
         data.loc[:, 'EMA_DIST_20'] = (data['close'] - ema20) / (ema20 + 1e-9)
         data.loc[:, 'EMA_DIST_50'] = (data['close'] - ema50) / (ema50 + 1e-9)
 
+        # OBV slope
         data.loc[:, 'OBV'] = ta.obv(data['close'], data['volume'])
         data.loc[:, 'OBV_SLOPE'] = data['OBV'].diff(3) / (data['OBV'].abs() + 1e-9)
-        
+
+        # Volume spike (2 std)
         vol_sma = data['volume'].rolling(window=20).mean()
         vol_std = data['volume'].rolling(window=20).std()
         data.loc[:, 'VOL_SPIKE'] = (data['volume'] > (vol_sma + 2 * vol_std)).astype(int)
-        
+
+        # Buy pressure
         data.loc[:, 'BUY_PRESSURE'] = (data['close'] - data['low']) / (data['high'] - data['low'] + 1e-9)
+
+        # Log return
         data.loc[:, 'LOG_RET'] = np.log(data['close'] / data['close'].shift(1))
 
-        # Генерація лагів (історичних зсувів)
+        # Лаги
         for feature in self.lag_features:
             for lag in self.lags:
                 data.loc[:, f"{feature}_lag_{lag}"] = data[feature].shift(lag)
 
-        # Очищуємо від NaN та Inf
+        # Очищення від нескінченностей
         data.replace([np.inf, -np.inf], np.nan, inplace=True)
         return data.dropna(subset=self.feature_cols)
 
     def predict(self, df: pd.DataFrame) -> Tuple[str, float]:
-        """Повертає торговий сигнал та впевненість моделі (0.0 - 1.0)"""
+        """Повертає торговий сигнал та впевненість моделі (0.0 - 1.0)."""
         if self.model is None:
+            logger.warning("Модель не завантажена → HOLD")
             return "HOLD", 0.0
-            
+
         processed_df = self.prepare_features(df)
-        if processed_df.empty: 
+        if processed_df.empty:
+            logger.warning("Підготовка фіч повернула пустий DataFrame → HOLD")
             return "HOLD", 0.0
-            
+
         try:
-            # Беремо лише останній рядок (найсвіжіші дані) та потрібні колонки
             last_row = processed_df[self.feature_cols].iloc[[-1]]
-            
-            # Predict Proba повертає матрицю, беремо ймовірність класу '1' (BUY)
-            proba = float(self.model.predict_proba(last_row)[0][1])
+            proba = float(self.model.predict_proba(last_row)[0][1])   # ймовірність класу BUY
             signal = "BUY" if proba >= self.confidence_threshold else "HOLD"
-            
+
+            # Додаткова діагностика – буде видно в логах
+            logger.debug(
+                f"🧠 AI предсказание: proba={proba:.4f}, threshold={self.confidence_threshold}, "
+                f"signal={signal}, активных пар в данных={len(df)}"
+            )
+
             return signal, proba
-            
+
         except KeyError as e:
             logger.error(f"Відсутня необхідна колонка фіч під час передбачення: {e}")
             return "HOLD", 0.0

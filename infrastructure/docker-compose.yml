@@ -1,10 +1,5 @@
 services:
   engine:
-    environment:
-      - CONFIDENCE_THRESHOLD=0.60
-      - RSI_BUY_LIMIT=75
-      - TREND_FILTER=true
-      - INITIAL_BALANCE=5000
     build:
       context: ..
       dockerfile: infrastructure/docker/engine.Dockerfile

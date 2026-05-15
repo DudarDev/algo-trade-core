@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 async def main():
     # Ініціалізуємо біржу
-    exchange = ExchangeManager()
+    exchange = ExchangeManager(settings)
     await exchange.initialize()
     
     # Отримуємо налаштування (з .env або стандартні)

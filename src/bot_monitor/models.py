@@ -1,11 +1,6 @@
 from django.db import models
 
-
 class Trade(models.Model):
-    """
-    Дзеркальна модель для SQLAlchemy 'TradeRecord' (таблиця 'trades').
-    Read-Only для Django.
-    """
     id = models.AutoField(primary_key=True)
     symbol = models.CharField(max_length=20)
     side = models.CharField(max_length=10)
@@ -16,8 +11,8 @@ class Trade(models.Model):
     timestamp = models.DateTimeField()
 
     class Meta:
-        managed = False  # Django НЕ керує схемою цієї таблиці
-        db_table = 'trades'  # Точна назва таблиці з SQLAlchemy
+        managed = False  
+        db_table = 'trades'  
         verbose_name = 'Угода'
         verbose_name_plural = 'Угоди'
 
@@ -26,10 +21,6 @@ class Trade(models.Model):
 
 
 class Wallet(models.Model):
-    """
-    Дзеркальна модель для SQLAlchemy 'Wallet' (таблиця 'wallet').
-    Read-Only для Django.
-    """
     id = models.AutoField(primary_key=True)
     usdt_balance = models.FloatField()
 
@@ -44,10 +35,6 @@ class Wallet(models.Model):
 
 
 class ActivePosition(models.Model):
-    """
-    Дзеркальна модель для SQLAlchemy 'ActivePosition' (таблиця 'active_positions').
-    Read-Only для Django.
-    """
     symbol = models.CharField(max_length=20, primary_key=True)
     amount = models.FloatField()
     entry_price = models.FloatField()
@@ -63,3 +50,21 @@ class ActivePosition(models.Model):
 
     def __str__(self) -> str:
         return f"Позиція {self.symbol} (Вхід: {self.entry_price})"
+
+
+class BotConfig(models.Model):
+    """
+    Таблиця для керування станом бота (Singleton). 
+    Django виступає 'майстром', тому managed = True.
+    """
+    id = models.AutoField(primary_key=True)
+    status = models.CharField(max_length=20, default='stopped') 
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        managed = True
+        db_table = 'bot_config'
+        verbose_name = 'Конфігурація бота'
+
+    def __str__(self) -> str:
+        return f"Bot Status: {self.status}"

@@ -1,28 +1,38 @@
-import json
-from pathlib import Path
+import logging
 from ninja import Router
-from django.conf import settings
-from .schemas import ControlSchema
+from .schemas import ControlSchema, StatusResponseSchema
+from .services import BotControlService
 
-router = Router()
+logger = logging.getLogger(__name__)
+router = Router(tags=["Bot Monitor Management"])
 
-STATUS_FILE = settings.PROJECT_ROOT / 'data_storage' / 'bot_status.json'
-
-@router.post("/control")
+@router.post("/control", response={200: StatusResponseSchema, 500: dict})
 def control_bot(request, data: ControlSchema):
-    new_status = "active" if data.command == "start" else "stopped"
-    STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(STATUS_FILE, "w") as f:
-        json.dump({"status": new_status}, f)
-    return {"status": "success", "bot_status": new_status}
-
-@router.get("/status")
-def get_bot_status(request):
-    if not STATUS_FILE.exists():
-        return {"bot_status": "active"}
+    """
+    POST ендпоінт для асинхронного перемикання стану торгового бота.
+    """
     try:
-        with open(STATUS_FILE, "r") as f:
-            data = json.load(f)
-            return {"bot_status": data.get("status", "active")}
-    except Exception:
-        return {"bot_status": "active"}
+        new_status = BotControlService.change_status(data.command)
+        return 200, {
+            "status": "success",
+            "bot_status": new_status,
+            "message": f"Bot transition to '{new_status}' executed successfully."
+        }
+    except Exception as e:
+        logger.error(f"Control API endpoint failure: {str(e)}")
+        return 500, {"status": "error", "message": "Internal Server Error occurred during state update."}
+
+@router.get("/status", response={200: StatusResponseSchema, 500: dict})
+def get_bot_status(request):
+    """
+    GET ендпоінт для отримання поточного статусу (поллінг з фронтенду).
+    """
+    try:
+        current_status = BotControlService.get_current_status()
+        return 200, {
+            "status": "success",
+            "bot_status": current_status
+        }
+    except Exception as e:
+        logger.error(f"Status API endpoint failure: {str(e)}")
+        return 500, {"status": "error", "message": "Internal Server Error updating monitor layout."}

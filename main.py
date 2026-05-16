@@ -1,229 +1,150 @@
-import time
+import pandas as pd
 import logging
-import asyncio
-import json
-from pathlib import Path
-from typing import List
+from typing import Dict, Any, Tuple
+from django.db import transaction
+from .models import Trade, Wallet, BotConfig
 
-# ==========================================
-# 1. ІМПОРТИ НОВОЇ АРХІТЕКТУРИ
-# ==========================================
-from src.shared.config import settings
-from src.shared.db.session import SessionLocal
-from src.shared.db.repositories import TradingRepository
+logger = logging.getLogger(__name__)
 
-from src.engine.infrastructure.telegram_notifier import TelegramNotifier
-from src.engine.infrastructure.exchange_manager import ExchangeManager
-from src.engine.infrastructure.market_scanner import MarketScanner
-
-from src.engine.application.ai_brain import GlobalTradingAI
-from src.engine.application.strategy import HybridStrategy
-from src.engine.application.risk_management import RiskManager, RiskConfig
-from src.engine.application.paper_trader import PaperTrader
-
-# Налаштування логування
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-)
-logger = logging.getLogger("Main")
-
-# ⚙️ Спільний файл для керування станом (зупинка/запуск з веб-панелі)
-STATUS_FILE = Path("/app/data_storage/bot_status.json")
-
-def is_bot_active() -> bool:
-    """Перевіряє, чи дозволено боту торгувати. За замовчуванням – так."""
-    if not STATUS_FILE.exists():
-        return True
-    try:
-        with open(STATUS_FILE, "r") as f:
-            data = json.load(f)
-            return data.get("status") != "stopped"
-    except Exception:
-        return True  # при помилці читання продовжуємо роботу
-
-class CryptoBot:
-    """Головний Оркестратор Бота (Trading Loop)"""
+class BotControlService:
+    """Сервіс керування життєвим циклом бота (Business Logic Layer)"""
     
-    def __init__(
-        self,
-        exchange: ExchangeManager,
-        scanner: MarketScanner,
-        ai: GlobalTradingAI,
-        strategy: HybridStrategy,
-        risk_manager: RiskManager,
-        trader: PaperTrader
-    ):
-        logger.info("🚀 Ініціалізація Quantum Scalper Core (Senior Async Edition)...")
+    @staticmethod
+    def get_current_status() -> str:
+        try:
+            config, _ = BotConfig.objects.get_or_create(
+                id=1,
+                defaults={'status': 'stopped'}
+            )
+            return config.status
+        except Exception as e:
+            logger.error(f"DB Error fetching status: {e}", exc_info=True)
+            return "active" # Fallback
+
+    @staticmethod
+    @transaction.atomic
+    def change_status(command: str) -> str:
+        target_status = "active" if command == "start" else "stopped"
+        try:
+            config, _ = BotConfig.objects.select_for_update().get_or_create(id=1)
+            if config.status != target_status:
+                config.status = target_status
+                config.save()
+                logger.info(f"Bot state changed to '{target_status}'")
+            return target_status
+        except Exception as e:
+            logger.error(f"DB Error changing status: {e}", exc_info=True)
+            raise RuntimeError("Database transaction failed")
+
+
+class MetricsCalculatorService:
+    """Сервіс для розрахунку торгових метрик (Business Logic Layer)"""
+    
+    INITIAL_BALANCE = 1000.0
+
+    @staticmethod
+    def _calculate_risk_metrics(trades_df: pd.DataFrame, equity_curve: list) -> Tuple[float, float, float, float]:
+        max_drawdown = 0.0
+        if equity_curve:
+            equity_series = pd.Series(equity_curve)
+            running_max = equity_series.cummax()
+            drawdown = (equity_series - running_max) / running_max
+            max_drawdown = drawdown.min() * 100 
+
+        if not trades_df.empty:
+            closed = trades_df[trades_df['side'] == 'SELL']
+            avg_win = closed[closed['pnl'] > 0]['pnl'].mean()
+            avg_loss = closed[closed['pnl'] <= 0]['pnl'].mean()
+            
+            avg_win = 0 if pd.isna(avg_win) else avg_win
+            avg_loss = 0 if pd.isna(avg_loss) else avg_loss
+        else:
+            avg_win, avg_loss = 0, 0
+
+        if abs(avg_loss) > 0:
+            rr_ratio = round(avg_win / abs(avg_loss), 2)
+        else:
+            rr_ratio = round(avg_win, 2) if avg_win > 0 else 0
+
+        return round(abs(max_drawdown), 2), rr_ratio, round(avg_win, 2), round(avg_loss, 2)
+
+    def get_dashboard_data(self) -> Dict[str, Any]:
+        try:
+            wallet = Wallet.objects.first()
+            balance = wallet.usdt_balance if wallet else self.INITIAL_BALANCE
+        except Exception: 
+            balance = self.INITIAL_BALANCE
+
+        trades_qs = Trade.objects.all().order_by('-timestamp')
+        trades_data = list(trades_qs.values('timestamp', 'symbol', 'side', 'price', 'amount', 'pnl'))
         
-        # 💉 Dependency Injection
-        self.exchange = exchange 
-        self.scanner = scanner  
-        self.ai = ai
-        self.strategy = strategy
-        self.risk_manager = risk_manager
-        self.trader = trader
+        context = {
+            'balance': round(balance, 2),
+            'trades': trades_qs[:20], 
+        }
+
+        if not trades_data:
+            return context
+
+        df = pd.DataFrame(trades_data)
+        closed_trades = df[df['side'] == 'SELL']
+        total_closed = len(closed_trades)
+        wins_count = len(closed_trades[closed_trades['pnl'] > 0])
         
-        # 🛡️ Семафор для захисту CPU від перенавантаження Pandas/Sklearn
-        self.concurrency_limit = asyncio.Semaphore(5)
-
-    async def setup(self):
-        """Асинхронна підготовка (відновлення стану з БД)."""
-        await self.trader.initialize()
-
-    async def cleanup(self):
-        """Коректне закриття з'єднань при зупинці бота."""
-        logger.info("🧹 Очищення ресурсів...")
-        await self.exchange.close()
-
-    async def process_pair(self, symbol: str):
-        """Асинхронний конвеєр обробки однієї торгової пари під захистом семафора."""
-        async with self.concurrency_limit:
-            try:
-                # 1. Отримуємо сирі дані з біржі
-                df = await self.exchange.fetch_data(symbol, timeframe=settings.TIMEFRAME, limit=100)
-                if df is None or df.empty:
-                    return
-
-                # 2. Перевіряємо відкриті позиції (Трейлінг стоп)
-                if symbol in self.trader.positions:
-                    await self.trader.update_position(symbol, df.iloc[-1]['close'])
-                    return 
-                
-                # 3. Генерація фіч (в окремому потоці, щоб не блокувати Event Loop)
-                df_features = await asyncio.to_thread(self.ai.prepare_features, df)
-                if df_features.empty:
-                    return
-                    
-                # 4. Прогноз ШІ
-                ai_signal, confidence = await asyncio.to_thread(self.ai.predict, df)
-                
-                # 5. Валідація класичним Технічним Аналізом (Гібридна Стратегія)
-                final_signal, meta = self.strategy.get_signal(
-                    df=df_features, 
-                    ai_confidence=confidence, 
-                    in_position=(symbol in self.trader.positions)
-                )
-                
-                # 6. Управління ризиками та відкриття ордера
-                if final_signal == "BUY":
-                    current_price = float(df_features.iloc[-1]['close'])
-                    current_atr = float(df_features.iloc[-1]['ATR'])
-                    current_balance = self.trader.balance 
-                    
-                    trade_params = self.risk_manager.evaluate_trade(
-                        entry_price=current_price, 
-                        atr=current_atr,
-                        capital=current_balance,
-                        trade_type='BUY'
-                    )
-                    
-                    if trade_params:
-                        reason = meta.get('reason', 'AI_Signal')
-                        logger.info(f"🔥 ВХІД: {symbol} | Conf: {confidence:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason}")
-                        
-                        await self.trader.open_position(
-                            symbol=symbol,
-                            side="BUY",
-                            price=trade_params.entry_price,
-                            sl=trade_params.stop_loss,
-                            tp=trade_params.take_profit
-                        )
-
-            except Exception as e:
-                logger.error(f"❌ Помилка обробки {symbol}: {e}", exc_info=True)
-
-    async def run_cycle(self):
-        """Один повний цикл опитування ринку."""
-        logger.info("📡 Пошук волатильних пар...")
-        active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=500_000)
+        win_rate = (wins_count / total_closed * 100) if total_closed > 0 else 0
         
-        if not active_pairs:
-            logger.warning("⚠️ Ринок неліквідний. Чекаю...")
-            return
+        chart_labels, chart_data, chart_colors, chart_radius = [], [], [], []
+        simulated_equity = self.INITIAL_BALANCE 
+        gross_profit, gross_loss = 0.0, 0.0
 
-        logger.info(f"📊 Обчислення {len(active_pairs)} пар (Max 5 паралельно)...")
-        tasks = [self.process_pair(symbol) for symbol in active_pairs]
-        await asyncio.gather(*tasks)
+        df_sorted = df.sort_values('timestamp')
+
+        for _, t in df_sorted.iterrows():
+            if t['side'] == 'SELL' and pd.notnull(t['pnl']):
+                trade_val = float(t['amount']) * float(t['price'])
+                profit_usd = trade_val * (float(t['pnl']) / 100.0)
+                
+                if profit_usd > 0:
+                    gross_profit += profit_usd
+                    point_color = '#00C853' 
+                else:
+                    gross_loss += abs(profit_usd)
+                    point_color = '#FF3D00' 
+
+                simulated_equity += profit_usd
+                
+                chart_labels.append(t['timestamp'].strftime("%d %b %H:%M"))
+                chart_data.append(round(simulated_equity, 2))
+                chart_colors.append(point_color)
+                chart_radius.append(2) 
+
+        total_pnl_usd = round(gross_profit - gross_loss, 2)
+        total_pnl_percent = round((total_pnl_usd / self.INITIAL_BALANCE) * 100, 2)
+
+        mdd, rr_ratio, avg_win, avg_loss = self._calculate_risk_metrics(df, chart_data)
+
+        if gross_loss == 0:
+            profit_factor = round(gross_profit, 2) if gross_profit > 0 else 0.0
+        else:
+            profit_factor = round(gross_profit / gross_loss, 2)
+
+        pf_color = '#00C853' if profit_factor >= 1.5 else ('#FFD600' if profit_factor >= 1.1 else '#FF3D00')
+
+        context.update({
+            'total_trades': len(df),
+            'win_rate': round(win_rate, 1),
+            'profit_factor': profit_factor,
+            'pf_color': pf_color,
+            'total_pnl_usd': total_pnl_usd,
+            'total_pnl_percent': total_pnl_percent,
+            'max_drawdown': mdd,
+            'risk_reward': rr_ratio,
+            'avg_win': avg_win,
+            'avg_loss': avg_loss,
+            'chart_labels': chart_labels,
+            'chart_data': chart_data,
+            'chart_colors': chart_colors,
+            'chart_radius': chart_radius, 
+        })
         
-        logger.info("✅ Цикл завершено.")
-
-    async def start(self):
-        """Головний нескінченний цикл із перевіркою статусу."""
-        logger.info("🟢 Бот успішно стартував і готовий до роботи!")
-        while True:
-            # 🔒 Перевірка: чи не зупинили бота через веб-панель
-            if not is_bot_active():
-                logger.info("⏸️ Бот зупинений через Веб-панель. Очікування команди START...")
-                await asyncio.sleep(10)
-                continue
-
-            try:
-                start_time = time.time()
-                await self.run_cycle()
-                
-                elapsed = time.time() - start_time
-                sleep_time = max(0, 300 - elapsed) # 5 хвилин між циклами
-                
-                logger.info(f"💤 Очікування наступного циклу ({sleep_time:.1f}с)...")
-                await asyncio.sleep(sleep_time)
-                
-            except asyncio.CancelledError:
-                logger.info("🛑 Отримано сигнал зупинки бота...")
-                break
-            except Exception as e:
-                logger.error(f"❌ Критична помилка у головному циклі: {e}", exc_info=True)
-                await asyncio.sleep(60)
-
-# ==========================================
-# 🏗️ COMPOSITION ROOT (Місце зборки бота)
-# ==========================================
-async def main():
-    # 1. Ініціалізуємо БД
-    db_session = SessionLocal()
-    repo = TradingRepository(session=db_session)
-    
-    # 2. Інфраструктура
-    notifier = TelegramNotifier() if settings.ENABLE_TELEGRAM else None
-    exchange = ExchangeManager(settings=settings)
-    scanner = MarketScanner(exchange_manager=exchange)
-    
-    # 3. Бізнес-логіка (AI, Стратегія, Ризики)
-    ai = GlobalTradingAI(settings=settings)
-    strategy = HybridStrategy(settings=settings)
-    
-    risk_config = RiskConfig(
-        max_risk_pct=2.0, 
-        min_risk_reward=settings.RISK_REWARD_RATIO
-    )
-    risk_manager = RiskManager(config=risk_config)
-    
-    # 4. Трейдер
-    trader = PaperTrader(
-        settings=settings,
-        repo=repo,
-        notifier=notifier
-    )
-    
-    # 5. Ін'єкція залежностей в Оркестратор
-    bot = CryptoBot(
-        exchange=exchange,
-        scanner=scanner,
-        ai=ai,
-        strategy=strategy,
-        risk_manager=risk_manager,
-        trader=trader
-    )
-    
-    try:
-        await bot.setup() 
-        await bot.start() 
-    finally:
-        await bot.cleanup()
-        db_session.close()
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("👋 Бот вимкнений користувачем (KeyboardInterrupt).")
+        return context

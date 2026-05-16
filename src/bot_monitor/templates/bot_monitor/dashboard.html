@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<!-- Обов'язковий CSRF-токен для безпечних POST-запитів через fetch -->
+{% csrf_token %}
+
 <style>
     .mono-font { font-family: 'Courier New', Courier, monospace; }
     .pro-panel { 
@@ -48,15 +51,15 @@
 <div class="pro-panel p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
     <div class="flex items-center gap-4">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">System Control</h3>
-        <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400">
-            CHECKING...
+        <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400 transition-all duration-300">
+            CONNECTING...
         </div>
     </div>
     <div class="flex gap-3">
-        <button onclick="controlBot('start')" id="btn-start" class="px-6 py-2 bg-[#00C853] hover:bg-[#00E676] text-black font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+        <button onclick="controlBot('start')" id="btn-start" disabled class="px-6 py-2 bg-[#00C853] hover:bg-[#00E676] text-black font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
             START TRADING
         </button>
-        <button onclick="controlBot('stop')" id="btn-stop" class="px-6 py-2 bg-[#FF3D00] hover:bg-[#FF6E40] text-white font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+        <button onclick="controlBot('stop')" id="btn-stop" disabled class="px-6 py-2 bg-[#FF3D00] hover:bg-[#FF6E40] text-white font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
             STOP BOT
         </button>
     </div>
@@ -230,55 +233,113 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    // ========== Функції керування ботом ==========
-    async function controlBot(command) {
-        const btn = document.getElementById(`btn-${command}`);
-        const originalText = btn.innerText;
-        btn.innerText = "WAIT...";
-        btn.disabled = true;
-        try {
-            const response = await fetch('/api/monitor/control', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ command: command })
-            });
-            const data = await response.json();
-            if (data.status === "success") {
-                updateStatusBadge(data.bot_status);
+    // ========== Security: Отримання CSRF токена Django ==========
+    function getCSRFToken() {
+        const tokenElement = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (tokenElement) return tokenElement.value;
+        
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === ('csrftoken=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
             }
-        } catch (error) {
-            alert("Помилка зв'язку з API");
-        } finally {
-            btn.innerText = originalText;
-            btn.disabled = false;
         }
+        return cookieValue;
     }
 
-    function updateStatusBadge(status) {
-        const badge = document.getElementById('bot-status-badge');
-        if (!badge) return;
-        if (status === 'active') {
-            badge.innerText = 'ACTIVE';
-            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30';
-        } else {
-            badge.innerText = 'STOPPED';
-            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
+    // ========== API Constants ==========
+    // Використовуємо абсолютні шляхи до роутера, який ти прописав у urls.py (path('api/', api.urls))
+    const API_BASE = '/api';
+
+    // ========== Функції керування ботом (Production-Ready) ==========
+    async function controlBot(command) {
+        const btn = document.getElementById(`btn-${command}`);
+        if (!btn) return;
+
+        const originalText = btn.innerText;
+        btn.innerText = "PROCESSING...";
+        
+        // Вимикаємо обидві кнопки на час запиту
+        document.getElementById('btn-start').disabled = true;
+        document.getElementById('btn-stop').disabled = true;
+
+        try {
+            const response = await fetch(`${API_BASE}/control`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({ command: command })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok && data.status === "success") {
+                updateUIState(data.bot_status);
+            } else {
+                throw new Error(data.message || "API Error");
+            }
+        } catch (error) {
+            console.error("Control Command Failed:", error);
+            alert("Помилка виконання команди. Сервер не відповів належним чином.");
+            // Робимо повторний запит статусу, щоб відновити правильний вигляд UI
+            fetchBotStatus(); 
         }
     }
 
     async function fetchBotStatus() {
         try {
-            const response = await fetch('/api/monitor/status');
+            const response = await fetch(`${API_BASE}/status`);
+            if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+            
             const data = await response.json();
-            updateStatusBadge(data.bot_status);
+            if (data.status === "success") {
+                updateUIState(data.bot_status);
+            }
         } catch (e) {
-            const badge = document.getElementById('bot-status-badge');
-            if (badge) badge.innerText = 'ERROR';
+            console.error("Polling error:", e);
+            updateUIState('error');
         }
     }
 
-    // ========== Графік та ініціалізація ==========
+    function updateUIState(status) {
+        const badge = document.getElementById('bot-status-badge');
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        
+        if (!badge || !btnStart || !btnStop) return;
+
+        if (status === 'active') {
+            badge.innerText = 'ACTIVE';
+            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30 shadow-[0_0_10px_rgba(0,200,83,0.2)]';
+            btnStart.disabled = true;
+            btnStart.classList.add('opacity-50');
+            btnStop.disabled = false;
+            btnStop.classList.remove('opacity-50');
+        } else if (status === 'stopped') {
+            badge.innerText = 'STOPPED';
+            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
+            btnStart.disabled = false;
+            btnStart.classList.remove('opacity-50');
+            btnStop.disabled = true;
+            btnStop.classList.add('opacity-50');
+        } else {
+            badge.innerText = 'CONN ERROR';
+            badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-red-900/40 text-red-500 border border-red-500/40 animate-pulse';
+            btnStart.disabled = true;
+            btnStop.disabled = true;
+        }
+    }
+
+    // ========== Ініціалізація ==========
     document.addEventListener('DOMContentLoaded', function() {
+        // ... (Твій існуючий код ініціалізації Chart.js залишається без змін) ...
         var canvas = document.getElementById('profitChart');
         if (canvas) {
             var ctx = canvas.getContext('2d');
@@ -286,8 +347,11 @@
             var dataPoints = JSON.parse(document.getElementById('chart-data-data')?.textContent || '[]');
             var pointColors = JSON.parse(document.getElementById('chart-colors-data')?.textContent || '[]');
             var pointRadii = JSON.parse(document.getElementById('chart-radius-data')?.textContent || '[]');
-            try { var pfColor = JSON.parse(document.getElementById('pf-color-data')?.textContent || '#848e9c'); }
+            
+            let pfColor;
+            try { pfColor = JSON.parse(document.getElementById('pf-color-data')?.textContent || '#848e9c'); }
             catch(e) { pfColor = '#848e9c'; }
+            
             var pfBar = document.getElementById('pf-bar');
             if(pfBar) pfBar.style.backgroundColor = pfColor;
             var pfVal = document.getElementById('pf-value');
@@ -296,6 +360,7 @@
             var gradient = ctx.createLinearGradient(0, 0, 0, 400);
             gradient.addColorStop(0, 'rgba(14, 203, 129, 0.2)');
             gradient.addColorStop(1, 'rgba(14, 203, 129, 0.0)');
+            
             new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -327,7 +392,9 @@
             });
         }
 
+        // Перший запит статусу і запуск поллінгу
         fetchBotStatus();
+        setInterval(fetchBotStatus, 4000);
     });
 </script>
 {% endblock %}

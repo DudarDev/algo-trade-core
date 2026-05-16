@@ -1,6 +1,41 @@
 import pandas as pd
+import logging
 from typing import Dict, Any, Tuple
-from .models import Trade, Wallet
+from django.db import transaction
+from .models import Trade, Wallet, BotConfig
+
+logger = logging.getLogger(__name__)
+
+class BotControlService:
+    """Сервіс керування життєвим циклом бота (Business Logic Layer)"""
+    
+    @staticmethod
+    def get_current_status() -> str:
+        try:
+            config, _ = BotConfig.objects.get_or_create(
+                id=1,
+                defaults={'status': 'stopped'}
+            )
+            return config.status
+        except Exception as e:
+            logger.error(f"DB Error fetching status: {e}", exc_info=True)
+            return "active" # Fallback
+
+    @staticmethod
+    @transaction.atomic
+    def change_status(command: str) -> str:
+        target_status = "active" if command == "start" else "stopped"
+        try:
+            config, _ = BotConfig.objects.select_for_update().get_or_create(id=1)
+            if config.status != target_status:
+                config.status = target_status
+                config.save()
+                logger.info(f"Bot state changed to '{target_status}'")
+            return target_status
+        except Exception as e:
+            logger.error(f"DB Error changing status: {e}", exc_info=True)
+            raise RuntimeError("Database transaction failed")
+
 
 class MetricsCalculatorService:
     """Сервіс для розрахунку торгових метрик (Business Logic Layer)"""
@@ -34,26 +69,23 @@ class MetricsCalculatorService:
         return round(abs(max_drawdown), 2), rr_ratio, round(avg_win, 2), round(avg_loss, 2)
 
     def get_dashboard_data(self) -> Dict[str, Any]:
-        # 1. Отримання балансу
         try:
             wallet = Wallet.objects.first()
             balance = wallet.usdt_balance if wallet else self.INITIAL_BALANCE
         except Exception: 
             balance = self.INITIAL_BALANCE
 
-        # 2. Отримання угод
         trades_qs = Trade.objects.all().order_by('-timestamp')
         trades_data = list(trades_qs.values('timestamp', 'symbol', 'side', 'price', 'amount', 'pnl'))
         
         context = {
             'balance': round(balance, 2),
-            'trades': trades_qs[:20], # Останні 20 угод для таблиці
+            'trades': trades_qs[:20], 
         }
 
         if not trades_data:
             return context
 
-        # 3. Обчислення через Pandas
         df = pd.DataFrame(trades_data)
         closed_trades = df[df['side'] == 'SELL']
         total_closed = len(closed_trades)
@@ -61,7 +93,6 @@ class MetricsCalculatorService:
         
         win_rate = (wins_count / total_closed * 100) if total_closed > 0 else 0
         
-        # 4. Побудова графіка Equity
         chart_labels, chart_data, chart_colors, chart_radius = [], [], [], []
         simulated_equity = self.INITIAL_BALANCE 
         gross_profit, gross_loss = 0.0, 0.0
@@ -87,7 +118,6 @@ class MetricsCalculatorService:
                 chart_colors.append(point_color)
                 chart_radius.append(2) 
 
-        # 5. Підрахунок PnL та Profit Factor
         total_pnl_usd = round(gross_profit - gross_loss, 2)
         total_pnl_percent = round((total_pnl_usd / self.INITIAL_BALANCE) * 100, 2)
 
@@ -100,7 +130,6 @@ class MetricsCalculatorService:
 
         pf_color = '#00C853' if profit_factor >= 1.5 else ('#FFD600' if profit_factor >= 1.1 else '#FF3D00')
 
-        # Додаємо обчислені дані в контекст
         context.update({
             'total_trades': len(df),
             'win_rate': round(win_rate, 1),

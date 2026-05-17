@@ -14,17 +14,22 @@ class ExchangeManager:
         self.settings = settings
         self.exchange_id = exchange_id 
         
-        # Базові налаштування
+        # 🛡️ КРИТИЧНИЙ ФІКС: Явно забороняємо ccxt звертатися до dapi/fapi ф'ючерсів
         exchange_config = {
             'enableRateLimit': True,
-            'options': {'defaultType': 'spot'}
+            'options': {
+                'defaultType': 'spot',
+                'fetchMarkets': ['spot']  # Вантажимо ТІЛЬКИ спотові пари
+            }
         }
         
-        # 🔐 Безпечне завантаження ключів для реальної торгівлі
-        # Використовуємо .get_secret_value() для Pydantic SecretStr
+        # 🔐 Безпечне завантаження ключів
         if self.settings.BINANCE_API_KEY and self.settings.BINANCE_SECRET_KEY:
-            exchange_config['apiKey'] = self.settings.BINANCE_API_KEY.get_secret_value()
-            exchange_config['secret'] = self.settings.BINANCE_SECRET_KEY.get_secret_value()
+            api_key = self.settings.BINANCE_API_KEY.get_secret_value()
+            secret_key = self.settings.BINANCE_SECRET_KEY.get_secret_value()
+            if api_key and api_key != "dummy":
+                exchange_config['apiKey'] = api_key
+                exchange_config['secret'] = secret_key
 
         # Динамічна ініціалізація біржі
         exchange_class = getattr(ccxt_async, self.exchange_id)
@@ -40,10 +45,6 @@ class ExchangeManager:
             logger.info("🔌 [Exchange] Підключення закрито.")
 
     def _empty_dataframe(self) -> pd.DataFrame:
-        """
-        Повертає порожній DataFrame зі збереженою структурою.
-        Захищає від KeyError у модулях, які залежать від наявності колонок.
-        """
         return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
     async def fetch_data(
@@ -53,12 +54,14 @@ class ExchangeManager:
         limit: int = 100, 
         retries: int = 3
     ) -> pd.DataFrame:
-        """
-        Асинхронно завантажує свічки з механізмом Retry.
-        """
+        
+        # 🛡️ ЗАХИСНЕ ПРОГРАМУВАННЯ: Ігноруємо limit=100 з main.py
+        # ML моделі треба щонайменше 110 свічок (60 + 50 для EMA). Форсуємо 300.
+        actual_limit = max(limit, 300)
+
         for attempt in range(retries):
             try:
-                ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+                ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=actual_limit)
                 
                 if not ohlcv:
                     logger.warning(f"⚠️ [Exchange] Немає даних для {symbol}")
@@ -89,10 +92,6 @@ class ExchangeManager:
         return self._empty_dataframe()
 
     async def fetch_current_price(self, symbol: str) -> Optional[float]:
-        """
-        Швидке отримання поточної ціни без завантаження масиву свічок.
-        Корисно для моніторингу відкритих позицій (Трейлінг стопів).
-        """
         try:
             ticker = await self.exchange.fetch_ticker(symbol)
             return float(ticker['last'])

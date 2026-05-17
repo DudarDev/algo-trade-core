@@ -6,6 +6,8 @@ services:
     container_name: algo_engine
     restart: unless-stopped
     command: python main.py
+    environment:
+      - PYTHONPATH=/app:/app/src  # <-- ДОДАЙТЕ ЦІ ДВА РЯДКИ
     volumes:
       - ../logs:/app/logs
       - ../data_storage:/app/data_storage
@@ -13,6 +15,7 @@ services:
       - ../.env
 
   web_panel:
+    # ... тут все залишається без змін
     build:
       context: ..
       dockerfile: infrastructure/docker/engine.Dockerfile

@@ -1,150 +1,137 @@
 import pandas as pd
+import numpy as np
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, List
+from pydantic import BaseModel
 from django.db import transaction
 from .models import Trade, Wallet, BotConfig
 
 logger = logging.getLogger(__name__)
 
+# --- DTO для Дашборду ---
+class DashboardMetricsDTO(BaseModel):
+    balance: float
+    total_trades: int
+    win_rate: float
+    profit_factor: float
+    pf_color: str
+    total_pnl_usd: float
+    total_pnl_percent: float
+    max_drawdown: float
+    risk_reward: float
+    avg_win: float
+    avg_loss: float
+    chart_labels: List[str]
+    chart_data: List[float]
+    chart_colors: List[str]
+
+
 class BotControlService:
-    """Сервіс керування життєвим циклом бота (Business Logic Layer)"""
-    
     @staticmethod
     def get_current_status() -> str:
         try:
-            config, _ = BotConfig.objects.get_or_create(
-                id=1,
-                defaults={'status': 'stopped'}
-            )
-            return config.status
+            config = BotConfig.objects.first() # Безпечніше, ніж хардкод id=1
+            return config.status if config else 'stopped'
         except Exception as e:
-            logger.error(f"DB Error fetching status: {e}", exc_info=True)
-            return "active" # Fallback
+            logger.error(f"DB Error fetching status: {e}")
+            return "active"
 
     @staticmethod
     @transaction.atomic
-    def change_status(command: str) -> str:
+    def change_status(command: Literal['start', 'stop']) -> str:
         target_status = "active" if command == "start" else "stopped"
-        try:
-            config, _ = BotConfig.objects.select_for_update().get_or_create(id=1)
-            if config.status != target_status:
-                config.status = target_status
-                config.save()
-                logger.info(f"Bot state changed to '{target_status}'")
-            return target_status
-        except Exception as e:
-            logger.error(f"DB Error changing status: {e}", exc_info=True)
-            raise RuntimeError("Database transaction failed")
+        
+        # Get the first config or create one if table is empty
+        config = BotConfig.objects.select_for_update().first()
+        if not config:
+            config = BotConfig.objects.create(status='stopped')
+
+        if config.status != target_status:
+            config.status = target_status
+            config.save(update_fields=['status'])
+            logger.info(f"Bot state changed to '{target_status}'")
+            
+        return target_status
 
 
 class MetricsCalculatorService:
-    """Сервіс для розрахунку торгових метрик (Business Logic Layer)"""
-    
     INITIAL_BALANCE = 1000.0
 
-    @staticmethod
-    def _calculate_risk_metrics(trades_df: pd.DataFrame, equity_curve: list) -> Tuple[float, float, float, float]:
-        max_drawdown = 0.0
-        if equity_curve:
-            equity_series = pd.Series(equity_curve)
-            running_max = equity_series.cummax()
-            drawdown = (equity_series - running_max) / running_max
-            max_drawdown = drawdown.min() * 100 
+    @classmethod
+    def get_dashboard_data(cls) -> DashboardMetricsDTO:
+        wallet = Wallet.objects.first()
+        balance = wallet.usdt_balance if wallet else cls.INITIAL_BALANCE
 
-        if not trades_df.empty:
-            closed = trades_df[trades_df['side'] == 'SELL']
-            avg_win = closed[closed['pnl'] > 0]['pnl'].mean()
-            avg_loss = closed[closed['pnl'] <= 0]['pnl'].mean()
-            
-            avg_win = 0 if pd.isna(avg_win) else avg_win
-            avg_loss = 0 if pd.isna(avg_loss) else avg_loss
-        else:
-            avg_win, avg_loss = 0, 0
-
-        if abs(avg_loss) > 0:
-            rr_ratio = round(avg_win / abs(avg_loss), 2)
-        else:
-            rr_ratio = round(avg_win, 2) if avg_win > 0 else 0
-
-        return round(abs(max_drawdown), 2), rr_ratio, round(avg_win, 2), round(avg_loss, 2)
-
-    def get_dashboard_data(self) -> Dict[str, Any]:
-        try:
-            wallet = Wallet.objects.first()
-            balance = wallet.usdt_balance if wallet else self.INITIAL_BALANCE
-        except Exception: 
-            balance = self.INITIAL_BALANCE
-
-        trades_qs = Trade.objects.all().order_by('-timestamp')
+        trades_qs = Trade.objects.all().order_by('timestamp') # Одразу сортуємо в БД (швидше)
         trades_data = list(trades_qs.values('timestamp', 'symbol', 'side', 'price', 'amount', 'pnl'))
-        
-        context = {
-            'balance': round(balance, 2),
-            'trades': trades_qs[:20], 
-        }
+
+        # Базовий порожній DTO
+        default_metrics = DashboardMetricsDTO(
+            balance=round(balance, 2), total_trades=0, win_rate=0.0, profit_factor=0.0,
+            pf_color='#FF3D00', total_pnl_usd=0.0, total_pnl_percent=0.0, max_drawdown=0.0,
+            risk_reward=0.0, avg_win=0.0, avg_loss=0.0, chart_labels=[], chart_data=[], chart_colors=[]
+        )
 
         if not trades_data:
-            return context
+            return default_metrics
 
         df = pd.DataFrame(trades_data)
-        closed_trades = df[df['side'] == 'SELL']
+        
+        # Фільтруємо лише закриті угоди
+        closed_trades = df[df['side'] == 'SELL'].copy()
+        if closed_trades.empty:
+            return default_metrics
+
         total_closed = len(closed_trades)
-        wins_count = len(closed_trades[closed_trades['pnl'] > 0])
         
-        win_rate = (wins_count / total_closed * 100) if total_closed > 0 else 0
+        # --- ВЕКТОРИЗАЦІЯ (Без iterrows!) ---
+        # Припускаємо, що pnl в базі — це відсотки (напр. 5.5 = 5.5%)
+        closed_trades['trade_value'] = closed_trades['amount'].astype(float) * closed_trades['price'].astype(float)
+        closed_trades['profit_usd'] = closed_trades['trade_value'] * (closed_trades['pnl'].astype(float) / 100.0)
         
-        chart_labels, chart_data, chart_colors, chart_radius = [], [], [], []
-        simulated_equity = self.INITIAL_BALANCE 
-        gross_profit, gross_loss = 0.0, 0.0
+        # Симуляція еквіті
+        closed_trades['equity'] = cls.INITIAL_BALANCE + closed_trades['profit_usd'].cumsum()
+        
+        # Метрики виграшів/програшів
+        wins = closed_trades[closed_trades['profit_usd'] > 0]
+        losses = closed_trades[closed_trades['profit_usd'] <= 0]
+        
+        gross_profit = wins['profit_usd'].sum()
+        gross_loss = abs(losses['profit_usd'].sum())
+        
+        avg_win = wins['profit_usd'].mean() if not wins.empty else 0.0
+        avg_loss = losses['profit_usd'].mean() if not losses.empty else 0.0
+        
+        # Risk / Reward
+        rr_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else (avg_win if avg_win > 0 else 0)
+        
+        # Drawdown 
+        running_max = closed_trades['equity'].cummax()
+        drawdown = (closed_trades['equity'] - running_max) / running_max
+        max_drawdown = abs(drawdown.min() * 100)
 
-        df_sorted = df.sort_values('timestamp')
-
-        for _, t in df_sorted.iterrows():
-            if t['side'] == 'SELL' and pd.notnull(t['pnl']):
-                trade_val = float(t['amount']) * float(t['price'])
-                profit_usd = trade_val * (float(t['pnl']) / 100.0)
-                
-                if profit_usd > 0:
-                    gross_profit += profit_usd
-                    point_color = '#00C853' 
-                else:
-                    gross_loss += abs(profit_usd)
-                    point_color = '#FF3D00' 
-
-                simulated_equity += profit_usd
-                
-                chart_labels.append(t['timestamp'].strftime("%d %b %H:%M"))
-                chart_data.append(round(simulated_equity, 2))
-                chart_colors.append(point_color)
-                chart_radius.append(2) 
-
-        total_pnl_usd = round(gross_profit - gross_loss, 2)
-        total_pnl_percent = round((total_pnl_usd / self.INITIAL_BALANCE) * 100, 2)
-
-        mdd, rr_ratio, avg_win, avg_loss = self._calculate_risk_metrics(df, chart_data)
-
-        if gross_loss == 0:
-            profit_factor = round(gross_profit, 2) if gross_profit > 0 else 0.0
-        else:
-            profit_factor = round(gross_profit / gross_loss, 2)
-
+        # Profit Factor
+        profit_factor = (gross_profit / gross_loss) if gross_loss != 0 else gross_profit
         pf_color = '#00C853' if profit_factor >= 1.5 else ('#FFD600' if profit_factor >= 1.1 else '#FF3D00')
 
-        context.update({
-            'total_trades': len(df),
-            'win_rate': round(win_rate, 1),
-            'profit_factor': profit_factor,
-            'pf_color': pf_color,
-            'total_pnl_usd': total_pnl_usd,
-            'total_pnl_percent': total_pnl_percent,
-            'max_drawdown': mdd,
-            'risk_reward': rr_ratio,
-            'avg_win': avg_win,
-            'avg_loss': avg_loss,
-            'chart_labels': chart_labels,
-            'chart_data': chart_data,
-            'chart_colors': chart_colors,
-            'chart_radius': chart_radius, 
-        })
-        
-        return context
+        # Формування графіку
+        chart_labels = closed_trades['timestamp'].dt.strftime("%d %b %H:%M").tolist()
+        chart_data = closed_trades['equity'].round(2).tolist()
+        chart_colors = np.where(closed_trades['profit_usd'] > 0, '#00C853', '#FF3D00').tolist()
+
+        return DashboardMetricsDTO(
+            balance=round(balance, 2),
+            total_trades=total_closed,
+            win_rate=round((len(wins) / total_closed) * 100, 1),
+            profit_factor=round(profit_factor, 2),
+            pf_color=pf_color,
+            total_pnl_usd=round(gross_profit - gross_loss, 2),
+            total_pnl_percent=round(((gross_profit - gross_loss) / cls.INITIAL_BALANCE) * 100, 2),
+            max_drawdown=round(max_drawdown, 2),
+            risk_reward=round(rr_ratio, 2),
+            avg_win=round(avg_win, 2),
+            avg_loss=round(avg_loss, 2),
+            chart_labels=chart_labels,
+            chart_data=chart_data,
+            chart_colors=chart_colors
+        )

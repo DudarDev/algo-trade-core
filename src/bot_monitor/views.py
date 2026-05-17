@@ -1,20 +1,25 @@
-from django.shortcuts import render
+# src/bot_monitor/views.py
 import logging
-from .services import MetricsCalculatorService
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from .services import MetricsCalculatorService, BotControlService
 
 logger = logging.getLogger(__name__)
 
-def dashboard(request):
-    """
-    Чистий View: Викликає Сервіс для обчислення метрик і віддає їх у шаблон.
-    """
+@login_required
+def dashboard_view(request):
     try:
-        service = MetricsCalculatorService()
-        context = service.get_dashboard_data()
+        # Отримуємо валідований об'єкт DTO
+        metrics_dto = MetricsCalculatorService.get_dashboard_data()
         
+        # Конвертуємо Pydantic модель у словник (dict) для Django шаблону
+        context = metrics_dto.model_dump()
+        
+        # Додаємо статус бота (його немає в DTO метрик)
+        context['bot_status'] = BotControlService.get_current_status()
+
         return render(request, 'bot_monitor/dashboard.html', context)
         
     except Exception as e:
-        logger.error(f"Помилка завантаження дашборду: {e}")
-        # Запасний контекст у разі критичної помилки
-        return render(request, 'bot_monitor/dashboard.html', {'balance': 0.0})
+        logger.error(f"Помилка рендерингу дашборду: {e}", exc_info=True)
+        return render(request, 'bot_monitor/error.html', {"error": "Internal Server Error"})

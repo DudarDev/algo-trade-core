@@ -1,35 +1,17 @@
+# src/application/paper_trader.py
 import logging
 import time
 import asyncio
-from typing import Dict, Optional
-from dataclasses import dataclass
+from typing import Dict
 
 from src.shared.config import Settings
 from src.shared.db.repositories import TradingRepository
+from src.domain.models import Position, TradeSide
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class Position:
-    """Суто бізнес-модель (Domain Model). Ніякої логіки БД тут немає."""
-    symbol: str
-    side: str
-    entry_price: float
-    amount_usdt: float
-    amount_coins: float
-    sl: float
-    tp: float
-    entry_time: float = 0.0
-    highest_price: float = 0.0
-
 class PaperTrader:
-    def __init__(
-        self, 
-        settings: Settings, 
-        repo: TradingRepository, 
-        notifier # Можна типізувати як BaseNotifier або TelegramNotifier
-    ):
-        # 💉 Dependency Injection (Впровадження залежностей)
+    def __init__(self, settings: Settings, repo: TradingRepository, notifier: Any):
         self.settings = settings
         self.repo = repo
         self.notifier = notifier
@@ -37,82 +19,78 @@ class PaperTrader:
         self.positions: Dict[str, Position] = {}
         self.balance: float = 0.0
         self._is_initialized: bool = False
+        self._lock = asyncio.Lock() # Захист від Race Conditions при зміні балансу
 
-    async def initialize(self):
-        """Асинхронний конструктор. Відновлює стан через Репозиторій."""
-        # Читаємо БД в окремому потоці, щоб не блокувати asyncio loop
-        self.balance = await asyncio.to_thread(self.repo.load_balance, 1000.0)
-        db_positions = await asyncio.to_thread(self.repo.get_all_positions)
-        
-        # Rehydration (Відновлення об'єктів пам'яті з об'єктів БД)
-        for db_pos in db_positions:
-            self.positions[db_pos.symbol] = Position(
-                symbol=db_pos.symbol,
-                side="BUY", # Уточнення: у твоїй моделі DB не було side для активних, додай якщо треба
-                entry_price=db_pos.entry_price,
-                amount_usdt=db_pos.cost,
-                amount_coins=db_pos.amount,
-                sl=db_pos.entry_price * 0.95, # В ідеалі теж зберігати в БД
-                tp=db_pos.entry_price * 1.05,
-                highest_price=db_pos.highest_price,
-                entry_time=db_pos.opened_at.timestamp()
-            )
+    async def initialize(self) -> None:
+        async with self._lock:
+            self.balance = await asyncio.to_thread(self.repo.load_balance, self.settings.INITIAL_BALANCE)
+            db_positions = await asyncio.to_thread(self.repo.get_all_positions)
             
-        self._is_initialized = True
-        logger.info(f"💾 PaperTrader Ready! Баланс: {self.balance:.2f} USDT | Відновлено: {len(self.positions)}")
+            for db_pos in db_positions:
+                self.positions[db_pos.symbol] = Position(
+                    symbol=db_pos.symbol,
+                    side=TradeSide.BUY,
+                    entry_price=db_pos.entry_price,
+                    amount_usdt=db_pos.cost,
+                    amount_coins=db_pos.amount,
+                    sl=db_pos.entry_price * (1 - self.settings.DEFAULT_SL_PCT),
+                    tp=db_pos.entry_price * (1 + self.settings.DEFAULT_TP_PCT),
+                    highest_price=db_pos.highest_price,
+                    entry_time=db_pos.opened_at.timestamp()
+                )
+            
+            self._is_initialized = True
+            logger.info(f"💾 PaperTrader Ready! Баланс: {self.balance:.2f} USDT | Відновлено: {len(self.positions)}")
 
-    async def open_position(self, symbol: str, side: str, price: float, sl: float, tp: float):
+    async def open_position(self, symbol: str, side: TradeSide, price: float, sl: float, tp: float) -> None:
         if not self._is_initialized or symbol in self.positions:
             return
 
-        # Використовуємо налаштування з Pydantic Config
-        trade_fraction = 0.20 # Або self.settings.TRADE_FRACTION
-        actual_amount = min(self.balance * trade_fraction, self.balance * 0.98)
+        async with self._lock:
+            actual_amount = min(self.balance * self.settings.TRADE_FRACTION, self.balance * 0.98)
 
-        if actual_amount < 10.0:
-            logger.warning(f"⚠️ Недостатньо коштів для {symbol}.")
-            return
+            if actual_amount < self.settings.MIN_TRADE_SIZE:
+                logger.warning(f"⚠️ Недостатньо коштів для {symbol}.")
+                return
 
-        amount_coins = actual_amount / price
-        self.balance -= actual_amount
+            self.balance -= actual_amount
+            
+            pos = Position(
+                symbol=symbol, side=side, entry_price=price, 
+                amount_usdt=actual_amount, amount_coins=actual_amount / price, 
+                sl=sl, tp=tp, highest_price=price
+            )
+            self.positions[symbol] = pos
+
+            # Транзакційне збереження (в ідеалі має бути один метод репозиторію)
+            await asyncio.to_thread(
+                self.repo.save_position,
+                symbol=pos.symbol, amount=pos.amount_coins, 
+                entry_price=pos.entry_price, highest_price=pos.highest_price, cost=pos.amount_usdt
+            )
+            await asyncio.to_thread(self.repo.save_balance, self.balance)
         
-        pos = Position(
-            symbol=symbol, side=side, entry_price=price, 
-            amount_usdt=actual_amount, amount_coins=amount_coins, 
-            sl=sl, tp=tp, entry_time=time.time(), highest_price=price
-        )
-        self.positions[symbol] = pos
-        
-        # Зберігаємо через репозиторій безпечно
-        await asyncio.to_thread(
-            self.repo.save_position,
-            symbol=pos.symbol, amount=pos.amount_coins, 
-            entry_price=pos.entry_price, highest_price=pos.highest_price, cost=pos.amount_usdt
-        )
-        await asyncio.to_thread(self.repo.save_balance, self.balance)
-        
-        logger.info(f"✅ ВІДКРИТО {side} {symbol} | Ціна: {price:.4f} | Об'єм: {actual_amount:.2f}$")
+        logger.info(f"✅ ВІДКРИТО {side.value} {symbol} | Ціна: {price:.4f} | Об'єм: {actual_amount:.2f}$")
         if self.settings.ENABLE_TELEGRAM:
-            await self.notifier.send_message(f"🟢 Відкрито Paper Trade: {side} {symbol} по {price}")
+            await self.notifier.send_message(f"🟢 Відкрито Paper Trade: {side.value} {symbol} по {price}")
 
-    async def update_position(self, symbol: str, current_price: float):
+    async def update_position(self, symbol: str, current_price: float) -> None:
         if symbol not in self.positions:
             return
             
         pos = self.positions[symbol]
         
-        if pos.side == "BUY":
-            # Логіка трейлінг стопа
+        if pos.side == TradeSide.BUY:
             if current_price > pos.highest_price:
                 pos.highest_price = current_price
                 await asyncio.to_thread(self.repo.update_position_high, symbol, pos.highest_price)
                 
-            activation_price = pos.entry_price * 1.02
+            # Trailing Stop Logic (винесено магічні числа в налаштування)
+            activation_price = pos.entry_price * (1 + self.settings.TRAILING_ACTIVATION_PCT)
             if pos.highest_price >= activation_price:
-                new_sl = pos.highest_price * 0.99
+                new_sl = pos.highest_price * (1 - self.settings.TRAILING_OFFSET_PCT)
                 if new_sl > pos.sl:
                     pos.sl = new_sl
-                    # Знову ж таки, в БД треба додати поле sl, якщо хочеш його зберігати
 
             # Перевірка умов виходу
             if current_price <= pos.sl:
@@ -120,25 +98,25 @@ class PaperTrader:
                 await self._close_position(symbol, current_price, reason)
             elif current_price >= pos.tp:
                 await self._close_position(symbol, current_price, "Take Profit 🎯")
-            elif (time.time() - pos.entry_time) > 7200: # Тут теж краще self.settings.TRADE_TIMEOUT
-                await self._close_position(symbol, current_price, "Тайм-аут (2 год) ⏳")
+            elif (time.time() - pos.entry_time) > self.settings.TRADE_TIMEOUT_SECONDS:
+                await self._close_position(symbol, current_price, "Тайм-аут ⏳")
 
-    async def _close_position(self, symbol: str, close_price: float, reason: str):
-        pos = self.positions.pop(symbol)
-        pnl = (close_price - pos.entry_price) * pos.amount_coins
-        return_amount = pos.amount_usdt + pnl
-        self.balance += return_amount
+    async def _close_position(self, symbol: str, close_price: float, reason: str) -> None:
+        async with self._lock:
+            pos = self.positions.pop(symbol)
+            pnl = (close_price - pos.entry_price) * pos.amount_coins
+            return_amount = pos.amount_usdt + pnl
+            self.balance += return_amount
+            
+            await asyncio.to_thread(self.repo.delete_position, symbol)
+            await asyncio.to_thread(
+                self.repo.log_trade,
+                symbol=symbol, side=TradeSide.SELL.value, price=close_price, 
+                amount=pos.amount_coins, cost=return_amount, pnl=pnl
+            )
+            await asyncio.to_thread(self.repo.save_balance, self.balance)
         
-        # Використовуємо репозиторій для всіх операцій з БД
-        await asyncio.to_thread(self.repo.delete_position, symbol)
-        await asyncio.to_thread(
-            self.repo.log_trade,
-            symbol=symbol, side="SELL", price=close_price, 
-            amount=pos.amount_coins, cost=return_amount, pnl=pnl
-        )
-        await asyncio.to_thread(self.repo.save_balance, self.balance)
-        
-        msg = f"🔴 ЗАКРИТО {pos.side} {symbol} ({reason}) | PnL: {pnl:.2f}$"
+        msg = f"🔴 ЗАКРИТО {pos.side.value} {symbol} ({reason}) | PnL: {pnl:.2f}$"
         logger.info(msg)
         if self.settings.ENABLE_TELEGRAM:
             await self.notifier.send_message(msg)

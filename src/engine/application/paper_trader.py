@@ -6,7 +6,7 @@ from typing import Dict
 
 from src.shared.config import Settings
 from src.shared.db.repositories import TradingRepository
-from src.domain.models import Position, TradeSide
+from src.engine.domain.models import Position, TradeSide
 
 logger = logging.getLogger(__name__)
 

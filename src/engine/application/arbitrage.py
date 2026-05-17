@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 from src.shared.config import Settings
 from src.engine.infrastructure.exchange_manager import ExchangeManager
-from src.domain.models import ArbitrageOpportunity
+from src.engine.domain.models import ArbitrageOpportunity
 
 logger = logging.getLogger(__name__)
 

@@ -63,6 +63,10 @@ class CryptoBot:
                 df = await self.exchange.fetch_data(symbol, timeframe=settings.TIMEFRAME, limit=100)
                 if df is None or df.empty: return
 
+                if len(df) < 60:
+                    logger.info(f"⏭️ Пропуск {symbol}: нова монета, завантажено лише {len(df)} свічок (треба 60+).")
+                    return
+
                 if symbol in self.trader.positions:
                     await self.trader.update_position(symbol, df.iloc[-1]['close'])
                     return

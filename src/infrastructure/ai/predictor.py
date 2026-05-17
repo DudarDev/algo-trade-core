@@ -56,7 +56,7 @@ class GlobalTradingAI:
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Валідує, розраховує всі необхідні 14 індикаторів та повертає чистий датасет."""
         if df is None or df.empty or len(df) < 60:
-            logger.warning("⚠️ Недостатньо даних для генерації фіч (мінімум 60 свічок).")
+            pass
             return pd.DataFrame()
 
         # Валідація наявності базових OHLCV колонок

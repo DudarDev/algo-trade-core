@@ -84,7 +84,7 @@ class CryptoBot:
 
                 if signal_action == "BUY":
                     current_price = float(df_features.iloc[-1]['close'])
-                    current_atr = float(df_features.iloc[-1]['ATR'])
+                    current_atr = float(df_features.iloc[-1]['ATR_PCT']) * current_price
                     trade_params = self.risk_manager.evaluate_trade(
                         entry_price=current_price, atr=current_atr,
                         capital=self.trader.balance, trade_type='BUY'

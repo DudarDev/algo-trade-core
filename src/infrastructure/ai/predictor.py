@@ -8,7 +8,7 @@ from typing import Tuple, Optional, List
 from pathlib import Path
 
 from src.shared.config import Settings
-from src.domain.models import SignalAction
+from src.engine.domain.models import SignalAction
 
 logger = logging.getLogger(__name__)
 

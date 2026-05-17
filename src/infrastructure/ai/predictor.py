@@ -4,7 +4,7 @@ import numpy as np
 import pandas_ta as ta
 import joblib
 import logging
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Any
 from pathlib import Path
 
 from src.shared.config import Settings

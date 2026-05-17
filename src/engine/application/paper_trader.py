@@ -1,8 +1,9 @@
+from typing import Any
 # src/application/paper_trader.py
 import logging
 import time
 import asyncio
-from typing import Dict
+from typing import Any, Dict
 
 from src.shared.config import Settings
 from src.shared.db.repositories import TradingRepository

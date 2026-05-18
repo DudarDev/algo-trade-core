@@ -155,7 +155,7 @@
         <div class="flex items-center gap-2 mb-3">
             <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">🧹 AutoPruner Banlist</h3>
         </div>
-        <p class="text-xs text-gray-500 mb-4">Pairs with Historical Win Rate < 35% are temporarily blocked by Risk Engine.</p>
+        <p class="text-xs text-gray-500 mb-4">Pairs with Historical Win Rate &lt; 35% are temporarily blocked by Risk Engine.</p>
         
         <div class="flex-grow">
             {% if banned_coins %}
@@ -251,16 +251,11 @@
         return cookieValue;
     }
 
-    // ========== API Constants ==========
-    // ВИПРАВЛЕНО: Додано префікс апки
-    const API_BASE = '/bot_monitor/api';
-
     // ========== Функції керування ботом (Production-Ready) ==========
     async function controlBot(command) {
         const btn = document.getElementById(`btn-${command}`);
         if (!btn) return;
 
-        const originalText = btn.innerText;
         btn.innerText = "PROCESSING...";
         
         // Вимикаємо обидві кнопки на час запиту
@@ -268,8 +263,8 @@
         document.getElementById('btn-stop').disabled = true;
 
         try {
-            // ВИПРАВЛЕНО: Додано слеш в кінці URL
-            const response = await fetch(`${API_BASE}/control/`, {
+            // ДИНАМІЧНИЙ РОУТИНГ DJANGO
+            const response = await fetch('{% url "api_bot_control" %}', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -288,15 +283,14 @@
         } catch (error) {
             console.error("Control Command Failed:", error);
             alert("Помилка виконання команди. Сервер не відповів належним чином.");
-            // Робимо повторний запит статусу, щоб відновити правильний вигляд UI
             fetchBotStatus(); 
         }
     }
 
     async function fetchBotStatus() {
         try {
-            // ВИПРАВЛЕНО: Додано слеш в кінці URL
-            const response = await fetch(`${API_BASE}/status/`);
+            // ДИНАМІЧНИЙ РОУТИНГ DJANGO
+            const response = await fetch('{% url "api_bot_status" %}');
             if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
             
             const data = await response.json();
@@ -321,20 +315,26 @@
             badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30 shadow-[0_0_10px_rgba(0,200,83,0.2)]';
             btnStart.disabled = true;
             btnStart.classList.add('opacity-50');
+            btnStart.innerText = 'START TRADING';
             btnStop.disabled = false;
             btnStop.classList.remove('opacity-50');
+            btnStop.innerText = 'STOP BOT';
         } else if (status === 'stopped') {
             badge.innerText = 'STOPPED';
             badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
             btnStart.disabled = false;
             btnStart.classList.remove('opacity-50');
+            btnStart.innerText = 'START TRADING';
             btnStop.disabled = true;
             btnStop.classList.add('opacity-50');
+            btnStop.innerText = 'STOP BOT';
         } else {
             badge.innerText = 'CONN ERROR';
             badge.className = 'px-3 py-1 rounded-full text-xs font-bold bg-red-900/40 text-red-500 border border-red-500/40 animate-pulse';
             btnStart.disabled = true;
+            btnStart.innerText = 'START TRADING';
             btnStop.disabled = true;
+            btnStop.innerText = 'STOP BOT';
         }
     }
 

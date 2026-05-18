@@ -1,3 +1,4 @@
+from src.engine.domain.models import TradeSide
 import os
 import sys
 import time
@@ -93,7 +94,7 @@ class CryptoBot:
                         reason = meta.reason if hasattr(meta, 'reason') else meta.get('reason', 'AI_Signal')
                         logger.info(f"🔥 ВХІД: {symbol} | Conf: {proba:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason}")
                         await self.trader.open_position(
-                            symbol=symbol, side="BUY", price=trade_params.entry_price,
+                            symbol=symbol, side=TradeSide.BUY, price=trade_params.entry_price,
                             sl=trade_params.stop_loss, tp=trade_params.take_profit
                         )
             except Exception as e:

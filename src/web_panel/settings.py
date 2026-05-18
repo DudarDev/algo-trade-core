@@ -1,22 +1,23 @@
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 # ==========================================
-# 1. PATH CONFIGURATION (АРХІТЕКТУРА ШЛЯХІВ)
+# 1. PATH CONFIGURATION
 # ==========================================
 BASE_DIR = Path(__file__).resolve().parent.parent         # src/
 PROJECT_ROOT = BASE_DIR.parent                            # корінь проєкту
 
 # ==========================================
-# 2. SECURITY & CORE SETTINGS (БЕЗПЕКА)
+# 2. SECURITY & CORE SETTINGS
 # ==========================================
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-update-me-in-production')
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 't')
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+ALLOWED_HOSTS = ['*'] # Для AWS EC2 дозволяємо всі хости
 CSRF_TRUSTED_ORIGINS = ['https://*.cloudshell.dev']
 
 # ==========================================
-# 3. APPLICATIONS (ДОДАТКИ)
+# 3. APPLICATIONS
 # ==========================================
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -25,15 +26,12 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # наші додатки
     'bot_monitor',
     'shared',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    # --- Whitenoise: роздача статики прямо з Gunicorn ---
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -64,17 +62,32 @@ TEMPLATES = [
 WSGI_APPLICATION = 'web_panel.wsgi.application'
 
 # ==========================================
-# 4. DATABASE (ІНФРАСТРУКТУРА ДАНИХ)
+# 4. DATABASE (Підтримка PostgreSQL через DATABASE_URL)
 # ==========================================
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': PROJECT_ROOT / 'data_storage' / 'bot_data.db',
+db_url = os.getenv("DATABASE_URL")
+
+if db_url:
+    url = urlparse(db_url)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': url.path[1:],
+            'USER': url.username,
+            'PASSWORD': url.password,
+            'HOST': url.hostname,
+            'PORT': url.port or '5432',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': PROJECT_ROOT / 'data_storage' / 'bot_data.db',
+        }
+    }
 
 # ==========================================
-# 5. PASSWORD VALIDATION
+# 5. PASSWORD VALIDATION & INTERNATIONALIZATION
 # ==========================================
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -83,29 +96,19 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# ==========================================
-# 6. INTERNATIONALIZATION
-# ==========================================
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
 # ==========================================
-# 7. STATIC FILES (Whitenoise)
+# 6. STATIC FILES & LOGGING
 # ==========================================
 STATIC_URL = '/static/'
-# Папка, куди Django збиратиме статику (collectstatic)
 STATIC_ROOT = PROJECT_ROOT / 'staticfiles'
-
-# Whitenoise storage для стиснення та кешування (manifests)
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# ==========================================
-# 8. LOGGING (ОБРОБКА ПОМИЛОК)
-# ==========================================
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

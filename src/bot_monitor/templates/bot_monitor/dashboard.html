@@ -1,7 +1,6 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<!-- Обов'язковий CSRF-токен для безпечних POST-запитів через fetch -->
 {% csrf_token %}
 
 <style>
@@ -253,8 +252,8 @@
     }
 
     // ========== API Constants ==========
-    // Використовуємо абсолютні шляхи до роутера, який ти прописав у urls.py (path('api/', api.urls))
-    const API_BASE = '/api';
+    // ВИПРАВЛЕНО: Додано префікс апки
+    const API_BASE = '/bot_monitor/api';
 
     // ========== Функції керування ботом (Production-Ready) ==========
     async function controlBot(command) {
@@ -269,7 +268,8 @@
         document.getElementById('btn-stop').disabled = true;
 
         try {
-            const response = await fetch(`${API_BASE}/control`, {
+            // ВИПРАВЛЕНО: Додано слеш в кінці URL
+            const response = await fetch(`${API_BASE}/control/`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -295,7 +295,8 @@
 
     async function fetchBotStatus() {
         try {
-            const response = await fetch(`${API_BASE}/status`);
+            // ВИПРАВЛЕНО: Додано слеш в кінці URL
+            const response = await fetch(`${API_BASE}/status/`);
             if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
             
             const data = await response.json();
@@ -339,7 +340,6 @@
 
     // ========== Ініціалізація ==========
     document.addEventListener('DOMContentLoaded', function() {
-        // ... (Твій існуючий код ініціалізації Chart.js залишається без змін) ...
         var canvas = document.getElementById('profitChart');
         if (canvas) {
             var ctx = canvas.getContext('2d');

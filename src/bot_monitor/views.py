@@ -3,7 +3,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 import json
 
-def dashboard(request):
+def dashboard_view(request):
     """Головна сторінка веб-панелі."""
     return render(request, 'bot_monitor/dashboard.html')
 

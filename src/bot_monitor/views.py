@@ -23,3 +23,7 @@ def dashboard_view(request):
     except Exception as e:
         logger.error(f"Помилка рендерингу дашборду: {e}", exc_info=True)
         return render(request, 'bot_monitor/error.html', {"error": "Internal Server Error"})
+
+from django.http import JsonResponse
+def api_bot_status(request):
+    return JsonResponse({"status": "active"})

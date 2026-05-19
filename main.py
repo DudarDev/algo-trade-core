@@ -4,6 +4,7 @@ import time
 import logging
 import asyncio
 import django
+from datetime import datetime, timezone
 from sqlalchemy import text
 
 # 1. ФІКС ШЛЯХІВ ТА ІНІЦІАЛІЗАЦІЯ DJANGO
@@ -13,9 +14,9 @@ django.setup()
 
 # 2. ФІКС ЛОГУВАННЯ (Після django.setup!)
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    force=True # Примусово перезаписуємо налаштування Django
+    force=True
 )
 logger = logging.getLogger("Main")
 
@@ -31,6 +32,7 @@ from src.engine.application.strategy import HybridStrategy
 from src.engine.application.risk_management import RiskManager, RiskConfig
 from src.engine.application.paper_trader import PaperTrader
 
+
 class CryptoBot:
     def __init__(self, db_session, exchange, scanner, ai, strategy, risk_manager, trader):
         logger.info("🚀 Ініціалізація Quantum Scalper Core (Senior Edition)...")
@@ -44,30 +46,39 @@ class CryptoBot:
         self.concurrency_limit = asyncio.Semaphore(5)
 
     def is_bot_active(self) -> bool:
-        """ ФІКС: Обов'язковий rollback при помилці БД """
+        """Безпечна перевірка статусу з автоматичним створенням рядка при потребі."""
         try:
-            # Використовуємо окрему транзакцію для перевірки, щоб не ламати основну
-            with self.db_session.begin_nested():
-                query = text("SELECT status FROM bot_config WHERE id=1")
-                result = self.db_session.execute(query).scalar()
-            
-            if result is None:
-                # Якщо таблиця порожня, пробуємо ініціалізувати
+            # 1. Спроба прочитати статус
+            query = text("SELECT status FROM bot_config WHERE id=1")
+            result = self.db_session.execute(query).scalar()
+
+            if result is not None:
+                return result == "active"
+
+            # 2. Рядка немає – пробуємо вставити
+            try:
+                self.db_session.execute(
+                    text("INSERT INTO bot_config (id, status, updated_at) VALUES (1, 'active', :now)"),
+                    {"now": datetime.now(timezone.utc)}
+                )
+                self.db_session.commit()
+                logger.info("🆕 bot_config ініціалізовано зі статусом 'active'")
+                return True
+            except Exception as insert_error:
+                self.db_session.rollback()
+                logger.warning(f"⚠️ Не вдалося створити bot_config: {insert_error}")
+                # Можливо, рядок вже створив інший процес – спробуємо прочитати ще раз
                 try:
-                    self.db_session.execute(text("INSERT INTO bot_config (id, status) VALUES (1, 'stopped')"))
-                    self.db_session.commit()
-                    return False
+                    result = self.db_session.execute(text("SELECT status FROM bot_config WHERE id=1")).scalar()
+                    return result == "active" if result else False
                 except Exception:
-                    self.db_session.rollback()
                     return False
-                
-            return result == "active"
+
         except Exception as e:
-            # ЯКЩО БУДЬ-ЯКА ПОМИЛКА — РОБИМО ROLLBACK
-            self.db_session.rollback() 
+            self.db_session.rollback()
             logger.error(f"❌ DB Error checking status: {e}")
             return False
-            
+
     async def setup(self):
         await self.trader.initialize()
 
@@ -79,7 +90,8 @@ class CryptoBot:
         async with self.concurrency_limit:
             try:
                 df = await self.exchange.fetch_data(symbol, timeframe=settings.TIMEFRAME, limit=100)
-                if df is None or df.empty: return
+                if df is None or df.empty:
+                    return
 
                 if len(df) < 60:
                     return
@@ -89,7 +101,8 @@ class CryptoBot:
                     return
 
                 df_features = await asyncio.to_thread(self.ai.prepare_features, df)
-                if df_features.empty: return
+                if df_features.empty:
+                    return
 
                 final_signal, proba = self.ai.predict(df_features)
                 signal_action, meta = self.strategy.get_signal(
@@ -113,12 +126,13 @@ class CryptoBot:
                             sl=trade_params.stop_loss, tp=trade_params.take_profit
                         )
             except Exception as e:
-                logger.error(f"❌ Помилка обробки {symbol}: {e}") # Прибрав exc_info=True щоб не спамити Traceback-ами
+                logger.error(f"❌ Помилка обробки {symbol}: {e}")
 
     async def run_cycle(self):
         logger.info("📡 Пошук волатильних пар...")
         active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=500_000)
-        if not active_pairs: return
+        if not active_pairs:
+            return
         tasks = [self.process_pair(symbol) for symbol in active_pairs]
         await asyncio.gather(*tasks)
         logger.info("✅ Цикл завершено.")
@@ -142,6 +156,7 @@ class CryptoBot:
                 logger.error(f"❌ Помилка циклу: {e}")
                 await asyncio.sleep(60)
 
+
 async def main():
     db_session = SessionLocal()
     bot = CryptoBot(
@@ -160,8 +175,8 @@ async def main():
         await bot.cleanup()
         db_session.close()
 
+
 if __name__ == "__main__":
-    # Щоб не було помилок unclosed session при зупинці
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

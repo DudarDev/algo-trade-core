@@ -8,29 +8,17 @@ from .models import ActivePosition, Trade, Wallet
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
-    """Базовий абстрактний клас для Read-Only моделей.
-    Блокує будь-які спроби зміни даних через Django Admin.
-    """
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
-
     def has_change_permission(self, request: HttpRequest, obj: Optional[Any] = None) -> bool:
         return False
-
     def has_delete_permission(self, request: HttpRequest, obj: Optional[Any] = None) -> bool:
         return False
 
 
 @admin.register(Trade)
 class TradeAdmin(ReadOnlyAdmin):
-    list_display = (
-        'timestamp',
-        'symbol',
-        'colored_side',
-        'price',
-        'amount',
-        'colored_pnl'
-    )
+    list_display = ('timestamp', 'symbol', 'colored_side', 'price', 'amount', 'colored_pnl')
     list_filter = ('symbol', 'side')
     search_fields = ('symbol',)
     list_per_page = 50
@@ -52,11 +40,9 @@ class TradeAdmin(ReadOnlyAdmin):
     def colored_pnl(self, obj: Trade) -> str:
         if not obj.side or obj.side.upper() == 'BUY':
             return "-"
-
         pnl_value = obj.pnl or 0.0
         color = 'green' if pnl_value > 0 else 'red'
         # Форматуємо значення до виклику format_html, щоб уникнути помилки
-        # "Unknown format code 'f' for object of type 'SafeString'"
         pnl_str = f"{pnl_value:.2f}%"
         return format_html(
             '<span style="color: {}; font-weight: bold;">{}</span>',
@@ -81,14 +67,7 @@ class WalletAdmin(ReadOnlyAdmin):
 
 @admin.register(ActivePosition)
 class ActivePositionAdmin(ReadOnlyAdmin):
-    list_display = (
-        'symbol',
-        'amount',
-        'entry_price',
-        'highest_price',
-        'cost',
-        'opened_at'
-    )
+    list_display = ('symbol', 'amount', 'entry_price', 'highest_price', 'cost', 'opened_at')
     search_fields = ('symbol',)
     list_filter = ('symbol',)
     list_per_page = 50

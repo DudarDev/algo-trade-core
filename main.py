@@ -1,4 +1,3 @@
-from src.engine.domain.models import TradeSide
 import os
 import sys
 import time
@@ -7,18 +6,23 @@ import asyncio
 import django
 from sqlalchemy import text
 
-# --- ФІКС ШЛЯХІВ ДЛЯ DJANGO ---
-# Вказуємо Python, що треба шукати модулі всередині папки src/
+# 1. ФІКС ШЛЯХІВ ТА ІНІЦІАЛІЗАЦІЯ DJANGO
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
-
-# Ініціалізація Django (тепер вказуємо просто web_panel.settings)
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'web_panel.settings')
 django.setup()
-# ------------------------------
+
+# 2. ФІКС ЛОГУВАННЯ (Після django.setup!)
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    force=True # Примусово перезаписуємо налаштування Django
+)
+logger = logging.getLogger("Main")
 
 from src.shared.config import settings
 from src.shared.db.session import SessionLocal
 from src.shared.db.repositories import TradingRepository
+from src.engine.domain.models import TradeSide
 from src.engine.infrastructure.telegram_notifier import TelegramNotifier
 from src.engine.infrastructure.exchange_manager import ExchangeManager
 from src.engine.infrastructure.market_scanner import MarketScanner
@@ -26,9 +30,6 @@ from src.infrastructure.ai.predictor import GlobalTradingAI
 from src.engine.application.strategy import HybridStrategy
 from src.engine.application.risk_management import RiskManager, RiskConfig
 from src.engine.application.paper_trader import PaperTrader
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
-logger = logging.getLogger("Main")
 
 class CryptoBot:
     def __init__(self, db_session, exchange, scanner, ai, strategy, risk_manager, trader):
@@ -43,13 +44,21 @@ class CryptoBot:
         self.concurrency_limit = asyncio.Semaphore(5)
 
     def is_bot_active(self) -> bool:
+        """ ФІКС: Правильна перевірка статусу з ініціалізацією БД """
         try:
             query = text("SELECT status FROM bot_config WHERE id=1")
             result = self.db_session.execute(query).scalar()
-            return result != "stopped"
+            
+            if result is None:
+                # Якщо таблиця порожня, створюємо базовий запис
+                self.db_session.execute(text("INSERT INTO bot_config (id, status) VALUES (1, 'stopped')"))
+                self.db_session.commit()
+                return False
+                
+            return result == "active"
         except Exception as e:
-            logger.warning(f"Failed to read bot status from DB: {e}. Defaulting to Active.")
-            return True
+            logger.error(f"❌ DB Error checking status: {e}")
+            return False
 
     async def setup(self):
         await self.trader.initialize()
@@ -65,17 +74,15 @@ class CryptoBot:
                 if df is None or df.empty: return
 
                 if len(df) < 60:
-                    logger.info(f"⏭️ Пропуск {symbol}: нова монета, завантажено лише {len(df)} свічок (треба 60+).")
                     return
 
                 if symbol in self.trader.positions:
-                    await self.trader.update_position(symbol, df.iloc[-1]['close'])
+                    await self.trader.update_position(symbol, float(df.iloc[-1]['close']))
                     return
 
                 df_features = await asyncio.to_thread(self.ai.prepare_features, df)
                 if df_features.empty: return
 
-                # Отримуємо сигнал від стратегії
                 final_signal, proba = self.ai.predict(df_features)
                 signal_action, meta = self.strategy.get_signal(
                     df=df_features,
@@ -98,7 +105,7 @@ class CryptoBot:
                             sl=trade_params.stop_loss, tp=trade_params.take_profit
                         )
             except Exception as e:
-                logger.error(f"❌ Помилка обробки {symbol}: {e}", exc_info=True)
+                logger.error(f"❌ Помилка обробки {symbol}: {e}") # Прибрав exc_info=True щоб не спамити Traceback-ами
 
     async def run_cycle(self):
         logger.info("📡 Пошук волатильних пар...")
@@ -109,10 +116,10 @@ class CryptoBot:
         logger.info("✅ Цикл завершено.")
 
     async def start(self):
-        logger.info("🟢 Бот готовий до роботи!")
+        logger.info("🟢 Бот запущено! Очікування команди з дашборду...")
         while True:
             if not self.is_bot_active():
-                logger.info("⏸️ Бот зупинений через Веб-панель. Очікування команди START...")
+                logger.info("⏸️ Бот зупинений. Очікування команди START...")
                 await asyncio.sleep(10)
                 continue
             try:
@@ -124,7 +131,7 @@ class CryptoBot:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"❌ Помилка: {e}", exc_info=True)
+                logger.error(f"❌ Помилка циклу: {e}")
                 await asyncio.sleep(60)
 
 async def main():
@@ -146,4 +153,8 @@ async def main():
         db_session.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Щоб не було помилок unclosed session при зупинці
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Бот зупинено вручну.")

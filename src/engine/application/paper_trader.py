@@ -20,7 +20,7 @@ class PaperTrader:
         self.positions: Dict[str, Position] = {}
         self.balance: float = 0.0
         self._is_initialized: bool = False
-        self._lock = asyncio.Lock()  # Гарантія атомарності змін внутрішнього стану (balance, positions)
+        self._lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Асинхронне відновлення стану балансу та позицій з бази даних при старті."""
@@ -28,7 +28,6 @@ class PaperTrader:
             return
 
         async with self._lock:
-            # Виконуємо I/O операції в окремих потоках, щоб не блокувати Event Loop
             self.balance = await asyncio.to_thread(self.repo.load_balance, self.settings.INITIAL_BALANCE)
             db_positions = await asyncio.to_thread(self.repo.get_all_positions)
 
@@ -54,18 +53,17 @@ class PaperTrader:
             logger.error("❌ Спроба відкрити позицію до ініціалізації PaperTrader.")
             return
 
-        # ВИПРАВЛЕНО: Примусово конвертуємо входи у float, щоб уникнути np.float64
+        # Примусове перетворення у float, щоб уникнути np.float64
         price = float(price)
         sl = float(sl)
         tp = float(tp)
 
-        # Локальні змінні для збереження даних за межами блокування
         pos_to_save: Optional[Position] = None
         current_balance: float = 0.0
 
         async with self._lock:
             if symbol in self.positions:
-                return  # Позиція вже відкрита, виходимо без помилки
+                return
 
             actual_amount = min(self.balance * self.settings.TRADE_FRACTION, self.balance * 0.98)
             if actual_amount < self.settings.MIN_TRADE_SIZE:
@@ -82,16 +80,16 @@ class PaperTrader:
             )
             self.positions[symbol] = pos_to_save
 
-        # ——— КРИТИЧНИЙ ФІКС: ТРАНЗАКЦІЙНИЙ I/O ВИКОНУЄТЬСЯ ЗА МЕЖАМИ ЛОКУ ———
+        # Усі дані для БД явно конвертуємо у float
         await asyncio.to_thread(
             self.repo.save_position,
-            symbol=pos_to_save.symbol, 
-            amount=float(pos_to_save.amount_coins), # ВИПРАВЛЕНО
-            entry_price=float(pos_to_save.entry_price), # ВИПРАВЛЕНО
-            highest_price=float(pos_to_save.highest_price), # ВИПРАВЛЕНО
-            cost=float(pos_to_save.amount_usdt) # ВИПРАВЛЕНО
+            symbol=pos_to_save.symbol,
+            amount=float(pos_to_save.amount_coins),
+            entry_price=float(pos_to_save.entry_price),
+            highest_price=float(pos_to_save.highest_price),
+            cost=float(pos_to_save.amount_usdt)
         )
-        await asyncio.to_thread(self.repo.save_balance, float(current_balance)) # ВИПРАВЛЕНО
+        await asyncio.to_thread(self.repo.save_balance, float(current_balance))
 
         logger.info(f"🚀 [ВХІД] {side.value} {symbol} | Ціна: {price:.4f} | Об'єм: {pos_to_save.amount_usdt:.2f} USDT")
         if self.settings.ENABLE_TELEGRAM:
@@ -99,64 +97,58 @@ class PaperTrader:
 
     async def update_position(self, symbol: str, current_price: float) -> None:
         """Оновлює стан ордера, прораховує трейлінг та ініціює вихід за умов ринку."""
-        pos: Optional[Position] = None
-        
-        # ВИПРАВЛЕНО: Примусово конвертуємо price у float
         current_price = float(current_price)
-        
-        # Швидка thread-safe копія посилання на об'єкт позиції
+
+        pos: Optional[Position] = None
         async with self._lock:
             pos = self.positions.get(symbol)
 
         if not pos:
             return
 
-        # 1. Розрахунок Trailing Stop через чистий Domain Service
         highest, new_sl = OrderExecutionService.calculate_trailing_stop(pos, current_price, self.settings)
-        
+
         if highest > pos.highest_price:
             pos.highest_price = highest
-            # ВИПРАВЛЕНО: Огортаємо highest у float
-            await asyncio.to_thread(self.repo.update_position_high, symbol, float(highest)) 
+            await asyncio.to_thread(self.repo.update_position_high, symbol, float(highest))
         pos.sl = new_sl
 
-        # 2. Перевірка умов виходу
         exit_reason = OrderExecutionService.evaluate_exit_conditions(pos, current_price, self.settings)
         if exit_reason:
             await self._close_position(symbol, current_price, exit_reason)
 
     async def _close_position(self, symbol: str, close_price: float, reason: str) -> None:
         """Атомарно вилучає позицію та реєструє фінансовий результат у репозиторії."""
+        close_price = float(close_price)
+
         pos: Optional[Position] = None
         current_balance: float = 0.0
         pnl: float = 0.0
         return_amount: float = 0.0
-        
-        close_price = float(close_price) # ВИПРАВЛЕНО
 
         async with self._lock:
-            # Захист від повторного виклику іншим асинхронним таском
             if symbol not in self.positions:
                 return
-                
+
             pos = self.positions.pop(symbol)
             pnl = (close_price - pos.entry_price) * pos.amount_coins
             return_amount = pos.amount_usdt + pnl
-            
+
             self.balance += return_amount
             current_balance = self.balance
 
-        # ——— I/O ОПЕРАЦІЇ ВИКОНУЮТЬСЯ ПОЗА ЛОКОМ (НЕ БЛОКУЮТЬ ІНШІ ПАРИ) ———
+        # Усі дані для БД явно конвертуємо у float
         await asyncio.to_thread(self.repo.delete_position, symbol)
         await asyncio.to_thread(
             self.repo.log_trade,
-            symbol=symbol, side=TradeSide.SELL.value, 
-            price=float(close_price), # ВИПРАВЛЕНО
-            amount=float(pos.amount_coins), # ВИПРАВЛЕНО
-            cost=float(return_amount), # ВИПРАВЛЕНО
-            pnl=float(pnl) # ВИПРАВЛЕНО
+            symbol=symbol,
+            side=TradeSide.SELL.value,
+            price=float(close_price),
+            amount=float(pos.amount_coins),
+            cost=float(return_amount),
+            pnl=float(pnl)
         )
-        await asyncio.to_thread(self.repo.save_balance, float(current_balance)) # ВИПРАВЛЕНО
+        await asyncio.to_thread(self.repo.save_balance, float(current_balance))
 
         msg = f"📉 [ВИХІД] {symbol} закрито через {reason} | Ціна: {close_price:.4f} | PnL: {pnl:+.2f} USDT"
         logger.info(msg)

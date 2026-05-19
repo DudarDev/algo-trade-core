@@ -4,13 +4,11 @@ from django.contrib import admin
 from django.http import HttpRequest
 from django.utils.html import format_html
 
-# Використовуємо відносний імпорт моделей з поточного додатку (bot_monitor)
 from .models import ActivePosition, Trade, Wallet
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
-    """
-    Базовий абстрактний клас для Read-Only моделей.
+    """Базовий абстрактний клас для Read-Only моделей.
     Блокує будь-які спроби зміни даних через Django Admin.
     """
     def has_add_permission(self, request: HttpRequest) -> bool:
@@ -26,17 +24,15 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 @admin.register(Trade)
 class TradeAdmin(ReadOnlyAdmin):
     list_display = (
-        'timestamp', 
-        'symbol', 
-        'colored_side', 
-        'price', 
-        'amount', 
+        'timestamp',
+        'symbol',
+        'colored_side',
+        'price',
+        'amount',
         'colored_pnl'
     )
     list_filter = ('symbol', 'side')
     search_fields = ('symbol',)
-    
-    # Оптимізація: пагінація та сортування (нові зверху)
     list_per_page = 50
     ordering = ('-timestamp',)
 
@@ -44,13 +40,11 @@ class TradeAdmin(ReadOnlyAdmin):
     def colored_side(self, obj: Trade) -> str:
         if not obj.side:
             return "-"
-            
         side_upper = obj.side.upper()
         color = 'blue' if side_upper == 'BUY' else 'orange'
-        
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{}</span>', 
-            color, 
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color,
             side_upper
         )
 
@@ -58,22 +52,23 @@ class TradeAdmin(ReadOnlyAdmin):
     def colored_pnl(self, obj: Trade) -> str:
         if not obj.side or obj.side.upper() == 'BUY':
             return "-"
-            
-        # Захист від None (якщо в БД пусто)
+
         pnl_value = obj.pnl or 0.0
         color = 'green' if pnl_value > 0 else 'red'
-        
+        # Форматуємо значення до виклику format_html, щоб уникнути помилки
+        # "Unknown format code 'f' for object of type 'SafeString'"
+        pnl_str = f"{pnl_value:.2f}%"
         return format_html(
-            '<span style="color: {}; font-weight: bold;">{:.2f}%</span>', 
-            color, 
-            pnl_value
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color,
+            pnl_str
         )
 
 
 @admin.register(Wallet)
 class WalletAdmin(ReadOnlyAdmin):
     list_display = ('id', 'formatted_balance', 'status_display')
-    
+
     @admin.display(description='Баланс (USDT)')
     def formatted_balance(self, obj: Wallet) -> str:
         balance = obj.usdt_balance or 0.0
@@ -87,15 +82,14 @@ class WalletAdmin(ReadOnlyAdmin):
 @admin.register(ActivePosition)
 class ActivePositionAdmin(ReadOnlyAdmin):
     list_display = (
-        'symbol', 
-        'amount', 
-        'entry_price', 
-        'highest_price', 
-        'cost', 
+        'symbol',
+        'amount',
+        'entry_price',
+        'highest_price',
+        'cost',
         'opened_at'
     )
     search_fields = ('symbol',)
     list_filter = ('symbol',)
-    
     list_per_page = 50
     ordering = ('-opened_at',)

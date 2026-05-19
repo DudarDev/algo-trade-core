@@ -44,22 +44,30 @@ class CryptoBot:
         self.concurrency_limit = asyncio.Semaphore(5)
 
     def is_bot_active(self) -> bool:
-        """ ФІКС: Правильна перевірка статусу з ініціалізацією БД """
+        """ ФІКС: Обов'язковий rollback при помилці БД """
         try:
-            query = text("SELECT status FROM bot_config WHERE id=1")
-            result = self.db_session.execute(query).scalar()
+            # Використовуємо окрему транзакцію для перевірки, щоб не ламати основну
+            with self.db_session.begin_nested():
+                query = text("SELECT status FROM bot_config WHERE id=1")
+                result = self.db_session.execute(query).scalar()
             
             if result is None:
-                # Якщо таблиця порожня, створюємо базовий запис
-                self.db_session.execute(text("INSERT INTO bot_config (id, status) VALUES (1, 'stopped')"))
-                self.db_session.commit()
-                return False
+                # Якщо таблиця порожня, пробуємо ініціалізувати
+                try:
+                    self.db_session.execute(text("INSERT INTO bot_config (id, status) VALUES (1, 'stopped')"))
+                    self.db_session.commit()
+                    return False
+                except Exception:
+                    self.db_session.rollback()
+                    return False
                 
             return result == "active"
         except Exception as e:
+            # ЯКЩО БУДЬ-ЯКА ПОМИЛКА — РОБИМО ROLLBACK
+            self.db_session.rollback() 
             logger.error(f"❌ DB Error checking status: {e}")
             return False
-
+            
     async def setup(self):
         await self.trader.initialize()
 

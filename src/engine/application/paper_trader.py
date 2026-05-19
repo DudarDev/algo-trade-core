@@ -54,6 +54,11 @@ class PaperTrader:
             logger.error("❌ Спроба відкрити позицію до ініціалізації PaperTrader.")
             return
 
+        # ВИПРАВЛЕНО: Примусово конвертуємо входи у float, щоб уникнути np.float64
+        price = float(price)
+        sl = float(sl)
+        tp = float(tp)
+
         # Локальні змінні для збереження даних за межами блокування
         pos_to_save: Optional[Position] = None
         current_balance: float = 0.0
@@ -80,10 +85,13 @@ class PaperTrader:
         # ——— КРИТИЧНИЙ ФІКС: ТРАНЗАКЦІЙНИЙ I/O ВИКОНУЄТЬСЯ ЗА МЕЖАМИ ЛОКУ ———
         await asyncio.to_thread(
             self.repo.save_position,
-            symbol=pos_to_save.symbol, amount=pos_to_save.amount_coins,
-            entry_price=pos_to_save.entry_price, highest_price=pos_to_save.highest_price, cost=pos_to_save.amount_usdt
+            symbol=pos_to_save.symbol, 
+            amount=float(pos_to_save.amount_coins), # ВИПРАВЛЕНО
+            entry_price=float(pos_to_save.entry_price), # ВИПРАВЛЕНО
+            highest_price=float(pos_to_save.highest_price), # ВИПРАВЛЕНО
+            cost=float(pos_to_save.amount_usdt) # ВИПРАВЛЕНО
         )
-        await asyncio.to_thread(self.repo.save_balance, current_balance)
+        await asyncio.to_thread(self.repo.save_balance, float(current_balance)) # ВИПРАВЛЕНО
 
         logger.info(f"🚀 [ВХІД] {side.value} {symbol} | Ціна: {price:.4f} | Об'єм: {pos_to_save.amount_usdt:.2f} USDT")
         if self.settings.ENABLE_TELEGRAM:
@@ -92,6 +100,9 @@ class PaperTrader:
     async def update_position(self, symbol: str, current_price: float) -> None:
         """Оновлює стан ордера, прораховує трейлінг та ініціює вихід за умов ринку."""
         pos: Optional[Position] = None
+        
+        # ВИПРАВЛЕНО: Примусово конвертуємо price у float
+        current_price = float(current_price)
         
         # Швидка thread-safe копія посилання на об'єкт позиції
         async with self._lock:
@@ -105,7 +116,8 @@ class PaperTrader:
         
         if highest > pos.highest_price:
             pos.highest_price = highest
-            await asyncio.to_thread(self.repo.update_position_high, symbol, highest)
+            # ВИПРАВЛЕНО: Огортаємо highest у float
+            await asyncio.to_thread(self.repo.update_position_high, symbol, float(highest)) 
         pos.sl = new_sl
 
         # 2. Перевірка умов виходу
@@ -119,6 +131,8 @@ class PaperTrader:
         current_balance: float = 0.0
         pnl: float = 0.0
         return_amount: float = 0.0
+        
+        close_price = float(close_price) # ВИПРАВЛЕНО
 
         async with self._lock:
             # Захист від повторного виклику іншим асинхронним таском
@@ -136,10 +150,13 @@ class PaperTrader:
         await asyncio.to_thread(self.repo.delete_position, symbol)
         await asyncio.to_thread(
             self.repo.log_trade,
-            symbol=symbol, side=TradeSide.SELL.value, price=close_price,
-            amount=pos.amount_coins, cost=return_amount, pnl=pnl
+            symbol=symbol, side=TradeSide.SELL.value, 
+            price=float(close_price), # ВИПРАВЛЕНО
+            amount=float(pos.amount_coins), # ВИПРАВЛЕНО
+            cost=float(return_amount), # ВИПРАВЛЕНО
+            pnl=float(pnl) # ВИПРАВЛЕНО
         )
-        await asyncio.to_thread(self.repo.save_balance, current_balance)
+        await asyncio.to_thread(self.repo.save_balance, float(current_balance)) # ВИПРАВЛЕНО
 
         msg = f"📉 [ВИХІД] {symbol} закрито через {reason} | Ціна: {close_price:.4f} | PnL: {pnl:+.2f} USDT"
         logger.info(msg)

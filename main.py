@@ -159,10 +159,11 @@ class CryptoBot:
 
 async def main():
     db_session = SessionLocal()
+    exchange_mgr = ExchangeManager(settings=settings)
     bot = CryptoBot(
         db_session=db_session,
-        exchange=ExchangeManager(settings=settings),
-        scanner=MarketScanner(exchange_manager=ExchangeManager(settings=settings)),
+        exchange=exchange_mgr,
+        scanner=MarketScanner(exchange_manager=exchange_mgr),
         ai=GlobalTradingAI(settings=settings),
         strategy=HybridStrategy(settings=settings),
         risk_manager=RiskManager(config=RiskConfig(max_risk_pct=2.0, min_risk_reward=settings.RISK_REWARD_RATIO)),

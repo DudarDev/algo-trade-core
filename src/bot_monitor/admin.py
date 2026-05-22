@@ -36,14 +36,14 @@ class TradeAdmin(ReadOnlyAdmin):
             side_upper
         )
 
-    @admin.display(description='PnL (%)')
+    @admin.display(description='PnL (USD)')
     def colored_pnl(self, obj: Trade) -> str:
         if not obj.side or obj.side.upper() == 'BUY':
             return "-"
         pnl_value = obj.pnl or 0.0
         color = 'green' if pnl_value > 0 else 'red'
-        # Форматуємо значення до виклику format_html, щоб уникнути помилки
-        pnl_str = f"{pnl_value:.2f}%"
+        # Змінено відображення на USD, оскільки база зберігає абсолютний профіт
+        pnl_str = f"${pnl_value:.2f}"
         return format_html(
             '<span style="color: {}; font-weight: bold;">{}</span>',
             color,

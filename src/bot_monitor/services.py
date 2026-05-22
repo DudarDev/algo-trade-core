@@ -101,8 +101,8 @@ class MetricsCalculatorService:
 
         for _, t in df_sorted.iterrows():
             if t['side'] == 'SELL' and pd.notnull(t['pnl']):
-                trade_val = float(t['amount']) * float(t['price'])
-                profit_usd = trade_val * (float(t['pnl']) / 100.0)
+                # PnL вже зберігається в USD (з розрахунку в paper_trader.py)
+                profit_usd = float(t['pnl'])
                 
                 if profit_usd > 0:
                     gross_profit += profit_usd

@@ -1,8 +1,11 @@
 import json
+import logging
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST, require_GET
+from django.contrib.auth.decorators import login_required
+from .services import BotControlService
 
-# ... тут ваш існуючий код dashboard_view ...
+logger = logging.getLogger(__name__)
 
 @login_required
 @require_GET

@@ -3,85 +3,110 @@ import numpy as np
 import logging
 import time
 import sys
+import glob
 from pathlib import Path
 
 # Додаємо корінь проєкту для імпортів
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE_DIR))
 
-from src.engine.application.ai_brain import GlobalTradingAI
+from src.infrastructure.ai.predictor import GlobalTradingAI
 from src.engine.application.risk_management import RiskManager, RiskConfig
-from src.shared.config import Settings
+from src.engine.application.strategy import HybridStrategy, SignalAction
+from src.shared.config import settings
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("Backtester")
 
-class Backtester:
-    def __init__(self, symbol: str, data_path: str, starting_balance: float = 1000.0):
-        self.symbol = symbol
-        self.data_path = data_path
+class PortfolioBacktester:
+    def __init__(self, starting_balance: float = 1000.0):
+        self.starting_balance = starting_balance
         self.balance = starting_balance
-        self.settings = Settings()  # використовує змінні оточення з .env
+        self.settings = settings
+        
+        # Ініціалізація твоїх нових компонентів
         self.ai = GlobalTradingAI(settings=self.settings)
-        self.risk_manager = RiskManager(RiskConfig(max_risk_pct=2.0, min_risk_reward=1.5))
+        self.strategy = HybridStrategy(settings=self.settings)
+        self.risk_manager = RiskManager(config=RiskConfig(max_risk_pct=2.0, min_risk_reward=self.settings.RISK_REWARD_RATIO))
+        
+        # Комісія біржі (0.1% Taker Fee * 2 для входу і виходу + 0.05% прослизання)
+        self.total_fee_pct = 0.0025 
+        
+        self.global_trades = []
 
-    def run(self):
-        logger.info(f"📊 Запуск бектесту для {self.symbol}...")
-        start_time = time.time()
+    def run_on_file(self, data_path: str):
+        symbol = Path(data_path).stem.split('_')[0] + "/USDT"
+        logger.info(f"📊 Сканування історії: {symbol}...")
 
-        # 1. Завантаження та підготовка даних
         try:
-            df = pd.read_csv(self.data_path)
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        except FileNotFoundError:
-            logger.error(f"❌ Файл {self.data_path} не знайдено.")
+            df = pd.read_csv(data_path)
+            if 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms' if isinstance(df['timestamp'].iloc[0], (int, np.integer, float)) else None)
+        except Exception as e:
+            logger.error(f"❌ Помилка читання {data_path}: {e}")
             return
 
-        df = self.ai.prepare_features(df)
-        if df.empty:
-            logger.error("Недостатньо даних після генерації фіч.")
+        # Генерація фічів (EMA, RSI, MACD, ATR)
+        df_features = self.ai.prepare_features(df)
+        if df_features.empty or len(df_features) < 50:
             return
 
-        # 2. Векторизоване передбачення
+        # Векторизоване передбачення AI
         if self.ai.model is None:
-            logger.error("Модель не завантажена, бектест неможливий.")
+            logger.error("❌ Модель AI не знайдена! Запустіть train_global_model.py")
             return
+            
+        features = df_features[self.ai.feature_cols]
+        df_features['ai_prob'] = self.ai.model.predict_proba(features)[:, 1]
 
-        features = df[self.ai.feature_cols]
-        probabilities = self.ai.model.predict_proba(features)[:, 1]
-        df['ai_prob'] = probabilities
-
-        # 3. Симуляція торгів
+        # Симуляція "Крок за кроком" (Step-by-step)
         in_position = False
         entry_price = 0.0
         stop_loss = 0.0
         take_profit = 0.0
         position_size = 0.0
-        trades = []
+        
+        # Проходимося по датафрейму, симулюючи роботу бота в реальному часі
+        for i in range(50, len(df_features)):
+            # Відрізаємо історію до поточного моменту, щоб стратегія не "бачила майбутнє"
+            current_window = df_features.iloc[i-10 : i+1].copy()
+            curr_row = df_features.iloc[i]
+            current_price = float(curr_row['close'])
 
-        for index, row in df.iterrows():
-            current_price = row['close']
-
+            # 1. Перевірка відкритих позицій (Чи вибило нас по TP/SL?)
             if in_position:
-                if row['low'] <= stop_loss:
-                    loss = position_size * ((stop_loss - entry_price) / entry_price)
-                    self.balance += loss
-                    trades.append({'type': 'LOSS', 'pnl': loss, 'balance': self.balance})
+                # Перевіряємо SL (з урахуванням комісії)
+                if curr_row['low'] <= stop_loss:
+                    loss_pct = (stop_loss - entry_price) / entry_price
+                    pnl_usd = position_size * (loss_pct - self.total_fee_pct)
+                    self.balance += pnl_usd
+                    self.global_trades.append({'symbol': symbol, 'type': 'LOSS', 'pnl': pnl_usd, 'balance': self.balance})
                     in_position = False
-                elif row['high'] >= take_profit:
-                    profit = position_size * ((take_profit - entry_price) / entry_price)
-                    self.balance += profit
-                    trades.append({'type': 'WIN', 'pnl': profit, 'balance': self.balance})
+                    
+                # Перевіряємо TP (з урахуванням комісії)
+                elif curr_row['high'] >= take_profit:
+                    profit_pct = (take_profit - entry_price) / entry_price
+                    pnl_usd = position_size * (profit_pct - self.total_fee_pct)
+                    self.balance += pnl_usd
+                    self.global_trades.append({'symbol': symbol, 'type': 'WIN', 'pnl': pnl_usd, 'balance': self.balance})
                     in_position = False
                 continue
 
-            if row['ai_prob'] >= self.ai.confidence_threshold:
-                atr_value = row.get('ATR', 0)
+            # 2. Пошук сигналів за допомогою HybridStrategy (як у реальному житті)
+            ai_prob = float(curr_row['ai_prob'])
+            signal, meta = self.strategy.get_signal(current_window, ai_prob, in_position=False)
+
+            if signal == SignalAction.BUY:
+                current_atr = float(curr_row['ATR_PCT']) * current_price
+                
+                # Запитуємо ризик-менеджера скільки купувати
                 trade_params = self.risk_manager.evaluate_trade(
                     entry_price=current_price,
-                    atr=atr_value,
+                    atr=current_atr,
                     capital=self.balance,
                     trade_type='BUY'
                 )
+                
                 if trade_params:
                     in_position = True
                     entry_price = trade_params.entry_price
@@ -89,25 +114,48 @@ class Backtester:
                     take_profit = trade_params.take_profit
                     position_size = trade_params.position_size_usdt
 
-        # 4. Аналіз результатів
-        total_trades = len(trades)
-        winning_trades = sum(1 for t in trades if t['type'] == 'WIN')
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+    def run_all(self):
+        start_time = time.time()
+        # Шукаємо всі CSV в папці history
+        history_dir = BASE_DIR / "data_storage" / "history"
+        all_files = glob.glob(str(history_dir / "*.csv"))
+        
+        if not all_files:
+            logger.error("❌ Немає файлів з історією в data_storage/history/")
+            return
 
-        logger.info("\n" + "="*40)
-        logger.info(f"📈 РЕЗУЛЬТАТИ БЕКТЕСТУ: {self.symbol}")
-        logger.info(f"Час виконання: {time.time() - start_time:.2f} сек")
-        logger.info(f"Початковий баланс: $1000.00")
-        logger.info(f"Кінцевий баланс:   ${self.balance:.2f}")
-        logger.info(f"Чистий прибуток (PnL): ${self.balance - 1000.00:.2f} ({(self.balance - 1000.00)/10:.2f}%)")
-        logger.info(f"Всього угод:       {total_trades}")
-        logger.info(f"Win Rate:          {win_rate:.2f}%")
-        logger.info("="*40 + "\n")
+        for file in all_files:
+            self.run_on_file(file)
+
+        self._print_report(start_time)
+
+    def _print_report(self, start_time):
+        total_trades = len(self.global_trades)
+        winning_trades = sum(1 for t in self.global_trades if t['type'] == 'WIN')
+        losing_trades = sum(1 for t in self.global_trades if t['type'] == 'LOSS')
+        
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+        net_profit = self.balance - self.starting_balance
+        profit_pct = (net_profit / self.starting_balance) * 100
+
+        gross_profit = sum(t['pnl'] for t in self.global_trades if t['pnl'] > 0)
+        gross_loss = abs(sum(t['pnl'] for t in self.global_trades if t['pnl'] < 0))
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
+
+        logger.info("\n" + "="*50)
+        logger.info(f"🏆 ГЛОБАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Портфель)")
+        logger.info("="*50)
+        logger.info(f"Час виконання:      {time.time() - start_time:.2f} сек")
+        logger.info(f"Початковий капітал: ${self.starting_balance:.2f}")
+        logger.info(f"Кінцевий капітал:   ${self.balance:.2f}")
+        logger.info(f"Чистий прибуток:    ${net_profit:.2f} ({profit_pct:.2f}%)")
+        logger.info(f"Комісії біржі:      ВРАХОВАНО (0.25% на угоду)")
+        logger.info("-" * 50)
+        logger.info(f"Всього угод:        {total_trades}")
+        logger.info(f"Win Rate:           {win_rate:.2f}% ({winning_trades}W / {losing_trades}L)")
+        logger.info(f"Profit Factor:      {profit_factor:.2f}")
+        logger.info("="*50 + "\n")
 
 if __name__ == "__main__":
-    # Використовуй шляхи до реальних CSV-файлів
-    tester_btc = Backtester("BTC/USDT", "data_storage/history/BTC_USDT_5m.csv")
-    tester_btc.run()
-
-    tester_sol = Backtester("SOL/USDT", "data_storage/history/SOL_USDT_5m.csv")
-    tester_sol.run()
+    tester = PortfolioBacktester(starting_balance=1000.0)
+    tester.run_all()

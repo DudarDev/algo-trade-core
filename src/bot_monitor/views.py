@@ -38,8 +38,9 @@ def dashboard_view(request):
     chart_data = []
     cumulative_pnl = 0.0
     
-    # Беремо останні 30 угод для графіка
-    for t in all_trades.order_by('timestamp')[:30]: 
+    # Беремо 30 останніх угод для графіка (у хронологічному порядку)
+    recent_trades_chart = all_trades.order_by('-timestamp')[:30]
+    for t in reversed(recent_trades_chart): 
         chart_labels.append(t.timestamp.strftime('%d %b %H:%M'))
         cumulative_pnl += t.pnl
         chart_data.append(round(cumulative_pnl, 2))

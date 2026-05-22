@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
-# 1. Enums для уникнення магічних рядків
+# 1. Enums для структури
 class SignalAction(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
@@ -22,7 +22,7 @@ class MarketRegime(str, Enum):
     BEAR = "BEAR_MARKET"
     CHOP = "CHOPPY_FLAT"
 
-# 2. Строга модель для метаданих сигналу
+# 2. Модель даних для сигналу
 class SignalMetadata(BaseModel):
     price: float = Field(..., gt=0)
     ai_conf: float = Field(..., ge=0.0, le=1.0)
@@ -38,6 +38,7 @@ class HybridStrategy:
         self.settings = settings
 
     def _detect_regime(self, curr_row: pd.Series) -> MarketRegime:
+        """Визначає стан ринку на основі волатильності та тренду."""
         ema_dist = float(curr_row.get('EMA_DIST_50', 0))
         atr_pct = float(curr_row.get('ATR_PCT', 0))
 
@@ -57,26 +58,21 @@ class HybridStrategy:
         in_position: bool = False
     ) -> Tuple[Optional[SignalAction], SignalMetadata]:
         
+        # Перевірка наявності даних
         required_cols = {'RSI', 'EMA_DIST_50', 'MACD_HIST', 'ATR_PCT'}
-        if df is None or df.empty or len(df) < 2:
-            return None, self._empty_meta()
-            
-        if not required_cols.issubset(df.columns):
+        if df is None or df.empty or len(df) < 2 or not required_cols.issubset(df.columns):
             return None, self._empty_meta()
 
         curr = df.iloc[-1]
-        prev = df.iloc[-2]
-        
-        is_uptrend = curr['EMA_DIST_50'] > 0
-        rsi_value = float(curr['RSI'])
         current_price = float(curr['close'])
         regime = self._detect_regime(curr)
         
+        # Базова мета-інформація
         meta = SignalMetadata(
             price=current_price,
             ai_conf=round(ai_confidence, 2),
-            rsi=round(rsi_value, 2),
-            trend=TrendDirection.UP if is_uptrend else TrendDirection.DOWN,
+            rsi=round(float(curr['RSI']), 2),
+            trend=TrendDirection.UP if curr['EMA_DIST_50'] > 0 else TrendDirection.DOWN,
             regime=regime,
             reason="Evaluating..."
         )
@@ -85,39 +81,26 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-        # 3. АДАПТИВНІ ПОРОГИ (Реалістичні для відкаліброваної моделі)
-        dynamic_threshold = 0.50 
-        
+        # 3. АДАПТИВНІ ПОРОГИ (Критична частина)
+        # Калібрована модель (Sigmoid) видає реальні ймовірності (15-30% - це вже сильний сигнал)
         if regime == MarketRegime.BULL:
-            dynamic_threshold = 0.25  # У бичачому ринку вистачить 25% впевненості
+            threshold = 0.12 
         elif regime == MarketRegime.CHOP:
-            dynamic_threshold = 0.35  # У боковику чекаємо 35%
-        elif regime == MarketRegime.BEAR:
-            dynamic_threshold = 0.45  # Проти тренду вимагаємо 45%+
+            threshold = 0.16 
+        else: # BEAR
+            threshold = 0.22 
 
-        final_threshold = getattr(self.settings, 'CONFIDENCE_THRESHOLD', 0.25)
-        final_threshold = max(dynamic_threshold, final_threshold)
-
-        # 4. Фільтри ризику
-        if ai_confidence < final_threshold:
-            meta.reason = f"Low Conf for {regime.value} ({ai_confidence:.2f} < {final_threshold:.2f})"
+        # 4. Фільтр перегрітості
+        if float(curr['RSI']) >= 70:
+            meta.reason = f"RSI Overbought ({float(curr['RSI']):.1f})"
             return SignalAction.HOLD, meta
 
-        if rsi_value >= getattr(self.settings, 'RSI_BUY_LIMIT', 70):
-            meta.reason = f"RSI Overbought ({rsi_value:.1f})"
-            return SignalAction.HOLD, meta
-
-        # 5. Тригери
-        macd_cross_up = prev['MACD_HIST'] <= 0 and curr['MACD_HIST'] > 0
-        if macd_cross_up:
-            meta.reason = f"SmartAI_{regime.value}(MACD+Conf={ai_confidence:.2f})"
+        # 5. Ухвалення рішення
+        if ai_confidence >= threshold:
+            meta.reason = f"AI_Smart_Signal_{regime.value}(Conf={ai_confidence:.2f})"
             return SignalAction.BUY, meta
 
-        if ai_confidence >= 0.70:
-            meta.reason = f"AI_Sniper_HighConf({ai_confidence:.2f})"
-            return SignalAction.BUY, meta
-
-        meta.reason = "Waiting for trigger"
+        meta.reason = f"Insufficient confidence ({ai_confidence:.2f} < {threshold:.2f})"
         return SignalAction.HOLD, meta
 
     def _empty_meta(self) -> SignalMetadata:

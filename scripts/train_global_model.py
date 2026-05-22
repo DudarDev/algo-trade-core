@@ -13,7 +13,7 @@ import joblib
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
-from src.engine.application.ai_brain import GlobalTradingAI
+from src.infrastructure.ai.predictor import GlobalTradingAI
 from src.shared.config import settings
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -26,10 +26,26 @@ class ModelTrainer:
         self.ai = GlobalTradingAI(settings=settings)
 
     def create_labels(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Пом'якшена розмітка: профіт > 0.2% за наступні 3 свічки."""
+        """
+        Розумна розмітка: враховуємо комісії та реальний профіт.
+        Шукаємо рух мінімум на 0.6% протягом наступних 6 свічок.
+        """
         data = df.copy()
-        future_returns = (data['close'].shift(-3) - data['close']) / data['close']
-        data['Target'] = (future_returns > 0.002).astype(int)  # Було 0.005, стало 0.002
+        
+        # Дивимося на 6 свічок вперед (якщо таймфрейм 5m, це півгодини утримання позиції)
+        horizon = 6
+        
+        # Рахуємо відсоток зміни ціни через 6 свічок
+        future_returns = (data['close'].shift(-horizon) - data['close']) / data['close']
+        
+        # Поріг 0.6% (0.006): 0.2% на комісії + 0.4% чистого прибутку
+        data['Target'] = (future_returns > 0.006).astype(int) 
+        
+        # (Опціонально) Можна додати фільтр на просадку, щоб не вчити модель купувати перед падінням
+        # future_min = data['low'].rolling(window=horizon).min().shift(-horizon)
+        # max_drawdown = (data['close'] - future_min) / data['close']
+        # data['Target'] = ((future_returns > 0.006) & (max_drawdown < 0.005)).astype(int)
+        
         return data.dropna(subset=['Target'])
 
     def load_and_prepare_data(self) -> pd.DataFrame:

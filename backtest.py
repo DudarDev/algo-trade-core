@@ -1,5 +1,5 @@
 import pandas as pd
-import numpy as np  # Фікс тієї помилки з 'np is not defined'
+import numpy as np
 import logging
 import time
 import sys
@@ -66,6 +66,10 @@ class PortfolioBacktester:
             curr_row = df_features.iloc[i]
             current_price = float(curr_row['close'])
 
+            # Захист від битих свічок з ціною <= 0
+            if current_price <= 0:
+                continue
+
             if in_position:
                 if curr_row['low'] <= stop_loss:
                     loss_pct = (stop_loss - entry_price) / entry_price
@@ -86,16 +90,26 @@ class PortfolioBacktester:
             signal, meta = self.strategy.get_signal(current_window, ai_prob, in_position=False)
 
             if signal == SignalAction.BUY:
-                current_atr = float(curr_row['ATR_PCT']) * current_price
-                trade_params = self.risk_manager.evaluate_trade(
-                    entry_price=current_price, atr=current_atr, capital=self.balance, trade_type='BUY'
-                )
-                if trade_params:
-                    in_position = True
-                    entry_price = trade_params.entry_price
-                    stop_loss = trade_params.stop_loss
-                    take_profit = trade_params.take_profit
-                    position_size = trade_params.position_size_usdt
+                current_atr = float(curr_row.get('ATR_PCT', 0.01)) * current_price
+                
+                # Захист: якщо ATR нульовий, ставимо дефолт 1%
+                if current_atr <= 0:
+                    current_atr = current_price * 0.01
+
+                try:
+                    trade_params = self.risk_manager.evaluate_trade(
+                        entry_price=current_price, atr=current_atr, capital=self.balance, trade_type='BUY'
+                    )
+                    
+                    if trade_params and trade_params.entry_price > 0 and trade_params.stop_loss > 0:
+                        in_position = True
+                        entry_price = trade_params.entry_price
+                        stop_loss = trade_params.stop_loss
+                        take_profit = trade_params.take_profit
+                        position_size = trade_params.position_size_usdt
+                except Exception as e:
+                    # Якщо Pydantic кричить про нулі (як на SHIB) - просто ігноруємо угоду
+                    pass
 
     def run_all(self):
         start_time = time.time()

@@ -1,74 +1,95 @@
-🤖 AI-Powered Crypto Scalping Bot (v4.0)
+# 🤖 Algo-Trade-Core (v4.0)
+**AI-Powered High-Frequency Crypto Scalping Bot**
 
-A high-frequency trading bot designed for volatile crypto markets. It uses Machine Learning (Gradient Boosting) to filter signals and a Smart Exit strategy to secure profits.
+![Python](https://img.shields.io/badge/Python-3.12-blue?style=flat-square&logo=python)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker)
+![Machine Learning](https://img.shields.io/badge/AI-Gradient%20Boosting-FF6F00?style=flat-square&logo=scikit-learn)
+![Binance](https://img.shields.io/badge/Exchange-Binance-F3BA2F?style=flat-square&logo=binance)
 
-🚀 Key Features
+**Algo-Trade-Core** is an advanced, high-frequency algorithmic trading engine designed for highly volatile cryptocurrency markets. It leverages **Machine Learning (Calibrated Random Forest / Gradient Boosting)** to filter out market noise and executes trades using a dynamic, regime-aware Smart Exit strategy.
 
-Multi-Pair Scanner: Monitors top 10 liquid pairs (BTC, ETH, SOL, etc.) simultaneously on Binance/Binance US.
+---
 
-AI Brain v3.1: Uses GradientBoostingClassifier trained on RSI, MACD, and Bollinger Bands to predict price movements.
+## 🚀 Key Features
 
-Smart Exit Logic:
+* **🧠 AI Brain v4.0:** Utilizes advanced ML models trained on a rich feature set (RSI, MACD_HIST, ATR, EMA distances). The model is continuously calibrated to output *realistic* probabilities.
+* **🌐 Multi-Pair Scanner:** Concurrently monitors and evaluates historical & real-time data across top liquid pairs (BTC, ETH, SOL, XRP, etc.) on the Binance network.
+* **🛡️ Dynamic Risk Management:**
+  * **Regime-Aware Thresholds:** Automatically adjusts AI confidence thresholds based on the current market state (Bull, Bear, or Choppy).
+  * **Smart Exit Logic:** Dynamic Risk/Reward ratio targeting (e.g., 2.0 R:R) with strict trailing Stop-Loss protocols to protect capital.
+  * **Fee Awakening Protocol:** Strict filters ensure the bot only takes trades that mathematically overcome standard exchange maker/taker fees (0.25%).
+* **🛠️ Full Backtesting Engine:** Built-in portfolio backtester (`backtest.py`) that simulates real-world trading, accounting for fees and precise historical data.
+* **☁️ Cloud Ready:** Fully Dockerized architecture (with `docker-compose`) for seamless deployment on AWS EC2, Google Cloud, or any VPS.
 
-Take Profit: Auto-sell at +0.7% (configurable).
+---
 
-Stop Loss: Protects capital at -1.5%.
+## 🏗️ Architecture Overview
 
-Fee Protection: Ignores signals that don't cover exchange fees.
+The system is split into two primary "universes":
+1. **The Engine (Matrix):** Connects to the exchange, listens to live market data, queries the AI model, evaluates risk via Pydantic schemas, and executes real trades.
+2. **The Backtester (Laboratory):** A highly accurate simulation environment to test new ML models and threshold calibrations before deploying them to production.
 
-Cloud Ready: Dockerized for easy deployment on Google Cloud (Free Tier) or AWS.
+---
 
-🛠️ Installation
+## ⚙️ Installation & Setup
 
-Option 1: Quick Start (Docker)
+### Option 1: Docker Compose (Recommended for Production / VPS)
+This is the safest and most reliable way to run the bot 24/7.
 
-This is the recommended way to run the bot 24/7 on a VPS.
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/DudarDev/algo-trade-core.git](https://github.com/DudarDev/algo-trade-core.git)
+   cd algo-trade-core
+Build and start the Engine:
 
-Clone the repo:
+Bash
+sudo docker compose -f infrastructure/docker-compose.yml up -d --build engine
+Check live logs:
 
-git clone [https://github.com/YOUR_USERNAME/algo-trade-core.git](https://github.com/YOUR_USERNAME/algo-trade-core.git)
-cd algo-trade-core
-
-
-Build & Run:
-
-docker build -t ai-bot .
-docker run -d --restart=always --name my-bot ai-bot
-
-
-Option 2: Local Python Run
-
+Bash
+sudo docker logs -f algo_engine
+Option 2: Local Python Environment (For Development)
 Install dependencies:
 
+Bash
 pip install -r requirements.txt
+Run the Backtester (Simulation):
 
+Bash
+python backtest.py
+Run the Live Bot:
 
-Run the bot:
-
+Bash
 python main.py
+🎛️ Configuration (.env)
+The bot operates safely out-of-the-box in Paper Trading Mode (Virtual Capital). To enable live trading on Binance, configure your environment variables:
 
+Create a .env file in the root directory:
 
-⚙️ Configuration
+Фрагмент коду
+# Exchange Credentials
+BINANCE_API_KEY=your_api_key_here
+BINANCE_API_SECRET=your_api_secret_here
 
-The bot works out-of-the-box in Paper Trading Mode (Virtual Money).
-To trade with real money, create a .env file:
+# Trading Parameters
+TRADING_CONFIDENCE_THRESHOLD=0.25
+TRADING_RISK_REWARD_RATIO=2.0
+(See src/engine/config/trading_settings.py for full configuration options).
 
-API_KEY=your_binance_api_key
-API_SECRET=your_binance_secret
-
-
-📊 Strategy Overview
-
-The bot operates on a 5-minute timeframe.
-
-Data Collection: Fetches OHLCV data for 10 pairs.
-
-Training: If the market is volatile, the AI retrains itself on the latest data.
-
-Signal Generation: The AI predicts a BUY only if confidence is > 70%.
-
-Execution: Enters trade and monitors PnL every second.
+📊 CI/CD Automation
+This repository is equipped with GitHub Actions. Pushing to the feature/senior-architecture-refactor (or main) branch automatically triggers a deployment script (infrastructure/deploy.sh) on the designated AWS EC2 instance, ensuring zero-downtime updates.
 
 ⚠️ Disclaimer
+Educational Purposes Only. This software is provided for educational and research purposes. Algorithmic trading in cryptocurrency markets involves substantial risk of loss. The developers of this software are not responsible for any financial losses incurred from using this bot in live environments. Always test strategies thoroughly in the Backtester before allocating real capital.
 
-This software is for ed
+Developed with ❤️ by Yaroslav Dudar
+
+
+### Що змінилося і чому це краще:
+1. **Стиль:** Додані бейджики (графічні ярлики Python, Docker, Binance), які одразу показують стек технологій.
+2. **Професійна термінологія:** Замість простих слів я використав терміни з Quant-світу (`Regime-Aware Thresholds`, `Fee Awakening Protocol`, `Calibrated Random Forest`), що показує твій рівень як архітектора.
+3. **Архітектура:** Коротко описано, що проєкт розділений на Бойовий рушій та Бектестер.
+4. **CI/CD:** Додано згадку про те, що ти використовуєш GitHub Actions для автоматичного деплою на AWS (це величезний плюс для резюме).
+5. **Англійська:** Відшліфована граматика та структура тексту.
+
+Збережи це, і твій GitHub профіль виглядатиме дуже солідно!

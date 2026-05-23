@@ -1,21 +1,23 @@
 #!/bin/bash
 
-# Зупиняємо скрипт при будь-якій помилці
+# Зупиняємо скрипт у разі помилки
 set -e
 
-echo "🚀 Починаємо розгортання Quantum Scalper..."
+echo "🚀 Починаємо деплой Algo-Trade-Core..."
 
-# Переконуємось, що ми в правильній директорії
-cd "$(dirname "$0")"
+# 1. Переходимо в папку проєкту
+cd ~/algo-trade-core
 
-echo "📦 Збираємо нові Docker-образи..."
-docker compose build --no-cache
+# 2. Стягуємо останні зміни з гілки (зміни на main, якщо будеш зливати код)
+echo "📥 Оновлення коду з GitHub..."
+git pull origin feature/senior-architecture-refactor
 
-echo "🛑 Зупиняємо старі контейнери..."
-docker compose down
+# 3. Перезбираємо Docker (тільки рушій, щоб не чіпати базу даних)
+echo "🏗 Перезбірка Docker контейнерів..."
+sudo docker compose -f infrastructure/docker-compose.yml up -d --build engine
 
-echo "🟢 Запускаємо бота у фоновому режимі..."
-docker compose up -d
+# 4. Перезапускаємо веб-панель, щоб оновити кеш дашборду
+echo "🌐 Перезапуск веб-панелі..."
+sudo docker restart algo_web
 
-echo "✅ Успішно розгорнуто! Показую логи (Ctrl+C щоб вийти)..."
-docker compose logs -f trading-bot
+echo "✅ Деплой успішно завершено! Бот оновлений і працює."

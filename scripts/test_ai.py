@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import asyncio
 import logging
 import sys
@@ -8,28 +7,28 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.engine.infrastructure.exchange_manager import ExchangeManager
-from src.engine.application.ai_brain import GlobalTradingAI
-from src.shared.config import Settings
+from src.infrastructure.ai.predictor import GlobalTradingAI
+from src.shared.config import settings
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 async def main():
-    # Ініціалізуємо біржу
+    # Ініціалізуємо біржу з імпортованими settings
     exchange = ExchangeManager(settings)
     await exchange.initialize()
-    
-    # Отримуємо налаштування (з .env або стандартні)
-    settings = Settings()
     
     # Ініціалізуємо AI
     ai = GlobalTradingAI(settings)
     
-    # Перевіряємо пари з твого списку волатильних
-    test_symbols = ['SAGA/USDT', 'A2Z/USDT', 'DEGO/USDT', 'BTC/USDT']
+    # Перевіряємо топові ліквідні пари
+    test_symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'DOGE/USDT']
     
+    logger.info("="*50)
+    logger.info("🧠 ТЕСТУВАННЯ СИРОЇ ВПЕВНЕНОСТІ ШІ")
+    logger.info("="*50)
+
     for symbol in test_symbols:
-        logger.info(f"\n--- Отримую дані для {symbol} ---")
         try:
             # Отримуємо 100 свічок (5-хвилинок) для аналізу
             klines = await exchange.get_klines(symbol, interval='5m', limit=100)
@@ -37,18 +36,26 @@ async def main():
                 logger.warning(f"Недостатньо даних для {symbol}")
                 continue
             
-            # Перетворюємо в DataFrame
+            # Перетворюємо в DataFrame і готуємо фічі
             df = exchange.klines_to_dataframe(klines)
-            df['symbol'] = symbol  # додаємо символ для логування
+            df_features = ai.prepare_features(df)
             
-            # Отримуємо сигнал
-            signal, proba = ai.predict(df)
-            logger.info(f"Результат для {symbol}: сигнал={signal}, впевненість={proba:.4f}")
+            if df_features.empty:
+                continue
+                
+            # Беремо найсвіжішу свічку
+            latest_features = df_features[ai.feature_cols].iloc[-1:]
+            
+            # Отримуємо СИРУ ймовірність (proba) від 0 до 1
+            proba = ai.model.predict_proba(latest_features)[0][1]
+            
+            logger.info(f"📊 {symbol}: Сира впевненість ШІ = {proba:.4f} ({proba*100:.2f}%)")
             
         except Exception as e:
-            logger.error(f"Помилка при обробці {symbol}: {e}", exc_info=True)
+            logger.error(f"Помилка при обробці {symbol}: {e}")
     
     await exchange.close()
+    logger.info("="*50)
 
 if __name__ == "__main__":
     asyncio.run(main())

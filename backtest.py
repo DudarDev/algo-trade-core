@@ -26,8 +26,8 @@ class PortfolioBacktester:
         self.ai = GlobalTradingAI(settings=self.settings)
         self.strategy = HybridStrategy(settings=self.settings)
         
-        # Обмежуємо ризик 2% від депозиту на угоду, мін R:R 1.5
-        self.risk_manager = RiskManager(config=RiskConfig(max_risk_pct=2.0, min_risk_reward=self.settings.RISK_REWARD_RATIO))
+       # Обмежуємо ризик 2%, але вимагаємо прибуток МІНІМУМ у 2 рази більший (R:R 2.0)
+        self.risk_manager = RiskManager(config=RiskConfig(max_risk_pct=2.0, min_risk_reward=2.0))
         
         # Комісія біржі Binance (Taker) + прослизання
         self.total_fee_pct = 0.0025 

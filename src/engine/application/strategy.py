@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
-# 1. Enums для структури
 class SignalAction(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
@@ -22,7 +21,6 @@ class MarketRegime(str, Enum):
     BEAR = "BEAR_MARKET"
     CHOP = "CHOPPY_FLAT"
 
-# 2. Модель даних для сигналу
 class SignalMetadata(BaseModel):
     price: float = Field(..., gt=0)
     ai_conf: float = Field(..., ge=0.0, le=1.0)
@@ -38,7 +36,6 @@ class HybridStrategy:
         self.settings = settings
 
     def _detect_regime(self, curr_row: pd.Series) -> MarketRegime:
-        """Визначає стан ринку на основі волатильності та тренду."""
         ema_dist = float(curr_row.get('EMA_DIST_50', 0))
         atr_pct = float(curr_row.get('ATR_PCT', 0))
 
@@ -58,7 +55,6 @@ class HybridStrategy:
         in_position: bool = False
     ) -> Tuple[Optional[SignalAction], SignalMetadata]:
         
-        # Перевірка наявності даних
         required_cols = {'RSI', 'EMA_DIST_50', 'MACD_HIST', 'ATR_PCT'}
         if df is None or df.empty or len(df) < 2 or not required_cols.issubset(df.columns):
             return None, self._empty_meta()
@@ -67,7 +63,6 @@ class HybridStrategy:
         current_price = float(curr['close'])
         regime = self._detect_regime(curr)
         
-        # Базова мета-інформація
         meta = SignalMetadata(
             price=current_price,
             ai_conf=round(ai_confidence, 2),
@@ -81,14 +76,13 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-        # 3. АДАПТИВНІ ПОРОГИ (Критична частина)
-        # Калібрована модель (Sigmoid) видає реальні ймовірності (15-30% - це вже сильний сигнал)
+        # 3. АДАПТИВНІ ПОРОГИ (Високі, щоб перекрити комісію)
         if regime == MarketRegime.BULL:
-            threshold = 0.12 
+            threshold = 0.35 
         elif regime == MarketRegime.CHOP:
-            threshold = 0.16 
+            threshold = 0.40 
         else: # BEAR
-            threshold = 0.22 
+            threshold = 0.50 
 
         # 4. Фільтр перегрітості
         if float(curr['RSI']) >= 70:

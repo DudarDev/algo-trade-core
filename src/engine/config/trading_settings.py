@@ -2,11 +2,10 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 class TradingSettings(BaseSettings):
-    # Змінили ge=0.5 на ge=0.1, а дефолт з 0.65 на 0.25
-    min_ai_confidence: float = Field(0.25, ge=0.1, le=1.0, description="Minimum AI confidence to open a trade")
+    # Змінили ліміти, щоб дозволити стратегії самій керувати порогами
+    min_ai_confidence: float = Field(0.35, ge=0.1, le=1.0, description="Minimum AI confidence to open a trade")
     
-    # Додали аліас, щоб strategy.py точно його знайшов
-    CONFIDENCE_THRESHOLD: float = Field(0.25, ge=0.1, le=1.0, description="Minimum AI confidence (alias)")
+    CONFIDENCE_THRESHOLD: float = Field(0.35, ge=0.1, le=1.0, description="Minimum AI confidence (alias)")
     
     min_adx_trend: float = Field(20.0, ge=0.0, description="Minimum ADX value to confirm a trend")
     partial_tp_ratio: float = Field(1.0, description="Risk multiplier for the first Take Profit (e.g., 1R)")

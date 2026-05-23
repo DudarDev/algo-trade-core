@@ -76,13 +76,13 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-        # 3. АДАПТИВНІ ПОРОГИ (Золота середина)
+        # 3. АДАПТИВНІ ПОРОГИ (Для відкаліброваного скальпінгу)
         if regime == MarketRegime.BULL:
-            threshold = 0.24 
+            threshold = 0.08 
         elif regime == MarketRegime.CHOP:
-            threshold = 0.27 
+            threshold = 0.10 
         else: # BEAR
-            threshold = 0.30
+            threshold = 0.12
 
         # 4. Фільтр перегрітості
         if float(curr['RSI']) >= 70:

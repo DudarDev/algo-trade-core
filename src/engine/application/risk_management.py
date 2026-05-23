@@ -14,13 +14,13 @@ class RiskConfig(BaseModel):
     
     model_config = ConfigDict(strict=True)
 
-class TradeParameters(BaseModel):
-    trade_type: Literal['BUY', 'SELL']
-    entry_price: float = Field(..., gt=0.0)
-    stop_loss: float = Field(..., gt=0.0)
-    take_profit: float = Field(..., gt=0.0)
-    position_size_usdt: float = Field(..., gt=0.0)
-    risk_reward_ratio: float = Field(..., gt=0.0)
+class RiskConfig(BaseModel):
+    taker_fee: float = Field(0.001, ge=0.0)
+    min_risk_reward: float = Field(1.5, gt=0.0)
+    max_risk_pct: float = Field(2.0, gt=0.0, le=10.0)
+    atr_multiplier: float = Field(1.5, gt=0.0) # Зменшили для скальпінгу
+    min_stop_loss_pct: float = Field(0.4, gt=0.0) # Зменшили з 1.5 до 0.4
+    max_stop_loss_pct: float = Field(3.0, gt=0.0)
     
     model_config = ConfigDict(strict=True)
 

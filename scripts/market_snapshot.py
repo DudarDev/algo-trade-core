@@ -8,7 +8,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
 
-from src.engine.application.ai_brain import GlobalTradingAI
+from src.infrastructure.ai.predictor import GlobalTradingAI   # ← правильний шлях
 from src.engine.application.strategy import HybridStrategy
 from src.engine.infrastructure.exchange_manager import ExchangeManager
 from src.shared.config import settings
@@ -22,7 +22,6 @@ class MarketSnapshot:
         self.ai = GlobalTradingAI(settings=settings)
         self.timeframe = "5m"
         try:
-            # Використовуємо той самий exchange_id, що в основних налаштуваннях
             self.mgr = ExchangeManager(settings=settings)
             self.exchange = self.mgr.exchange
             logger.info(f"✅ Підключено до {self.exchange.id}")

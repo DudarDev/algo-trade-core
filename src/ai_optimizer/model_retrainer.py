@@ -12,7 +12,7 @@ from sklearn.calibration import CalibratedClassifierCV
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from src.engine.application.ai_brain import GlobalTradingAI
+from src.infrastructure.ai.predictor import GlobalTradingAI
 from src.shared.config import Settings
 
 logger = logging.getLogger(__name__)

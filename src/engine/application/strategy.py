@@ -76,13 +76,13 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-      # 3. СУВОРІ ПОРОГИ (Majority Vote)
+      # 3. РЕЖИМ СНАЙПЕРА (Екстремальна впевненість)
         if regime == MarketRegime.BULL:
-            threshold = 0.52  # У бичому тренді вимагаємо 52% впевненості
+            threshold = 0.65  # 65% дерев згодні
         elif regime == MarketRegime.CHOP:
-            threshold = 0.55  # У флеті вимагаємо 55%
+            threshold = 0.70  # 70% дерев згодні (фільтруємо боковик)
         else: # BEAR
-            threshold = 0.60  # У падінні вимагаємо 60%
+            threshold = 0.75  # 75% дерев згодні (ловимо тільки ідеальні відскоки)
             
         # 4. Фільтр перегрітості
         if float(curr['RSI']) >= 70:

@@ -76,14 +76,14 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-       # 3. АДАПТИВНІ ПОРОГИ ДЛЯ ЗБАЛАНСОВАНОГО ШІ
+      # 3. СУВОРІ ПОРОГИ (Majority Vote)
         if regime == MarketRegime.BULL:
-            threshold = 0.35  # У бичому ринку купуємо легше (35%)
+            threshold = 0.52  # У бичому тренді вимагаємо 52% впевненості
         elif regime == MarketRegime.CHOP:
-            threshold = 0.40  # У флеті вимагаємо більше впевненості (40%)
+            threshold = 0.55  # У флеті вимагаємо 55%
         else: # BEAR
-            threshold = 0.45  # У ведмежому ринку беремо тільки ідеальні сетапи (45%)
-
+            threshold = 0.60  # У падінні вимагаємо 60%
+            
         # 4. Фільтр перегрітості
         if float(curr['RSI']) >= 70:
             meta.reason = f"RSI Overbought ({float(curr['RSI']):.1f})"

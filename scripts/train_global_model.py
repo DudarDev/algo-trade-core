@@ -7,7 +7,6 @@ import numpy as np
 from pathlib import Path
 from typing import List
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.calibration import CalibratedClassifierCV
 import joblib
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -27,24 +26,13 @@ class ModelTrainer:
 
     def create_labels(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Розумна розмітка: враховуємо комісії та реальний профіт.
-        Шукаємо рух мінімум на 0.6% протягом наступних 6 свічок.
+        Розумна розмітка: шукаємо рух мінімум на 0.6% протягом наступних 6 свічок.
         """
         data = df.copy()
-        
-        # Дивимося на 6 свічок вперед (якщо таймфрейм 5m, це півгодини утримання позиції)
         horizon = 6
         
-        # Рахуємо відсоток зміни ціни через 6 свічок
         future_returns = (data['close'].shift(-horizon) - data['close']) / data['close']
-        
-        # Поріг 0.6% (0.006): 0.2% на комісії + 0.4% чистого прибутку
         data['Target'] = (future_returns > 0.006).astype(int) 
-        
-        # (Опціонально) Можна додати фільтр на просадку, щоб не вчити модель купувати перед падінням
-        # future_min = data['low'].rolling(window=horizon).min().shift(-horizon)
-        # max_drawdown = (data['close'] - future_min) / data['close']
-        # data['Target'] = ((future_returns > 0.006) & (max_drawdown < 0.005)).astype(int)
         
         return data.dropna(subset=['Target'])
 
@@ -86,21 +74,22 @@ class ModelTrainer:
         y = data['Target']
 
         logger.info(f"🧠 Навчання RandomForest на {len(X)} рядках...")
-        rf_base = RandomForestClassifier(
-            n_estimators=200,          # більше дерев
-            max_depth=15,              # глибші дерева
-            min_samples_split=10,
-            min_samples_leaf=5,
-            class_weight='balanced_subsample',  # автоматичне зважування
+        
+        # Оновлена, "вилікувана" модель без зайвих калібраторів
+        rf_model = RandomForestClassifier(
+            n_estimators=150,           # Оптимальна кількість дерев
+            max_depth=10,               # Захист від "зубріння" (перенавчання)
+            min_samples_split=50,       # Дерево не буде ділитися заради 2-3 випадкових свічок
+            class_weight='balanced',    # ШІ тепер дає однаковий пріоритет обом класам!
             n_jobs=-1,
             random_state=42
         )
 
-        calibrated_model = CalibratedClassifierCV(estimator=rf_base, method='sigmoid', cv=5)
-        calibrated_model.fit(X, y)
+        # Тренуємо чистий Random Forest
+        rf_model.fit(X, y)
 
         self.model_path.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump(calibrated_model, self.model_path)
+        joblib.dump(rf_model, self.model_path)
         logger.info(f"🎉 Модель навчена та збережена: {self.model_path}")
 
 if __name__ == "__main__":

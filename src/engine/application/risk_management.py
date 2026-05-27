@@ -4,13 +4,19 @@ from pydantic import BaseModel, Field, ConfigDict
 
 logger = logging.getLogger(__name__)
 
-# 1. Налаштування ризиків
+# 1. Налаштування ризиків (Оптимізовано для Скальпінгу)
 class RiskConfig(BaseModel):
     taker_fee: float = Field(0.001, ge=0.0)
-    min_risk_reward: float = Field(1.5, gt=0.0)
+    
+    # ЗНИЖЕНО з 1.5 до 1.2. Тепер бот швидше фіксує прибуток!
+    min_risk_reward: float = Field(1.2, gt=0.0) 
+    
     max_risk_pct: float = Field(2.0, gt=0.0, le=10.0)
-    atr_multiplier: float = Field(1.5, gt=0.0) # Для скальпінгу
-    min_stop_loss_pct: float = Field(0.4, gt=0.0) # Від 0.4%
+    
+    # ЗНИЖЕНО з 1.5 до 1.2. Стоп-лос стає коротшим і безпечнішим.
+    atr_multiplier: float = Field(1.2, gt=0.0) 
+    
+    min_stop_loss_pct: float = Field(0.4, gt=0.0)
     max_stop_loss_pct: float = Field(3.0, gt=0.0)
     
     model_config = ConfigDict(strict=True)

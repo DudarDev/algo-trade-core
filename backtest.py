@@ -26,13 +26,17 @@ class PortfolioBacktester:
         self.ai = GlobalTradingAI(settings=self.settings)
         self.strategy = HybridStrategy(settings=self.settings)
         
-       # Обмежуємо ризик 2%, але вимагаємо прибуток МІНІМУМ у 2 рази більший (R:R 2.0)
-        self.risk_manager = RiskManager(config=RiskConfig(max_risk_pct=2.0, min_risk_reward=2.0))
+       
+        # Жорстко задаємо скальперські ризики для бектесту
+        self.risk_manager = RiskManager(config=RiskConfig(
+            max_risk_pct=2.0, 
+            min_risk_reward=1.2,  # Швидкий прибуток
+            atr_multiplier=1.2    # Короткий стоп-лос
+        ))
         
-        # Комісія біржі Binance (Taker) + прослизання
-        self.total_fee_pct = 0.0025 
         self.global_trades = []
-
+        self.total_fee_pct = 0.001  # 0.1%
+        
     def run_on_file(self, data_path: str):
         symbol = Path(data_path).stem.split('_')[0] + "/USDT"
         logger.info(f"📊 Аналіз: {symbol}...")

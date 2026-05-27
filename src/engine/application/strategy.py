@@ -76,13 +76,16 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-      # 3. РЕЖИМ СНАЙПЕРА (Екстремальна впевненість)
+     # 3. Читаємо базовий поріг з налаштувань
+        base_threshold = self.settings.CONFIDENCE_THRESHOLD  # Це буде братися з config!
+
+        # Адаптуємо поріг залежно від ринку
         if regime == MarketRegime.BULL:
-            threshold = 0.65  # 65% дерев згодні
+            threshold = base_threshold
         elif regime == MarketRegime.CHOP:
-            threshold = 0.70  # 70% дерев згодні (фільтруємо боковик)
+            threshold = base_threshold + 0.05  # Вимагаємо більше впевненості у флеті
         else: # BEAR
-            threshold = 0.75  # 75% дерев згодні (ловимо тільки ідеальні відскоки)
+            threshold = base_threshold + 0.10  # Максимальна обережність у падінні
             
         # 4. Фільтр перегрітості
         if float(curr['RSI']) >= 70:

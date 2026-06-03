@@ -6,6 +6,9 @@ import logging
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
+import os
+import glob
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("AIPipeline")
@@ -110,8 +113,43 @@ class AITrainingPipeline:
 # === Як запускати локально ===
 if __name__ == "__main__":
     pipeline = AITrainingPipeline()
-    # Завантаж сюди сирі OHLCV дані з бази або CSV
-    # df = pd.read_csv("data_storage/history/BTC_USDT.csv")
-    # df = pipeline.engineer_features(df)
-    # df = pipeline.create_labels(df)
-    # pipeline.train_model(df)
+    
+    # Шукаємо всі CSV файли з історією в папці
+    history_files = glob.glob("data_storage/history/*.csv")
+    
+    if not history_files:
+        logger.error("❌ Не знайдено жодного CSV файлу в data_storage/history/")
+        exit(1)
+        
+    logger.info(f"Знайдено {len(history_files)} файлів для навчання.")
+    
+    # Збираємо всі дані в один великий DataFrame
+    all_data = []
+    for file in history_files:
+        try:
+            df = pd.read_csv(file)
+            
+            # Якщо датасет занадто малий для розрахунку індикаторів
+            if len(df) < 100:
+                continue
+                
+            # Розрахунок фіч (RSI, ADX, MACD тощо)
+            df_features = pipeline.engineer_features(df)
+            
+            # Розмітка (де був профіт > 0.5%)
+            df_labeled = pipeline.create_labels(df_features)
+            
+            all_data.append(df_labeled)
+        except Exception as e:
+            logger.warning(f"Помилка обробки {file}: {e}")
+            
+    if not all_data:
+        logger.error("❌ Після розрахунку фіч не залишилося валідних даних!")
+        exit(1)
+        
+    # Об'єднуємо всі монети в один тренувальний набір
+    master_df = pd.concat(all_data, ignore_index=True)
+    logger.info(f"✅ Фінальний датасет зібрано: {len(master_df)} рядків.")
+    
+    # Тренуємо модель
+    pipeline.train_model(master_df)

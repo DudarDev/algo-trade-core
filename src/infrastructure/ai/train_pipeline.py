@@ -1,3 +1,5 @@
+import os
+import glob
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
@@ -6,10 +8,8 @@ import logging
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
-import os
-import glob
 
-
+# Налаштування логування
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("AIPipeline")
 
@@ -17,6 +17,9 @@ class AITrainingPipeline:
     def __init__(self, model_save_path: str = "data_storage/models/global_rf_v4.pkl"):
         self.model_save_path = model_save_path
         self.features = ['RSI', 'EMA_DIST_50', 'MACD_HIST', 'ATR_PCT', 'ADX', 'VOL_CHANGE']
+        
+        # Переконуємось, що папка для моделі існує
+        os.makedirs(os.path.dirname(self.model_save_path), exist_ok=True)
         
         # Ініціалізуємо ліс зі збалансованими вагами, щоб він не ігнорував рідкісні, але прибуткові сетапи
         self.model = RandomForestClassifier(
@@ -30,7 +33,6 @@ class AITrainingPipeline:
 
     def engineer_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Розрахунок технічних індикаторів для машинного навчання"""
-        logger.info("Розрахунок фіч (Feature Engineering)...")
         df = df.copy()
         
         # Базові індикатори
@@ -44,7 +46,12 @@ class AITrainingPipeline:
 
         # Трендові індикатори
         df['EMA_50'] = ta.ema(df['close'], length=50)
-        df['EMA_DIST_50'] = (df['close'] - df['EMA_50']) / df['EMA_50']
+        # Додаємо захист від ділення на нуль
+        df['EMA_DIST_50'] = np.where(
+            df['EMA_50'] == 0, 
+            0, 
+            (df['close'] - df['EMA_50']) / df['EMA_50']
+        )
         
         adx = ta.adx(df['high'], df['low'], df['close'], length=14)
         if adx is not None:
@@ -54,9 +61,17 @@ class AITrainingPipeline:
 
         # Волатильність та об'єм
         df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-        df['ATR_PCT'] = df['ATR'] / df['close']
+        # Додаємо захист від ділення на нуль
+        df['ATR_PCT'] = np.where(
+            df['close'] == 0, 
+            0, 
+            df['ATR'] / df['close']
+        )
         df['VOL_CHANGE'] = df['volume'].pct_change()
 
+        # === КРИТИЧНЕ ОЧИЩЕННЯ ДАНИХ ===
+        # Замінюємо нескінченності (inf) на NaN, а потім видаляємо всі NaN
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
         return df.dropna()
 
     def create_labels(self, df: pd.DataFrame, lookahead: int = 4, target_profit_pct: float = 0.005) -> pd.DataFrame:
@@ -65,7 +80,6 @@ class AITrainingPipeline:
         1 - якщо ціна виросла на target_profit_pct (напр. 0.5%) протягом наступних 4 свічок.
         0 - якщо ні.
         """
-        logger.info(f"Розмітка даних (Lookahead: {lookahead}, Target: {target_profit_pct*100}%)...")
         df = df.copy()
         
         # Шукаємо максимальну ціну в майбутньому вікні
@@ -110,7 +124,7 @@ class AITrainingPipeline:
         joblib.dump(self.model, self.model_save_path)
         logger.info(f"✅ Модель успішно збережена у {self.model_save_path}")
 
-# === Як запускати локально ===
+# === ЗАПУСК НАВЧАННЯ ===
 if __name__ == "__main__":
     pipeline = AITrainingPipeline()
     

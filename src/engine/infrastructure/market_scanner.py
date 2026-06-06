@@ -1,6 +1,7 @@
 import logging
 from typing import List
 import asyncio
+import ccxt.async_support as ccxt  # Додаємо прямий імпорт асинхронного CCXT
 
 from src.engine.infrastructure.exchange_manager import ExchangeManager
 
@@ -9,15 +10,31 @@ logger = logging.getLogger(__name__)
 class MarketScanner:
     def __init__(self, exchange_manager: ExchangeManager):
         self.exchange_manager = exchange_manager
-        self.exchange = self.exchange_manager.exchange
+        
+        # --- СИСТЕМНА ІЗОЛЯЦІЯ (Public Client) ---
+        # Створюємо чистий клієнт без API-ключів виключно для сканування ринку.
+        # Це гарантує, що Binance не відкидатиме публічні запити через фейкові ключі.
+        exchange_id = self.exchange_manager.exchange.id
+        exchange_class = getattr(ccxt, exchange_id)
+        
+        # Переносимо базові опції (наприклад, defaultType: 'future'), але без ключів
+        options = getattr(self.exchange_manager.exchange, 'options', {})
+        
+        self.public_exchange = exchange_class({
+            'enableRateLimit': True,
+            'options': options
+        })
+        
         self.stablecoins = {'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USD', 'FDUSD', 'USDE'}
 
     async def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 1000.0) -> List[str]:
-        """Шукає пари з найбільшою волатильністю з повторними спробами."""
+        """Шукає пари з найбільшою волатильністю (через Public API)."""
         for attempt in range(3):
             try:
-                logger.info("🔍 [Scanner] Шукаю монети з високою волатильністю...")
-                tickers = await self.exchange.fetch_tickers()
+                logger.info("🔍 [Scanner] Шукаю монети з високою волатильністю (Public API)...")
+                
+                # ВИКОРИСТОВУЄМО ПУБЛІЧНИЙ КЛІЄНТ
+                tickers = await self.public_exchange.fetch_tickers()
                 pairs_data = []
                 
                 for symbol, data in tickers.items():

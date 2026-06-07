@@ -1,7 +1,6 @@
 import logging
 from typing import List
 import asyncio
-import ccxt.async_support as ccxt  # Додаємо прямий імпорт асинхронного CCXT
 
 from src.engine.infrastructure.exchange_manager import ExchangeManager
 
@@ -11,19 +10,8 @@ class MarketScanner:
     def __init__(self, exchange_manager: ExchangeManager):
         self.exchange_manager = exchange_manager
         
-        # --- СИСТЕМНА ІЗОЛЯЦІЯ (Public Client) ---
-        # Створюємо чистий клієнт без API-ключів виключно для сканування ринку.
-        # Це гарантує, що Binance не відкидатиме публічні запити через фейкові ключі.
-        exchange_id = self.exchange_manager.exchange_id
-        exchange_class = getattr(ccxt, exchange_id)
-        
-        # Переносимо базові опції (наприклад, defaultType: 'future'), але без ключів
-        options = getattr(self.exchange_manager.exchange, 'options', {})
-        
-        self.public_exchange = exchange_class({
-            'enableRateLimit': True,
-            'options': options
-        })
+        # Використовуємо вже готовий та налаштований публічний клієнт з ExchangeManager
+        self.public_exchange = self.exchange_manager.public_exchange
         
         self.stablecoins = {'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USD', 'FDUSD', 'USDE'}
 
@@ -33,7 +21,7 @@ class MarketScanner:
             try:
                 logger.info("🔍 [Scanner] Шукаю монети з високою волатильністю (Public API)...")
                 
-                # ВИКОРИСТОВУЄМО ПУБЛІЧНИЙ КЛІЄНТ
+                # Використовуємо публічний клієнт для отримання тікерів
                 tickers = await self.public_exchange.fetch_tickers()
                 pairs_data = []
                 

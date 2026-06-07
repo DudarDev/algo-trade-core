@@ -14,7 +14,7 @@ class MarketScanner:
         # --- СИСТЕМНА ІЗОЛЯЦІЯ (Public Client) ---
         # Створюємо чистий клієнт без API-ключів виключно для сканування ринку.
         # Це гарантує, що Binance не відкидатиме публічні запити через фейкові ключі.
-        exchange_id = self.exchange_manager.exchange.id
+        exchange_id = self.exchange_manager.exchange_id
         exchange_class = getattr(ccxt, exchange_id)
         
         # Переносимо базові опції (наприклад, defaultType: 'future'), але без ключів

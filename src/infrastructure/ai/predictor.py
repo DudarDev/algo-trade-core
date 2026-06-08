@@ -9,7 +9,7 @@ import pandas as pd
 from src.engine.domain.models import SignalAction
 from src.shared.config import Settings
 # Імпортуємо наш єдиний механізм фіч!
-from src.engine.infrastructure.feature_engineer import calculate_features, get_feature_columns
+from src.infrastructure.ai.feature_engineer import calculate_features, get_feature_columns
 
 logger = logging.getLogger(__name__)
 

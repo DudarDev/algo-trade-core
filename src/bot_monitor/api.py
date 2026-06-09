@@ -1,20 +1,17 @@
 from ninja import Router
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict  # <--- ДОДАЙ ConfigDict сюди!
+from pydantic import BaseModel, ConfigDict
 from django.db.models import Sum, Avg
 
 from .models import Trade, Wallet, ActivePosition
 
 router = Router()
 
+# --- СХЕМИ PYDANTIC ---
+
 class TradeSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True) # <--- ДОДАЙ ЦЕЙ РЯДОК!
-    
-    # Також переконайся, що назви полів тут ТОЧНО збігаються з полями в models.py
-    # Наприклад, у тебе в базі "pair" чи "symbol"? "action" чи "side"? "entry_price" чи "price"?
-    # Якщо в БД інші назви полів, Pydantic теж впаде з помилкою. 
-    # Припускаємо, що у БД у тебе поля: symbol, side, price, amount, pnl, timestamp
+    model_config = ConfigDict(from_attributes=True)
     symbol: str
     side: str
     price: float
@@ -30,15 +27,18 @@ class StatsSchema(BaseModel):
     balance: float
     error: Optional[str] = None
 
-# ... (весь інший код залишай без змін) ...
+
+# --- ЕНДПОІНТИ API ---
+
 @router.get("/ping")
 def ping(request):
     return {"status": "ok"}
 
-# Додаємо статус бота, який шукає JS!
+
 @router.get("/bot_status")
 def bot_status(request):
     return {"status": "active"}
+
 
 @router.get("/stats", response=StatsSchema)
 def get_stats(request):
@@ -74,7 +74,21 @@ def get_stats(request):
         "error": None
     }
 
+
 @router.get("/recent_trades", response=List[TradeSchema])
 def get_recent_trades(request):
-    trades = Trade.objects.order_by('-timestamp')[:50]
-    return trades
+    """Отримання останніх 50 угод для таблиці історії (залізобетонний метод)"""
+    trades_qs = Trade.objects.order_by('-timestamp')[:50]
+    
+    trades_list = []
+    for t in trades_qs:
+        trades_list.append({
+            "symbol": t.symbol,
+            "side": t.side,
+            "price": float(t.price),
+            "amount": float(t.amount),
+            "pnl": float(t.pnl) if t.pnl else 0.0,
+            "timestamp": t.timestamp
+        })
+        
+    return trades_list

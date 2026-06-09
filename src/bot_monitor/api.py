@@ -8,7 +8,6 @@ from .models import Trade, Wallet, ActivePosition
 
 router = Router()
 
-# --- PYDANTIC СХЕМИ ---
 class TradeSchema(BaseModel):
     symbol: str
     side: str
@@ -25,18 +24,20 @@ class StatsSchema(BaseModel):
     balance: float
     error: Optional[str] = None
 
-# --- API ЕНДПОІНТИ ---
 @router.get("/ping")
 def ping(request):
     return {"status": "ok"}
 
+# Додаємо статус бота, який шукає JS!
+@router.get("/bot_status")
+def bot_status(request):
+    return {"status": "active"}
+
 @router.get("/stats", response=StatsSchema)
 def get_stats(request):
-    """Отримання головних метрик для карток дашборду"""
     all_trades = Trade.objects.all()
     total_trades = all_trades.count()
     
-    # Якщо база ще порожня, віддаємо безпечні нулі
     if total_trades == 0:
          return {
              "total_pnl": 0.0, "total_trades": 0, "profit_factor": 0.0, 
@@ -52,7 +53,6 @@ def get_stats(request):
     avg_win = all_trades.filter(pnl__gt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
     avg_loss = all_trades.filter(pnl__lt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
     
-    # Розрахунок Profit Factor. Додаємо захист від ділення на нуль
     profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else (999.0 if avg_win > 0 else 0.0)
     
     wallet = Wallet.objects.first()
@@ -69,6 +69,5 @@ def get_stats(request):
 
 @router.get("/recent_trades", response=List[TradeSchema])
 def get_recent_trades(request):
-    """Отримання останніх 50 угод для таблиці історії"""
     trades = Trade.objects.order_by('-timestamp')[:50]
     return trades

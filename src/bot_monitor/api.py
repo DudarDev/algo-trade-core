@@ -1,7 +1,7 @@
 from ninja import Router
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict  # <--- ДОДАЙ ConfigDict сюди!
 from django.db.models import Sum, Avg
 
 from .models import Trade, Wallet, ActivePosition
@@ -9,6 +9,12 @@ from .models import Trade, Wallet, ActivePosition
 router = Router()
 
 class TradeSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True) # <--- ДОДАЙ ЦЕЙ РЯДОК!
+    
+    # Також переконайся, що назви полів тут ТОЧНО збігаються з полями в models.py
+    # Наприклад, у тебе в базі "pair" чи "symbol"? "action" чи "side"? "entry_price" чи "price"?
+    # Якщо в БД інші назви полів, Pydantic теж впаде з помилкою. 
+    # Припускаємо, що у БД у тебе поля: symbol, side, price, amount, pnl, timestamp
     symbol: str
     side: str
     price: float
@@ -24,6 +30,7 @@ class StatsSchema(BaseModel):
     balance: float
     error: Optional[str] = None
 
+# ... (весь інший код залишай без змін) ...
 @router.get("/ping")
 def ping(request):
     return {"status": "ok"}

@@ -35,9 +35,10 @@ def ping(request):
     return {"status": "ok"}
 
 
-@router.get("/bot_status")
+# 👇 ВИПРАВЛЕНО: змінено шлях на /status, щоб фронтенд його знайшов
+@router.get("/status")
 def bot_status(request):
-    return {"status": "active"}
+    return {"status": "running"}
 
 
 @router.get("/stats", response=StatsSchema)

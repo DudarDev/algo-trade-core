@@ -24,10 +24,8 @@
     .toast-success { background-color: #00C853; border-left: 4px solid #00BFA5; }
 </style>
 
-<!-- Контейнер для сповіщень -->
 <div id="toast-container"></div>
 
-<!-- Метрики -->
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
@@ -55,7 +53,6 @@
     </div>
 </div>
 
-<!-- Панель керування -->
 <div class="pro-panel p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
     <div class="flex items-center gap-4">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">System Control</h3>
@@ -73,7 +70,15 @@
     </div>
 </div>
 
-<!-- Історія угод -->
+<div class="pro-panel p-4 mb-6">
+    <div class="px-2 py-2 border-b border-[#2a2e39] mb-4">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">AI Trading Performance & Cumulative PnL Curve</h3>
+    </div>
+    <div style="position: relative; height: 280px; width: 100%;">
+        <canvas id="pnlChart"></canvas>
+    </div>
+</div>
+
 <div class="pro-panel overflow-hidden mb-6">
     <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>
@@ -90,25 +95,20 @@
                 </tr>
             </thead>
             <tbody id="trades-table-body" class="divide-y divide-[#2a2e39] text-gray-300 mono-font">
-                <!-- Рендериться через JS -->
-            </tbody>
+                </tbody>
         </table>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-/**
- * 🚀 DashboardController
- * Інкапсулює логіку дашборду. Використовує Module Pattern для ізоляції.
- */
 class DashboardController {
     constructor() {
         this.endpoints = {
             stats: '/api/stats',
             recentTrades: '/api/recent_trades',
             control: '/api/bot_control',
-            status: '/api/bot_status'
+            status: '/api/status' // <-- ВАЖЛИВО: Оновлений ендпоінт статусу
         };
         this.elements = {
             balance: document.getElementById('metric-balance'),
@@ -122,6 +122,7 @@ class DashboardController {
             tradesTable: document.getElementById('trades-table-body'),
             toastContainer: document.getElementById('toast-container')
         };
+        this.chart = null; // Змінна під об'єкт графіка
         this.pollInterval = null;
         this.init();
     }
@@ -131,7 +132,6 @@ class DashboardController {
         this.fetchDashboardData();
         this.fetchBotStatus();
         
-        // Запуск поллінгу
         this.pollInterval = setInterval(() => {
             this.fetchDashboardData();
             this.fetchBotStatus();
@@ -155,7 +155,6 @@ class DashboardController {
         toast.innerText = message;
         this.elements.toastContainer.appendChild(toast);
         
-        // Анімація
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => {
             toast.classList.remove('show');
@@ -177,16 +176,15 @@ class DashboardController {
 
             this.updateMetricsUI(stats);
             this.updateTradesTable(trades);
+            this.updateChartUI(trades); // <-- ВАЖЛИВО: Виклик функції графіка
         } catch (error) {
             console.error('Fetch Data Error:', error);
-            // Не показуємо Toast кожні 5 сек при відключенні інтернету, достатньо логу
         }
     }
 
     updateMetricsUI(stats) {
-        if (stats.error) return; // База пуста
+        if (stats.error) return;
         
-        // Знімаємо skeleton loader
         Object.values(this.elements).forEach(el => {
             if (el && el.classList) el.classList.remove('skeleton');
         });
@@ -231,12 +229,64 @@ class DashboardController {
         }).join('');
     }
 
+    // <-- ВАЖЛИВО: Логіка відображення графіка PnL
+    updateChartUI(trades) {
+        if (!Array.isArray(trades) || trades.length === 0) return;
+
+        const timelineTrades = [...trades].reverse();
+        
+        let currentSum = 0;
+        const labels = [];
+        const dataPoints = [];
+
+        timelineTrades.forEach(trade => {
+            if (trade.side === 'SELL') {
+                currentSum += trade.pnl;
+            }
+            labels.push(new Date(trade.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }));
+            dataPoints.push(currentSum);
+        });
+
+        const ctx = document.getElementById('pnlChart').getContext('2d');
+        if (this.chart) {
+            this.chart.destroy();
+        }
+
+        this.chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Cumulative Yield Loop (%)',
+                    data: dataPoints,
+                    borderColor: '#00C853',
+                    backgroundColor: 'rgba(0, 200, 83, 0.05)',
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    tension: 0.2,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: '#2a2e39' }, ticks: { color: '#848e9c', maxTicksLimit: 12 } },
+                    y: { grid: { color: '#2a2e39' }, ticks: { color: '#848e9c' } }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    }
+
     async fetchBotStatus() {
         try {
             const res = await fetch(this.endpoints.status);
             if (!res.ok) throw new Error('Status Error');
             const data = await res.json();
-            this.updateControlUI(data.bot_status || 'error');
+            this.updateControlUI(data.status || 'error'); // <-- ВАЖЛИВО: Виправлено для нового бекенду
         } catch (e) {
             this.updateControlUI('error');
         }
@@ -264,7 +314,7 @@ class DashboardController {
             }
         } catch (error) {
             this.showToast(error.message, 'error');
-            this.fetchBotStatus(); // Відновлюємо правильний стан
+            this.fetchBotStatus();
         }
     }
 
@@ -272,7 +322,8 @@ class DashboardController {
         const b = this.elements.statusBadge;
         const [startBtn, stopBtn] = this.elements.controlBtns;
 
-        if (status === 'active') {
+        // <-- ВАЖЛИВО: Додано перевірку на 'running'
+        if (status === 'active' || status === 'running') {
             b.innerText = 'ACTIVE';
             b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30';
             startBtn.disabled = true; stopBtn.disabled = false;
@@ -288,7 +339,6 @@ class DashboardController {
     }
 }
 
-// Запуск додатку
 document.addEventListener('DOMContentLoaded', () => {
     window.dashboardApp = new DashboardController();
 });

@@ -30,7 +30,7 @@
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
         <div class="text-2xl font-bold text-white mono-font skeleton" id="metric-balance">0.00</div>
-        <div class="text-xs text-green-500 mt-2">USDT Wallet</div>
+        <div class="text-xs text-green-500 mt-2">Total Equity (USDT)</div>
     </div>
 
     <div class="pro-panel p-4">
@@ -108,7 +108,7 @@ class DashboardController {
             stats: '/api/stats',
             recentTrades: '/api/recent_trades',
             control: '/api/bot_control',
-            status: '/api/status' // <-- ВАЖЛИВО: Оновлений ендпоінт статусу
+            status: '/api/status'
         };
         this.elements = {
             balance: document.getElementById('metric-balance'),
@@ -122,8 +122,13 @@ class DashboardController {
             tradesTable: document.getElementById('trades-table-body'),
             toastContainer: document.getElementById('toast-container')
         };
-        this.chart = null; // Змінна під об'єкт графіка
+        this.chart = null;
         this.pollInterval = null;
+        
+        // Перевірка, чи запущено в тестовому середовищі (щоб уникнути помилок fetch)
+        this.isPreviewEnv = window.location.protocol === 'blob:' || 
+                            window.location.protocol === 'file:' || 
+                            window.location.hostname.includes('usercontent');
         this.init();
     }
 
@@ -162,23 +167,48 @@ class DashboardController {
         }, 3000);
     }
 
+    getMockStats() {
+        return {
+            balance: 4219.80, total_pnl: 3074.63, total_trades: 2467,
+            profit_factor: 1.41, win_rate: 46.3, error: null
+        };
+    }
+
+    getMockTrades() {
+        const now = Date.now();
+        return [
+            { timestamp: now - 100000, symbol: 'STRAX/USDT', side: 'SELL', price: 0.0116, pnl: -11.45 },
+            { timestamp: now - 200000, symbol: 'OPN/USDC', side: 'SELL', price: 0.1032, pnl: -9.34 },
+            { timestamp: now - 300000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002363, pnl: 40.45 }
+        ];
+    }
+
     async fetchDashboardData() {
         try {
-            const [statsRes, tradesRes] = await Promise.all([
-                fetch(this.endpoints.stats),
-                fetch(this.endpoints.recentTrades)
-            ]);
+            let stats, trades;
 
-            if (!statsRes.ok || !tradesRes.ok) throw new Error('API Sync Failed');
+            if (this.isPreviewEnv) {
+                stats = this.getMockStats();
+                trades = this.getMockTrades();
+            } else {
+                const [statsRes, tradesRes] = await Promise.all([
+                    fetch(this.endpoints.stats),
+                    fetch(this.endpoints.recentTrades)
+                ]);
 
-            const stats = await statsRes.json();
-            const trades = await tradesRes.json();
+                if (!statsRes.ok || !tradesRes.ok) throw new Error('API Sync Failed');
+
+                stats = await statsRes.json();
+                trades = await tradesRes.json();
+            }
 
             this.updateMetricsUI(stats);
             this.updateTradesTable(trades);
-            this.updateChartUI(trades); // <-- ВАЖЛИВО: Виклик функції графіка
+            this.updateChartUI(trades);
         } catch (error) {
-            console.error('Fetch Data Error:', error);
+            if (!error.message.includes('Failed to parse URL')) {
+                console.error('Fetch Data Error:', error);
+            }
         }
     }
 
@@ -213,8 +243,9 @@ class DashboardController {
                 ? `<span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-500/20">BUY</span>`
                 : `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-900/30 text-orange-400 border border-orange-500/20">SELL</span>`;
             
+            // Замінено % на USDT
             const pnlDisplay = trade.side === 'SELL'
-                ? `<span class="${trade.pnl > 0 ? 'text-profit' : 'text-loss'} font-bold">${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)}%</span>`
+                ? `<span class="${trade.pnl > 0 ? 'text-profit' : 'text-loss'} font-bold">${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>`
                 : `<span class="text-gray-600">-</span>`;
 
             return `
@@ -229,7 +260,6 @@ class DashboardController {
         }).join('');
     }
 
-    // <-- ВАЖЛИВО: Логіка відображення графіка PnL
     updateChartUI(trades) {
         if (!Array.isArray(trades) || trades.length === 0) return;
 
@@ -257,7 +287,7 @@ class DashboardController {
             data: {
                 labels: labels,
                 datasets: [{
-                    label: 'Cumulative Yield Loop (%)',
+                    label: 'Cumulative Yield Loop (USDT)',
                     data: dataPoints,
                     borderColor: '#00C853',
                     backgroundColor: 'rgba(0, 200, 83, 0.05)',
@@ -283,10 +313,14 @@ class DashboardController {
 
     async fetchBotStatus() {
         try {
+            if (this.isPreviewEnv) {
+                this.updateControlUI('active');
+                return;
+            }
             const res = await fetch(this.endpoints.status);
             if (!res.ok) throw new Error('Status Error');
             const data = await res.json();
-            this.updateControlUI(data.status || 'error'); // <-- ВАЖЛИВО: Виправлено для нового бекенду
+            this.updateControlUI(data.status || 'error');
         } catch (e) {
             this.updateControlUI('error');
         }
@@ -296,6 +330,13 @@ class DashboardController {
         this.elements.controlBtns.forEach(btn => btn.disabled = true);
         
         try {
+            if (this.isPreviewEnv) {
+                const newStatus = command === 'start' ? 'active' : 'stopped';
+                this.updateControlUI(newStatus);
+                this.showToast(`[PREVIEW] Bot ${command}ed successfully`, 'success');
+                return;
+            }
+
             const res = await fetch(this.endpoints.control, {
                 method: 'POST',
                 headers: { 
@@ -322,12 +363,12 @@ class DashboardController {
         const b = this.elements.statusBadge;
         const [startBtn, stopBtn] = this.elements.controlBtns;
 
-        // <-- ВАЖЛИВО: Додано перевірку на 'running'
-        if (status === 'active' || status === 'running') {
+        // Враховуємо всі можливі варіанти статусу
+        if (status === 'active' || status === 'running' || status === 'online') {
             b.innerText = 'ACTIVE';
             b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30';
             startBtn.disabled = true; stopBtn.disabled = false;
-        } else if (status === 'stopped') {
+        } else if (status === 'stopped' || status === 'offline') {
             b.innerText = 'STOPPED';
             b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
             startBtn.disabled = false; stopBtn.disabled = true;

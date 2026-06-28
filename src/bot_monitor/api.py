@@ -35,9 +35,9 @@ def ping(request):
     return {"status": "ok"}
 
 
-# 👇 ВИПРАВЛЕНО: змінено шлях на /status, щоб фронтенд його знайшов
 @router.get("/status")
 def bot_status(request):
+    # Повертаємо статус running, щоб фронтенд малював зелену кнопку ACTIVE
     return {"status": "running"}
 
 
@@ -56,22 +56,29 @@ def get_stats(request):
     losing_trades = all_trades.filter(pnl__lt=0).count()
     
     total_pnl = all_trades.aggregate(total=Sum('pnl'))['total'] or 0.0
-    win_rate = (winning_trades / total_trades * 100)
+    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
     
     avg_win = all_trades.filter(pnl__gt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
     avg_loss = all_trades.filter(pnl__lt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
     
     profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else (999.0 if avg_win > 0 else 0.0)
     
+    # --- РОЗРАХУНОК РЕАЛЬНОГО КАПІТАЛУ (TOTAL EQUITY) ---
     wallet = Wallet.objects.first()
-    balance = wallet.usdt_balance if wallet else 0.0
+    free_balance = wallet.usdt_balance if wallet else 0.0
+    
+    # Додаємо гроші, які зараз "заморожені" в активних угодах
+    active_positions = ActivePosition.objects.all()
+    locked_balance = sum(pos.amount for pos in active_positions)
+    
+    total_equity = free_balance + locked_balance
     
     return {
         "total_pnl": round(total_pnl, 2),
         "total_trades": total_trades,
         "profit_factor": round(profit_factor, 2),
         "win_rate": round(win_rate, 1),
-        "balance": round(balance, 2),
+        "balance": round(total_equity, 2),
         "error": None
     }
 

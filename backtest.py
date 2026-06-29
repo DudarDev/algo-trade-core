@@ -26,7 +26,6 @@ class PortfolioBacktester:
         self.ai = GlobalTradingAI(settings=self.settings)
         self.strategy = HybridStrategy(settings=self.settings)
         
-       
         # Жорстко задаємо скальперські ризики для бектесту
         self.risk_manager = RiskManager(config=RiskConfig(
             max_risk_pct=2.0, 
@@ -42,13 +41,33 @@ class PortfolioBacktester:
         logger.info(f"📊 Аналіз: {symbol}...")
 
         try:
-            df = pd.read_csv(data_path)
+            # OPTIMIZATION: Читаємо лише останні 10,000 рядків, щоб не "вбити" сервер по RAM
+            # Спочатку рахуємо скільки всього рядків
+            with open(data_path, 'r') as f:
+                total_rows = sum(1 for row in f)
+            
+            # Якщо файлик великий, пропускаємо початок
+            skip_rows = max(1, total_rows - 10000)
+            
+            # Читаємо з пропуском (але зберігаємо заголовки)
+            if skip_rows > 1:
+                df = pd.read_csv(data_path, skiprows=range(1, skip_rows))
+            else:
+                df = pd.read_csv(data_path)
+
             if 'timestamp' in df.columns:
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms' if isinstance(df['timestamp'].iloc[0], (int, np.integer, float)) else None)
         except Exception as e:
+            logger.error(f"Помилка при читанні {symbol}: {e}")
             return
 
-        df_features = self.ai.prepare_features(df)
+        # Генерація фіч тепер забере мало пам'яті
+        try:
+            df_features = self.ai.prepare_features(df)
+        except Exception as e:
+            logger.error(f"Помилка генерації фіч {symbol}: {e}")
+            return
+            
         if df_features.empty or len(df_features) < 50:
             return
 
@@ -118,8 +137,14 @@ class PortfolioBacktester:
     def run_all(self):
         start_time = time.time()
         history_dir = BASE_DIR / "data_storage" / "history"
-        all_files = glob.glob(str(history_dir / "*.csv"))
         
+        # Беремо файли, щоб не тестувати ВСЕ підряд і не зависнути (тільки 5m для скальпінгу)
+        all_files = glob.glob(str(history_dir / "*_5m.csv"))
+        
+        if not all_files:
+             logger.warning("Не знайдено файлів 5m у папці history!")
+             return
+             
         for file in all_files:
             self.run_on_file(file)
 
@@ -134,7 +159,7 @@ class PortfolioBacktester:
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
 
         logger.info("\n" + "="*50)
-        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ")
+        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Останні 10к свічок)")
         logger.info("="*50)
         logger.info(f"Всього угод:        {total_trades}")
         logger.info(f"Win Rate:           {win_rate:.2f}% ({winning_trades}W / {losing_trades}L)")

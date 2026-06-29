@@ -131,6 +131,9 @@ class PortfolioBacktester:
              return
              
         for file in all_files:
+            if "UNI" in file:
+                logger.warning(f"⚠️ Пропускаю проблемний файл: {file}")
+                continue
             self.run_on_file(file)
 
         total_trades = len(self.global_trades)

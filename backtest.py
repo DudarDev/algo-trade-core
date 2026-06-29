@@ -35,12 +35,15 @@ class PortfolioBacktester:
         logger.info(f"📊 Аналіз: {symbol}...")
 
         try:
-            # Читаємо тільки останні 5000 рядків
+            # 🚀 СУПЕР-ОПТИМІЗАЦІЯ ЧИТАННЯ (Миттєво і без втрати RAM)
             total_rows = sum(1 for _ in open(data_path, 'r'))
-            skip_rows = max(1, total_rows - 5000)
+            skip_lines = max(1, total_rows - 5000)
             
-            chunk_iter = pd.read_csv(data_path, skiprows=range(1, skip_rows), chunksize=1000)
-            df = pd.concat(chunk_iter)
+            # Читаємо тільки заголовки колонок
+            headers = pd.read_csv(data_path, nrows=0).columns
+            
+            # Читаємо файл з кінця, передаючи імена колонок
+            df = pd.read_csv(data_path, skiprows=skip_lines, names=headers)
 
             if 'timestamp' in df.columns:
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms' if isinstance(df['timestamp'].iloc[0], (int, np.integer, float)) else None)
@@ -49,8 +52,10 @@ class PortfolioBacktester:
             return
 
         try:
-            df.dropna(inplace=True)
+            # Генеруємо індикатори ПЕРЕД dropna
             df_features = self.ai.prepare_features(df)
+            df_features.dropna(inplace=True) # Тепер видаляємо перші пусті свічки від MA/RSI
+            
             del df
             gc.collect()
         except Exception as e:
@@ -58,6 +63,7 @@ class PortfolioBacktester:
             return
             
         if df_features.empty or len(df_features) < 50:
+            logger.warning(f"⚠️ Недостатньо даних для {symbol} після генерації індикаторів.")
             return
 
         if self.ai.model is None:
@@ -73,6 +79,8 @@ class PortfolioBacktester:
         take_profit = 0.0
         position_size = 0.0
         
+        logger.info(f"✅ Завантажено {len(df_features)} свічок для {symbol}. Запускаю цикл...")
+
         for i in range(50, len(df_features)):
             current_window = df_features.iloc[i-10 : i+1].copy()
             curr_row = df_features.iloc[i]
@@ -97,26 +105,17 @@ class PortfolioBacktester:
                     in_position = False
                 continue
 
-            ai_prob = float(curr_row['ai_prob'])
-            signal, meta = self.strategy.get_signal(current_window, ai_prob, in_position=False)
-
-            # === ПРИМУСОВИЙ ДЕБАГ: Змушуємо купувати при AI > 55% ===
-            if ai_prob > 0.55: 
+            # === АБСОЛЮТНИЙ ДЕБАГ: Входимо в угоду кожні 100 свічок ===
+            signal = SignalAction.NEUTRAL
+            if i % 100 == 0: 
                 signal = SignalAction.BUY
 
             if signal == SignalAction.BUY:
-                # === ЖОРСТКИЙ ВХІД: Ігноруємо RiskManager ===
                 in_position = True
                 entry_price = current_price
-                
-                # Фіксований Стоп-Лос: 1%
-                stop_loss = current_price * 0.99
-                
-                # Фіксований Тейк-Профіт: 2%
-                take_profit = current_price * 1.02
-                
-                # Фіксований об'єм: $100 на угоду
-                position_size = 100.0 
+                stop_loss = current_price * 0.99  # Стоп -1%
+                take_profit = current_price * 1.02 # Тейк +2%
+                position_size = 100.0 # Входимо завжди на $100
         
         del df_features
         gc.collect()
@@ -145,7 +144,7 @@ class PortfolioBacktester:
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
 
         logger.info("\n" + "="*50)
-        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Жорсткий Дебаг)")
+        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Абсолютний Дебаг)")
         logger.info("="*50)
         logger.info(f"Всього угод:        {total_trades}")
         logger.info(f"Win Rate:           {win_rate:.2f}% ({winning_trades}W / {losing_trades}L)")

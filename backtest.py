@@ -42,14 +42,11 @@ class PortfolioBacktester:
 
         try:
             # OPTIMIZATION: Читаємо лише останні 10,000 рядків, щоб не "вбити" сервер по RAM
-            # Спочатку рахуємо скільки всього рядків
             with open(data_path, 'r') as f:
                 total_rows = sum(1 for row in f)
             
-            # Якщо файлик великий, пропускаємо початок
             skip_rows = max(1, total_rows - 10000)
             
-            # Читаємо з пропуском (але зберігаємо заголовки)
             if skip_rows > 1:
                 df = pd.read_csv(data_path, skiprows=range(1, skip_rows))
             else:
@@ -61,7 +58,6 @@ class PortfolioBacktester:
             logger.error(f"Помилка при читанні {symbol}: {e}")
             return
 
-        # Генерація фіч тепер забере мало пам'яті
         try:
             df_features = self.ai.prepare_features(df)
         except Exception as e:
@@ -89,7 +85,7 @@ class PortfolioBacktester:
             curr_row = df_features.iloc[i]
             current_price = float(curr_row['close'])
 
-            # Захист від битих свічок з ціною <= 0
+            # Захист від битих свічок
             if current_price <= 0:
                 continue
 
@@ -112,17 +108,29 @@ class PortfolioBacktester:
             ai_prob = float(curr_row['ai_prob'])
             signal, meta = self.strategy.get_signal(current_window, ai_prob, in_position=False)
 
+            # === ПРИМУСОВИЙ ДЕБАГ (ПОЧАТОК) ===
+            # Змушуємо бота купувати, навіть якщо ШІ впевнений лише на 55%
+            if ai_prob > 0.55: 
+                signal = SignalAction.BUY
+            # === ПРИМУСОВИЙ ДЕБАГ (КІНЕЦЬ) ===
+
             if signal == SignalAction.BUY:
                 current_atr = float(curr_row.get('ATR_PCT', 0.01)) * current_price
                 
-                # Захист: якщо ATR нульовий, ставимо дефолт 1%
+                # Захист: якщо ATR нульовий
                 if current_atr <= 0:
                     current_atr = current_price * 0.01
 
                 try:
+                    # === ПРИМУСОВИЙ ДЕБАГ (ПОЧАТОК) ===
+                    # Множимо ATR на 2.0, щоб стоп-лос гарантовано пройшов перевірку Ризик-Менеджера
                     trade_params = self.risk_manager.evaluate_trade(
-                        entry_price=current_price, atr=current_atr, capital=self.balance, trade_type='BUY'
+                        entry_price=current_price, 
+                        atr=current_atr * 2.0, 
+                        capital=self.balance, 
+                        trade_type='BUY'
                     )
+                    # === ПРИМУСОВИЙ ДЕБАГ (КІНЕЦЬ) ===
                     
                     if trade_params and trade_params.entry_price > 0 and trade_params.stop_loss > 0:
                         in_position = True
@@ -131,14 +139,12 @@ class PortfolioBacktester:
                         take_profit = trade_params.take_profit
                         position_size = trade_params.position_size_usdt
                 except Exception as e:
-                    # Якщо Pydantic кричить про нулі (як на SHIB) - просто ігноруємо угоду
                     pass
 
     def run_all(self):
         start_time = time.time()
         history_dir = BASE_DIR / "data_storage" / "history"
         
-        # Беремо файли, щоб не тестувати ВСЕ підряд і не зависнути (тільки 5m для скальпінгу)
         all_files = glob.glob(str(history_dir / "*_5m.csv"))
         
         if not all_files:

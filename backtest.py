@@ -27,13 +27,6 @@ class PortfolioBacktester:
         self.ai = GlobalTradingAI(settings=self.settings)
         self.strategy = HybridStrategy(settings=self.settings)
         
-        # Жорстко задаємо скальперські ризики для бектесту
-        self.risk_manager = RiskManager(config=RiskConfig(
-            max_risk_pct=2.0, 
-            min_risk_reward=1.2,  # Швидкий прибуток
-            atr_multiplier=1.2    # Короткий стоп-лос
-        ))
-        
         self.global_trades = []
         self.total_fee_pct = 0.001  # 0.1%
         
@@ -42,12 +35,10 @@ class PortfolioBacktester:
         logger.info(f"📊 Аналіз: {symbol}...")
 
         try:
-            # Читаємо тільки останні 5000 рядків (це приблизно 17 днів для 5m)
-            # Використовуємо chunking, щоб не вбити пам'ять сервера
+            # Читаємо тільки останні 5000 рядків
             total_rows = sum(1 for _ in open(data_path, 'r'))
             skip_rows = max(1, total_rows - 5000)
             
-            # Читаємо файл маленькими блоками (економимо RAM)
             chunk_iter = pd.read_csv(data_path, skiprows=range(1, skip_rows), chunksize=1000)
             df = pd.concat(chunk_iter)
 
@@ -58,11 +49,8 @@ class PortfolioBacktester:
             return
 
         try:
-            # Видаляємо NaN значення відразу, щоб зменшити розмір DF
             df.dropna(inplace=True)
             df_features = self.ai.prepare_features(df)
-            
-            # Звільняємо пам'ять від старого датафрейму
             del df
             gc.collect()
         except Exception as e:
@@ -112,38 +100,24 @@ class PortfolioBacktester:
             ai_prob = float(curr_row['ai_prob'])
             signal, meta = self.strategy.get_signal(current_window, ai_prob, in_position=False)
 
-            # === ПРИМУСОВИЙ ДЕБАГ (ПОЧАТОК) ===
-            # Змушуємо бота купувати, навіть якщо ШІ впевнений лише на 55%
+            # === ПРИМУСОВИЙ ДЕБАГ: Змушуємо купувати при AI > 55% ===
             if ai_prob > 0.55: 
                 signal = SignalAction.BUY
-            # === ПРИМУСОВИЙ ДЕБАГ (КІНЕЦЬ) ===
 
             if signal == SignalAction.BUY:
-                current_atr = float(curr_row.get('ATR_PCT', 0.01)) * current_price
-                if current_atr <= 0:
-                    current_atr = current_price * 0.01
-
-                try:
-                    # === ПРИМУСОВИЙ ДЕБАГ (ПОЧАТОК) ===
-                    # Множимо ATR на 2.0, щоб стоп-лос гарантовано пройшов перевірку Ризик-Менеджера
-                    trade_params = self.risk_manager.evaluate_trade(
-                        entry_price=current_price, 
-                        atr=current_atr * 2.0, 
-                        capital=self.balance, 
-                        trade_type='BUY'
-                    )
-                    # === ПРИМУСОВИЙ ДЕБАГ (КІНЕЦЬ) ===
-                    
-                    if trade_params and trade_params.entry_price > 0 and trade_params.stop_loss > 0:
-                        in_position = True
-                        entry_price = trade_params.entry_price
-                        stop_loss = trade_params.stop_loss
-                        take_profit = trade_params.take_profit
-                        position_size = trade_params.position_size_usdt
-                except Exception as e:
-                    pass
+                # === ЖОРСТКИЙ ВХІД: Ігноруємо RiskManager ===
+                in_position = True
+                entry_price = current_price
+                
+                # Фіксований Стоп-Лос: 1%
+                stop_loss = current_price * 0.99
+                
+                # Фіксований Тейк-Профіт: 2%
+                take_profit = current_price * 1.02
+                
+                # Фіксований об'єм: $100 на угоду
+                position_size = 100.0 
         
-        # Видаляємо важкий об'єкт з пам'яті після аналізу монети
         del df_features
         gc.collect()
 
@@ -171,7 +145,7 @@ class PortfolioBacktester:
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
 
         logger.info("\n" + "="*50)
-        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Останні 5к свічок)")
+        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Жорсткий Дебаг)")
         logger.info("="*50)
         logger.info(f"Всього угод:        {total_trades}")
         logger.info(f"Win Rate:           {win_rate:.2f}% ({winning_trades}W / {losing_trades}L)")

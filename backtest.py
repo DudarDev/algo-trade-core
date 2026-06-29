@@ -5,6 +5,7 @@ import time
 import sys
 import glob
 from pathlib import Path
+import gc
 
 # Додаємо корінь проєкту для імпортів
 BASE_DIR = Path(__file__).resolve().parent
@@ -41,16 +42,14 @@ class PortfolioBacktester:
         logger.info(f"📊 Аналіз: {symbol}...")
 
         try:
-            # OPTIMIZATION: Читаємо лише останні 10,000 рядків, щоб не "вбити" сервер по RAM
-            with open(data_path, 'r') as f:
-                total_rows = sum(1 for row in f)
+            # Читаємо тільки останні 5000 рядків (це приблизно 17 днів для 5m)
+            # Використовуємо chunking, щоб не вбити пам'ять сервера
+            total_rows = sum(1 for _ in open(data_path, 'r'))
+            skip_rows = max(1, total_rows - 5000)
             
-            skip_rows = max(1, total_rows - 10000)
-            
-            if skip_rows > 1:
-                df = pd.read_csv(data_path, skiprows=range(1, skip_rows))
-            else:
-                df = pd.read_csv(data_path)
+            # Читаємо файл маленькими блоками (економимо RAM)
+            chunk_iter = pd.read_csv(data_path, skiprows=range(1, skip_rows), chunksize=1000)
+            df = pd.concat(chunk_iter)
 
             if 'timestamp' in df.columns:
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms' if isinstance(df['timestamp'].iloc[0], (int, np.integer, float)) else None)
@@ -59,7 +58,13 @@ class PortfolioBacktester:
             return
 
         try:
+            # Видаляємо NaN значення відразу, щоб зменшити розмір DF
+            df.dropna(inplace=True)
             df_features = self.ai.prepare_features(df)
+            
+            # Звільняємо пам'ять від старого датафрейму
+            del df
+            gc.collect()
         except Exception as e:
             logger.error(f"Помилка генерації фіч {symbol}: {e}")
             return
@@ -85,7 +90,6 @@ class PortfolioBacktester:
             curr_row = df_features.iloc[i]
             current_price = float(curr_row['close'])
 
-            # Захист від битих свічок
             if current_price <= 0:
                 continue
 
@@ -116,8 +120,6 @@ class PortfolioBacktester:
 
             if signal == SignalAction.BUY:
                 current_atr = float(curr_row.get('ATR_PCT', 0.01)) * current_price
-                
-                # Захист: якщо ATR нульовий
                 if current_atr <= 0:
                     current_atr = current_price * 0.01
 
@@ -140,6 +142,10 @@ class PortfolioBacktester:
                         position_size = trade_params.position_size_usdt
                 except Exception as e:
                     pass
+        
+        # Видаляємо важкий об'єкт з пам'яті після аналізу монети
+        del df_features
+        gc.collect()
 
     def run_all(self):
         start_time = time.time()
@@ -165,7 +171,7 @@ class PortfolioBacktester:
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
 
         logger.info("\n" + "="*50)
-        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Останні 10к свічок)")
+        logger.info(f"🏆 ФІНАЛЬНИЙ ЗВІТ БЕКТЕСТУ (Останні 5к свічок)")
         logger.info("="*50)
         logger.info(f"Всього угод:        {total_trades}")
         logger.info(f"Win Rate:           {win_rate:.2f}% ({winning_trades}W / {losing_trades}L)")

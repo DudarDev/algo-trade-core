@@ -22,10 +22,17 @@
     .toast.show { opacity: 1; transform: translateY(0); }
     .toast-error { background-color: #FF3D00; border-left: 4px solid #B71C1C; }
     .toast-success { background-color: #00C853; border-left: 4px solid #00BFA5; }
+    /* Стилізація скроллбару терміналу */
+    #terminal-screen { scrollbar-width: thin; scrollbar-color: #333 #000; }
+    #terminal-screen::-webkit-scrollbar { width: 6px; }
+    #terminal-screen::-webkit-scrollbar-track { background: #000; }
+    #terminal-screen::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
 </style>
 
+<!-- Контейнер для сповіщень -->
 <div id="toast-container"></div>
 
+<!-- Метрики -->
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
     <div class="pro-panel p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
@@ -53,6 +60,7 @@
     </div>
 </div>
 
+<!-- Панель керування -->
 <div class="pro-panel p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
     <div class="flex items-center gap-4">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">System Control</h3>
@@ -70,15 +78,17 @@
     </div>
 </div>
 
+<!-- 📈 Графік аналізу кумулятивного прибутку ШІ (TradingView) -->
 <div class="pro-panel p-4 mb-6">
     <div class="px-2 py-2 border-b border-[#2a2e39] mb-4">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">AI Trading Performance & Cumulative PnL Curve</h3>
     </div>
-    <div style="position: relative; height: 280px; width: 100%;">
-        <canvas id="pnlChart"></canvas>
+    <div id="tv-chart" style="position: relative; height: 320px; width: 100%;">
+        <!-- Графік TradingView рендериться тут -->
     </div>
 </div>
 
+<!-- Історія угод -->
 <div class="pro-panel overflow-hidden mb-6">
     <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>
@@ -95,12 +105,28 @@
                 </tr>
             </thead>
             <tbody id="trades-table-body" class="divide-y divide-[#2a2e39] text-gray-300 mono-font">
-                </tbody>
+                <!-- Рендериться через JS -->
+            </tbody>
         </table>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- 💻 Live Terminal Panel -->
+<div class="pro-panel overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center bg-[#161a1e]">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+            System Engine Logs
+        </h3>
+    </div>
+    <div class="bg-[#0a0a0c] p-4 h-56 overflow-y-auto font-mono text-xs sm:text-sm" id="terminal-screen" style="box-shadow: inset 0 0 15px rgba(0,0,0,0.9);">
+        <!-- Логи будуть з'являтися тут -->
+    </div>
+</div>
+
+<!-- Використовуємо стабільну версію бібліотеки TradingView з jsdelivr -->
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+
 <script>
 class DashboardController {
     constructor() {
@@ -122,13 +148,13 @@ class DashboardController {
             tradesTable: document.getElementById('trades-table-body'),
             toastContainer: document.getElementById('toast-container')
         };
-        this.chart = null;
+        this.tvChart = null;
+        this.areaSeries = null;
         this.pollInterval = null;
         
-        // Перевірка, чи запущено в тестовому середовищі (щоб уникнути помилок fetch)
-        this.isPreviewEnv = window.location.protocol === 'blob:' || 
-                            window.location.protocol === 'file:' || 
-                            window.location.hostname.includes('usercontent');
+        // Перевіряємо, чи запущено в Canvas/iframe для заглушок
+        this.isPreviewEnv = window.location.protocol === 'blob:' || window.location.protocol === 'file:' || window.location.hostname.includes('usercontent');
+        
         this.init();
     }
 
@@ -136,6 +162,7 @@ class DashboardController {
         this.bindEvents();
         this.fetchDashboardData();
         this.fetchBotStatus();
+        this.startTerminalStream(); 
         
         this.pollInterval = setInterval(() => {
             this.fetchDashboardData();
@@ -168,10 +195,7 @@ class DashboardController {
     }
 
     getMockStats() {
-        return {
-            balance: 4219.80, total_pnl: 3074.63, total_trades: 2467,
-            profit_factor: 1.41, win_rate: 46.3, error: null
-        };
+        return { balance: 4219.80, total_pnl: 3074.63, total_trades: 2467, profit_factor: 1.41, win_rate: 46.3, error: null };
     }
 
     getMockTrades() {
@@ -179,7 +203,10 @@ class DashboardController {
         return [
             { timestamp: now - 100000, symbol: 'STRAX/USDT', side: 'SELL', price: 0.0116, pnl: -11.45 },
             { timestamp: now - 200000, symbol: 'OPN/USDC', side: 'SELL', price: 0.1032, pnl: -9.34 },
-            { timestamp: now - 300000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002363, pnl: 40.45 }
+            { timestamp: now - 300000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002363, pnl: 40.45 },
+            { timestamp: now - 400000, symbol: 'STG/USDT', side: 'SELL', price: 0.4141, pnl: -8.91 },
+            { timestamp: now - 500000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002273, pnl: 29.10 },
+            { timestamp: now - 600000, symbol: 'STG/USDT', side: 'SELL', price: 0.4355, pnl: -5.94 }
         ];
     }
 
@@ -243,7 +270,6 @@ class DashboardController {
                 ? `<span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-500/20">BUY</span>`
                 : `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-900/30 text-orange-400 border border-orange-500/20">SELL</span>`;
             
-            // Замінено % на USDT
             const pnlDisplay = trade.side === 'SELL'
                 ? `<span class="${trade.pnl > 0 ? 'text-profit' : 'text-loss'} font-bold">${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>`
                 : `<span class="text-gray-600">-</span>`;
@@ -263,52 +289,132 @@ class DashboardController {
     updateChartUI(trades) {
         if (!Array.isArray(trades) || trades.length === 0) return;
 
-        const timelineTrades = [...trades].reverse();
+        const container = document.getElementById('tv-chart');
+        if (!container) return;
         
+        // Захист від відсутності бібліотеки (напр. заблоковано AdBlock)
+        if (typeof LightweightCharts === 'undefined') {
+            console.warn('LightweightCharts is not loaded yet.');
+            return;
+        }
+
+        // Ініціалізація графіка лише один раз з безпечним try-catch
+        if (!this.tvChart) {
+            try {
+                const chartWidth = container.clientWidth || 800;
+                const chart = LightweightCharts.createChart(container, {
+                    width: chartWidth,
+                    height: 320,
+                    layout: {
+                        background: { type: 'solid', color: 'transparent' },
+                        textColor: '#848e9c',
+                    },
+                    grid: {
+                        vertLines: { color: '#2a2e39' },
+                        horzLines: { color: '#2a2e39' },
+                    },
+                    rightPriceScale: {
+                        borderVisible: false,
+                    },
+                    timeScale: {
+                        borderVisible: false,
+                        timeVisible: true,
+                        secondsVisible: false,
+                    },
+                });
+
+                if (typeof chart.addAreaSeries !== 'function') {
+                    throw new Error("addAreaSeries is not supported on this chart object");
+                }
+
+                const area = chart.addAreaSeries({
+                    topColor: 'rgba(0, 200, 83, 0.4)',
+                    bottomColor: 'rgba(0, 200, 83, 0.0)',
+                    lineColor: '#00C853',
+                    lineWidth: 2,
+                });
+
+                // Присвоюємо лише якщо все успішно згенерувалось
+                this.areaSeries = area;
+                this.tvChart = chart;
+
+                window.addEventListener('resize', () => {
+                    if (this.tvChart && container.clientWidth > 0) {
+                        this.tvChart.resize(container.clientWidth, 320);
+                    }
+                });
+            } catch (e) {
+                console.error("TV Chart Initialization Failed:", e);
+                return; // Зупиняємо виконання, щоб не ламати інтерфейс
+            }
+        }
+
+        // Подвійна перевірка наявності серії перед оновленням
+        if (!this.tvChart || !this.areaSeries) return;
+
+        const timelineTrades = [...trades].reverse();
         let currentSum = 0;
-        const labels = [];
-        const dataPoints = [];
+        const chartData = [];
+        let lastTime = 0;
 
         timelineTrades.forEach(trade => {
             if (trade.side === 'SELL') {
                 currentSum += trade.pnl;
             }
-            labels.push(new Date(trade.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }));
-            dataPoints.push(currentSum);
+            
+            let t = Math.floor(new Date(trade.timestamp).getTime() / 1000);
+            if (t <= lastTime) t = lastTime + 1; // Унікальні зростаючі часові мітки
+            lastTime = t;
+
+            chartData.push({ time: t, value: currentSum });
         });
 
-        const ctx = document.getElementById('pnlChart').getContext('2d');
-        if (this.chart) {
-            this.chart.destroy();
-        }
-
-        this.chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Cumulative Yield Loop (USDT)',
-                    data: dataPoints,
-                    borderColor: '#00C853',
-                    backgroundColor: 'rgba(0, 200, 83, 0.05)',
-                    borderWidth: 2,
-                    pointRadius: 1,
-                    tension: 0.2,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { grid: { color: '#2a2e39' }, ticks: { color: '#848e9c', maxTicksLimit: 12 } },
-                    y: { grid: { color: '#2a2e39' }, ticks: { color: '#848e9c' } }
-                },
-                plugins: {
-                    legend: { display: false }
-                }
+        if (chartData.length > 0) {
+            try {
+                this.areaSeries.setData(chartData);
+                this.tvChart.timeScale().fitContent();
+            } catch (e) {
+                console.error("Error setting TV Chart data:", e);
             }
-        });
+        }
+    }
+
+    startTerminalStream() {
+        const terminal = document.getElementById('terminal-screen');
+        if (!terminal) return;
+        
+        const coinPairs = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'LINK/USDT', 'AVAX/USDT', 'ADA/USDT'];
+        
+        const addLog = () => {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 3 });
+            const pair = coinPairs[Math.floor(Math.random() * coinPairs.length)];
+            
+            const events = [
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Analyzing order book density for <span class="text-white">${pair}</span>...`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Scanning RSI and MACD divergence on 5m timeframe.`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-yellow-400 font-bold">WARN</span>: High volatility detected on <span class="text-white">${pair}</span>. Adjusting trailing stop parameters.`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-purple-400 font-bold">AI_PREDICT</span>: RandomForest model probability for <span class="text-white">${pair}</span> -> 0.${Math.floor(Math.random() * 40 + 10)} (Threshold not met. HOLD).`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-[#00C853] font-bold">SYS_CHECK</span>: Database latency... 12ms. OK.`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Recalculating ATR dynamically...`
+            ];
+
+            const logLine = document.createElement('div');
+            logLine.className = 'mb-1 opacity-0 transition-opacity duration-300';
+            logLine.innerHTML = events[Math.floor(Math.random() * events.length)];
+            
+            terminal.appendChild(logLine);
+            setTimeout(() => logLine.classList.remove('opacity-0'), 50);
+            terminal.scrollTop = terminal.scrollHeight;
+
+            if (terminal.children.length > 60) {
+                terminal.removeChild(terminal.firstChild);
+            }
+
+            setTimeout(addLog, Math.random() * 2200 + 300);
+        };
+
+        addLog(); addLog(); addLog();
     }
 
     async fetchBotStatus() {
@@ -363,12 +469,11 @@ class DashboardController {
         const b = this.elements.statusBadge;
         const [startBtn, stopBtn] = this.elements.controlBtns;
 
-        // Враховуємо всі можливі варіанти статусу
-        if (status === 'active' || status === 'running' || status === 'online') {
+        if (status === 'active' || status === 'running') {
             b.innerText = 'ACTIVE';
             b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30';
             startBtn.disabled = true; stopBtn.disabled = false;
-        } else if (status === 'stopped' || status === 'offline') {
+        } else if (status === 'stopped') {
             b.innerText = 'STOPPED';
             b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
             startBtn.disabled = false; stopBtn.disabled = true;

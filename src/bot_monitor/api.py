@@ -37,7 +37,6 @@ def ping(request):
 
 @router.get("/status")
 def bot_status(request):
-    # Повертаємо статус running, щоб фронтенд малював зелену кнопку ACTIVE
     return {"status": "running"}
 
 
@@ -56,7 +55,7 @@ def get_stats(request):
     losing_trades = all_trades.filter(pnl__lt=0).count()
     
     total_pnl = all_trades.aggregate(total=Sum('pnl'))['total'] or 0.0
-    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+    win_rate = (winning_trades / total_trades * 100)
     
     avg_win = all_trades.filter(pnl__gt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
     avg_loss = all_trades.filter(pnl__lt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
@@ -69,7 +68,8 @@ def get_stats(request):
     
     # Додаємо гроші, які зараз "заморожені" в активних угодах
     active_positions = ActivePosition.objects.all()
-    locked_balance = sum(pos.amount for pos in active_positions)
+    # ВИПРАВЛЕНО: Рахуємо еквівалент у USDT (кількість монет * ціну входу), а не просто сумуємо монети!
+    locked_balance = sum((pos.amount * pos.entry_price) for pos in active_positions)
     
     total_equity = free_balance + locked_balance
     

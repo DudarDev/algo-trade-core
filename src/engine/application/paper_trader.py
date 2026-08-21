@@ -39,8 +39,9 @@ class PaperTrader:
                     entry_price=db_pos.entry_price,
                     amount_usdt=db_pos.cost,
                     amount_coins=db_pos.amount,
-                    sl=db_pos.entry_price * (1 - self.settings.DEFAULT_SL_PCT),
-                    tp=db_pos.entry_price * (1 + self.settings.DEFAULT_TP_PCT),
+                    # Використовуємо getattr для сумісності, якщо старі налаштування ще є в базі
+                    sl=db_pos.entry_price * (1 - getattr(self.settings, 'DEFAULT_SL_PCT', 0.02)),
+                    tp=db_pos.entry_price * (1 + getattr(self.settings, 'DEFAULT_TP_PCT', 0.05)),
                     highest_price=db_pos.highest_price,
                     entry_time=db_pos.opened_at.timestamp()
                 )
@@ -49,7 +50,7 @@ class PaperTrader:
             logger.info(f"💾 PaperTrader успішно ініціалізовано. Баланс: {self.balance:.2f} USDT | Активних позицій: {len(self.positions)}")
 
     async def open_position(self, symbol: str, side: TradeSide, price: float, sl: float, tp: float) -> None:
-        """Відкриває позицію із thread-safe контролем та відкатом (Rollback) при помилках БД."""
+        """Відкриває позицію із динамічним ризик-менеджментом та обліком комісій."""
         if not self._is_initialized:
             logger.error("❌ Спроба відкрити позицію до ініціалізації PaperTrader.")
             return
@@ -62,23 +63,49 @@ class PaperTrader:
             if symbol in self.positions:
                 return
 
-            actual_amount = min(self.balance * self.settings.TRADE_FRACTION, self.balance * 0.98)
-            if actual_amount < self.settings.MIN_TRADE_SIZE:
-                logger.warning(f"⚠️ Пропуск {symbol}: недостатньо балансу ({self.balance:.2f} USDT).")
+            # Перевірка на ліміт одночасних угод (захист капіталу від корекції всього ринку)
+            if len(self.positions) >= self.settings.max_open_positions:
+                logger.debug(f"⚠️ Пропуск {symbol}: досягнуто ліміт активних позицій ({self.settings.max_open_positions}).")
                 return
 
-            self.balance -= actual_amount
+            # --- РОЗРАХУНОК ОБ'ЄМУ (POSITION SIZING) ---
+            risk_budget = self.balance * self.settings.risk_per_trade_pct
+            risk_per_coin = abs(price - sl)
+
+            if risk_per_coin <= 0:
+                logger.error(f"❌ Помилка розрахунку ризику для {symbol}: ціна входу дорівнює SL.")
+                return
+
+            ideal_coins = risk_budget / risk_per_coin
+            ideal_usdt = ideal_coins * price
+
+            # Капаємо розмір позиції до доступного балансу (залишаємо запас 2%)
+            actual_usdt = min(ideal_usdt, self.balance * 0.98)
+            actual_coins = actual_usdt / price
+
+            if actual_usdt < 10.0:  # Hard limit для більшості бірж
+                logger.warning(f"⚠️ Пропуск {symbol}: розрахований об'єм {actual_usdt:.2f} USDT занадто малий.")
+                return
+
+            # --- ОБЛІК КОМІСІЇ ---
+            entry_fee_usdt = actual_usdt * self.settings.exchange_fee_pct
+            total_cost_from_balance = actual_usdt + entry_fee_usdt
+
+            if total_cost_from_balance > self.balance:
+                logger.warning(f"⚠️ Пропуск {symbol}: недостатньо балансу з урахуванням комісії.")
+                return
+
+            self.balance -= total_cost_from_balance
             current_balance = self.balance
 
-            # Правильний запис: окремо долари, окремо монети (фікс "багу мільйонера")
             pos_to_save = Position(
                 symbol=symbol, side=side, entry_price=price,
-                amount_usdt=actual_amount, amount_coins=actual_amount / price,
+                amount_usdt=actual_usdt, amount_coins=actual_coins,
                 sl=sl, tp=tp, highest_price=price, entry_time=time.time()
             )
             self.positions[symbol] = pos_to_save
 
-        # 2. Виконуємо запит до БД ПОЗА локом (щоб не блокувати обробку інших монет)
+        # 2. Виконуємо запит до БД ПОЗА локом
         try:
             await asyncio.to_thread(
                 self.repo.save_position,
@@ -90,17 +117,17 @@ class PaperTrader:
             )
             await asyncio.to_thread(self.repo.save_balance, float(current_balance))
             
-            logger.info(f"🚀 [ВХІД] {side.value} {symbol} | Ціна: {price:.4f} | Об'єм: {pos_to_save.amount_usdt:.2f} USDT")
-            if self.settings.ENABLE_TELEGRAM:
-                await self.notifier.send_message(f"🟢 Відкрито Paper Trade: {side.value} {symbol} по {price:.4f}")
+            logger.info(f"🚀 [ВХІД] {side.value} {symbol} | Ціна: {price:.4f} | Об'єм: {actual_usdt:.2f} USDT | Комісія: {entry_fee_usdt:.4f}")
+            if getattr(self.settings, 'ENABLE_TELEGRAM', False):
+                await self.notifier.send_message(f"🟢 Відкрито: {side.value} {symbol} по {price:.4f} (Risk: {self.settings.risk_per_trade_pct*100}%)")
 
         except Exception as e:
-            # 3. ROLLBACK: Якщо БД впала, відкочуємо баланс і видаляємо ордер з пам'яті!
-            logger.error(f"🛑 Помилка БД при відкритті {symbol}: {e}. Здійснюю ROLLBACK балансу.")
+            # 3. ROLLBACK: Якщо БД впала
+            logger.error(f"🛑 Помилка БД при відкритті {symbol}: {e}. Здійснюю ROLLBACK.")
             async with self._lock:
                 if symbol in self.positions:
                     del self.positions[symbol]
-                self.balance += actual_amount
+                self.balance += total_cost_from_balance
             return
 
     async def update_position(self, symbol: str, current_price: float) -> None:
@@ -138,7 +165,7 @@ class PaperTrader:
             await self._close_position(symbol, current_price, exit_reason)
 
     async def _close_position(self, symbol: str, close_price: float, reason: str) -> None:
-        """Атомарно закриває позицію та зберігає історію."""
+        """Атомарно закриває позицію з відрахуванням комісії тейкера та зберігає історію."""
         close_price = float(close_price)
         pos: Optional[Position] = None
 
@@ -149,11 +176,16 @@ class PaperTrader:
 
             pos = self.positions.pop(symbol)
             
-            # Фікс "багу мільйонера": правильний підрахунок PnL через монети
-            pnl = (close_price - pos.entry_price) * pos.amount_coins
-            return_amount = pos.amount_usdt + pnl
+            # --- ОБЛІК КОМІСІЇ ПРИ ВИХОДІ ---
+            gross_exit_value_usdt = close_price * pos.amount_coins
+            exit_fee_usdt = gross_exit_value_usdt * self.settings.exchange_fee_pct
+            net_return_amount = gross_exit_value_usdt - exit_fee_usdt
 
-            self.balance += return_amount
+            # Чистий PnL: Скільки отримали мінус скільки витратили спочатку (чиста вартість позиції + комісія входу)
+            initial_cost_with_fee = pos.amount_usdt + (pos.amount_usdt * self.settings.exchange_fee_pct)
+            net_pnl = net_return_amount - initial_cost_with_fee
+
+            self.balance += net_return_amount
             current_balance = self.balance
 
         # 2. Зберігаємо історію в БД
@@ -165,20 +197,19 @@ class PaperTrader:
                 side=TradeSide.SELL.value,
                 price=float(close_price),
                 amount=float(pos.amount_coins),
-                cost=float(return_amount),
-                pnl=float(pnl)
+                cost=float(net_return_amount),
+                pnl=float(net_pnl)
             )
             await asyncio.to_thread(self.repo.save_balance, float(current_balance))
 
-            msg = f"📉 [ВИХІД] {symbol} закрито через {reason} | Ціна: {close_price:.4f} | PnL: {pnl:+.2f} USDT"
+            msg = f"📉 [ВИХІД] {symbol} ({reason}) | Ціна: {close_price:.4f} | Чистий PnL: {net_pnl:+.2f} USDT"
             logger.info(msg)
-            if self.settings.ENABLE_TELEGRAM:
+            if getattr(self.settings, 'ENABLE_TELEGRAM', False):
                 await self.notifier.send_message(msg)
 
         except Exception as e:
-            # 3. ROLLBACK: Якщо БД недоступна, повертаємо позицію в пам'ять. 
-            # Наступного тіка ціни вона знову спробує закритися.
+            # 3. ROLLBACK: Відновлюємо позицію в пам'яті
             logger.critical(f"🛑 КРИТИЧНА ПОМИЛКА БД при закритті {symbol}: {e}. Відновлюю позицію в пам'яті!")
             async with self._lock:
                 self.positions[symbol] = pos
-                self.balance -= return_amount
+                self.balance -= net_return_amount

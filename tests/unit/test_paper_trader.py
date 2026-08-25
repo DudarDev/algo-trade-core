@@ -29,19 +29,16 @@ class MockNotifier:
 # --- FIXTURES ---
 @pytest.fixture
 def settings():
-    s = Settings()
-    s.INITIAL_BALANCE = 1000.0
-    
-    # Нові конфіги ризик-менеджменту
-    s.risk_per_trade_pct = 0.02     # Ризик 2% на угоду
-    s.max_open_positions = 2        # Максимум 2 одночасні угоди
-    s.exchange_fee_pct = 0.001      # Комісія 0.1%
-    s.ENABLE_TELEGRAM = False
-    
-    # Заглушки для сумісності з іншими модулями
-    s.DEFAULT_SL_PCT = 0.02
-    s.DEFAULT_TP_PCT = 0.05
-    return s
+    # Використовуємо Dummy-клас (Mock), щоб обійти сувору валідацію Pydantic у тестах
+    class MockSettings:
+        INITIAL_BALANCE = 1000.0
+        risk_per_trade_pct = 0.02
+        max_open_positions = 2
+        exchange_fee_pct = 0.001
+        ENABLE_TELEGRAM = False
+        DEFAULT_SL_PCT = 0.02
+        DEFAULT_TP_PCT = 0.05
+    return MockSettings()
 
 @pytest.fixture
 def paper_trader(settings):

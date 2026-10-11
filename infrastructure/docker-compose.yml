@@ -15,6 +15,38 @@ services:
       timeout: 5s
       retries: 5
 
+  # Init-контейнер 1: Створює таблиці SQLAlchemy (вкл. wallet)
+  engine_init:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    container_name: algo_engine_init
+    command: python manage.py create_db
+    environment:
+      - PYTHONPATH=/app:/app/src
+      - DATABASE_URL=postgresql://algo_user:algo_password@db:5432/algo_db
+    env_file:
+      - ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Init-контейнер 2: Виконує міграції Django
+  web_init:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    container_name: algo_web_init
+    working_dir: /app/src
+    command: python manage.py migrate
+    environment:
+      - DATABASE_URL=postgresql://algo_user:algo_password@db:5432/algo_db
+    env_file:
+      - ../.env
+    depends_on:
+      engine_init:
+        condition: service_completed_successfully
+
   engine:
     build:
       context: ..
@@ -31,12 +63,12 @@ services:
     env_file:
       - ../.env
     depends_on:
-      db:
-        condition: service_healthy
+      engine_init:
+        condition: service_completed_successfully
     logging:
       driver: "json-file"
       options:
-        max-size: "50m"  # Логи не будуть більшими за 50 Мегабайт!
+        max-size: "50m"
         max-file: "3"
 
   web_panel:
@@ -55,8 +87,8 @@ services:
     env_file:
       - ../.env
     depends_on:
-      db:
-        condition: service_healthy
+      web_init:
+        condition: service_completed_successfully
     logging:
       driver: "json-file"
       options:

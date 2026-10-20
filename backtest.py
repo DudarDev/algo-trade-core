@@ -107,28 +107,30 @@ class PortfolioBacktester:
                     in_position = False
                 continue # Чекаємо наступної свічки, якщо в позиції
 
-            # === РЕАЛЬНА ТОРГОВА ЛОГІКА (ВХІД) ===
-            # ✅ ВИПРАВЛЕНО: Замість неіснуючого SignalAction.HOLD використовуємо None
-            signal = None
+            # === РЕАЛЬНА ТОРГОВА ЛОГІКА (ВХІД через HybridStrategy) ===
             ai_prob = float(curr_row['ai_prob'])
+            signal, meta = self.strategy.get_signal(
+                df=df_features.iloc[max(0, i-5):i+1],
+                ai_confidence=ai_prob,
+                in_position=in_position
+            )
 
-            # Якщо модель впевнена на >65%, що ціна піде вгору - купуємо
-            if ai_prob >= 0.65:
-                signal = SignalAction.BUY
-
-            if signal == SignalAction.BUY:
+            if signal == SignalAction.BUY or signal == "BUY":
                 in_position = True
                 entry_price = current_price
                 
-                # Динамічний RiskManager на основі ATR (якщо його немає, беремо 1.5% волатильності)
-                atr = float(curr_row.get('atr', current_price * 0.015))
+                # Динамічний ризик на основі ATR та налаштувань
+                atr_pct = float(curr_row.get('ATR_PCT', 0.002))
+                atr = atr_pct * current_price
+                rr = float(getattr(self.settings, 'RISK_REWARD_RATIO', 1.5))
                 
-                # Налаштування: Стоп = 2 ATR, Тейк = 3 ATR (співвідношення 1:1.5)
+                # Стоп = 2 ATR, Тейк = Стоп * R:R
                 stop_loss = current_price - (atr * 2.0)
-                take_profit = current_price + (atr * 3.0)
+                take_profit = current_price + (atr * 2.0 * rr)
                 
-                # Динамічний сайз: входимо на 10% від ПОТОЧНОГО депозиту (складний відсоток)
-                position_size = min(self.balance * 0.10, self.balance)
+                # Позиція за фракцією капіталу з налаштувань
+                fraction = float(getattr(self.settings, 'TRADE_FRACTION', 0.05))
+                position_size = min(self.balance * fraction, self.balance)
         
         del df_features
         gc.collect()

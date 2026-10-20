@@ -41,7 +41,7 @@ def ping(request):
 @router.get("/status")
 def bot_status(request):
     status = BotControlService.get_current_status()
-    return {"status": "success", "bot_status": status}
+    return {"status": status, "bot_status": status}
 
 
 @router.post("/bot_control")

@@ -421,7 +421,7 @@ class DashboardController {
             const res = await fetch(this.endpoints.status);
             if (!res.ok) throw new Error('Status Error');
             const data = await res.json();
-            this.updateControlUI(data.status || 'error');
+            this.updateControlUI(data.bot_status || data.status || 'error');
         } catch (e) {
             this.updateControlUI('error');
         }

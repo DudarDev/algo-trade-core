@@ -1,0 +1,100 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: algo_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: algo_user
+      POSTGRES_PASSWORD: algo_password
+      POSTGRES_DB: algo_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U algo_user -d algo_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Init-контейнер 1: Створює таблиці SQLAlchemy (вкл. wallet)
+  engine_init:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    container_name: algo_engine_init
+    working_dir: /app/src
+    command: python manage.py create_db
+    environment:
+      - PYTHONPATH=/app:/app/src
+      - DATABASE_URL=postgresql://algo_user:algo_password@db:5432/algo_db
+    env_file:
+      - ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Init-контейнер 2: Виконує міграції Django
+  web_init:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    container_name: algo_web_init
+    working_dir: /app/src
+    command: python manage.py migrate
+    environment:
+      - DATABASE_URL=postgresql://algo_user:algo_password@db:5432/algo_db
+    env_file:
+      - ../.env
+    depends_on:
+      engine_init:
+        condition: service_completed_successfully
+
+  engine:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    container_name: algo_engine
+    restart: unless-stopped
+    command: python main.py
+    environment:
+      - PYTHONPATH=/app:/app/src
+      - DATABASE_URL=postgresql://algo_user:algo_password@db:5432/algo_db
+    volumes:
+      - ../logs:/app/logs
+      - ../data_storage:/app/data_storage
+    env_file:
+      - ../.env
+    depends_on:
+      engine_init:
+        condition: service_completed_successfully
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  web_panel:
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    container_name: algo_web
+    working_dir: /app/src
+    command: gunicorn web_panel.wsgi:application --bind 0.0.0.0:8000
+    volumes:
+      - ..:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://algo_user:algo_password@db:5432/algo_db
+    env_file:
+      - ../.env
+    depends_on:
+      web_init:
+        condition: service_completed_successfully
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  postgres_data:

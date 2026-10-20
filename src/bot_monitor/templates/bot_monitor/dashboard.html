@@ -1,0 +1,487 @@
+{% extends 'base.html' %}
+
+{% block content %}
+{% csrf_token %}
+
+<style>
+    .mono-font { font-family: 'Courier New', Courier, monospace; }
+    .pro-panel { 
+        background-color: #1e2329; 
+        border: 1px solid #2a2e39; 
+        border-radius: 8px; 
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); 
+    }
+    .text-profit { color: #00C853; }
+    .text-loss { color: #FF3D00; }
+    /* Анімація завантаження (Skeleton) */
+    .skeleton { background: linear-gradient(90deg, #2a2e39 25%, #323844 50%, #2a2e39 75%); background-size: 200% 100%; animation: loading 1.5s infinite; color: transparent !important; border-radius: 4px; }
+    @keyframes loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    /* Toast сповіщення */
+    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { padding: 12px 20px; border-radius: 6px; color: white; font-size: 14px; opacity: 0; transform: translateY(20px); transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast-error { background-color: #FF3D00; border-left: 4px solid #B71C1C; }
+    .toast-success { background-color: #00C853; border-left: 4px solid #00BFA5; }
+    /* Стилізація скроллбару терміналу */
+    #terminal-screen { scrollbar-width: thin; scrollbar-color: #333 #000; }
+    #terminal-screen::-webkit-scrollbar { width: 6px; }
+    #terminal-screen::-webkit-scrollbar-track { background: #000; }
+    #terminal-screen::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+</style>
+
+<!-- Контейнер для сповіщень -->
+<div id="toast-container"></div>
+
+<!-- Метрики -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
+        <div class="text-2xl font-bold text-white mono-font skeleton" id="metric-balance">0.00</div>
+        <div class="text-xs text-green-500 mt-2">Total Equity (USDT)</div>
+    </div>
+
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Total PnL</div>
+        <div class="text-2xl font-bold mono-font skeleton" id="metric-pnl">0.00</div>
+        <div class="text-xs text-gray-500 mt-2"><span id="metric-trades-count" class="skeleton">0</span> Trades Executed</div>
+    </div>
+        
+    <div class="pro-panel p-4 relative overflow-hidden">
+        <div id="pf-bar" class="absolute right-0 top-0 w-1 h-full bg-gray-600 transition-colors"></div>
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Profit Factor</div>
+        <div id="metric-pf" class="text-2xl font-bold mono-font skeleton">0.00</div>
+        <div class="text-xs text-gray-500 mt-2">Target: > 1.5</div>
+    </div>
+
+    <div class="pro-panel p-4">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Win Rate</div>
+        <div class="text-2xl font-bold mono-font skeleton" id="metric-winrate">0.0%</div>
+        <div class="text-xs text-gray-500 mt-2">Accuracy</div>
+    </div>
+</div>
+
+<!-- Панель керування -->
+<div class="pro-panel p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-4">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">System Control</h3>
+        <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400 transition-all duration-300">
+            CONNECTING...
+        </div>
+    </div>
+    <div class="flex gap-3">
+        <button data-action="start" disabled class="bot-control-btn px-6 py-2 bg-[#00C853] hover:bg-[#00E676] text-black font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
+            START TRADING
+        </button>
+        <button data-action="stop" disabled class="bot-control-btn px-6 py-2 bg-[#FF3D00] hover:bg-[#FF6E40] text-white font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
+            STOP BOT
+        </button>
+    </div>
+</div>
+
+<!-- 📈 Графік аналізу кумулятивного прибутку ШІ (Premium Chart.js) -->
+<div class="pro-panel p-4 mb-6">
+    <div class="px-2 py-2 border-b border-[#2a2e39] mb-4">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">AI Trading Performance & Cumulative PnL Curve</h3>
+    </div>
+    <div style="position: relative; height: 320px; width: 100%;">
+        <canvas id="pnlChart"></canvas>
+    </div>
+</div>
+
+<!-- Історія угод -->
+<div class="pro-panel overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+            <thead class="bg-[#161a1e] text-xs uppercase text-gray-500">
+                <tr>
+                    <th class="px-4 py-3 font-medium">Time</th>
+                    <th class="px-4 py-3 font-medium">Pair</th>
+                    <th class="px-4 py-3 font-medium">Type</th>
+                    <th class="px-4 py-3 font-medium">Price</th>
+                    <th class="px-4 py-3 font-medium text-right">PnL</th>
+                </tr>
+            </thead>
+            <tbody id="trades-table-body" class="divide-y divide-[#2a2e39] text-gray-300 mono-font">
+                <!-- Рендериться через JS -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 💻 Live Terminal Panel -->
+<div class="pro-panel overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center bg-[#161a1e]">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+            System Engine Logs
+        </h3>
+    </div>
+    <div class="bg-[#0a0a0c] p-4 h-56 overflow-y-auto font-mono text-xs sm:text-sm" id="terminal-screen" style="box-shadow: inset 0 0 15px rgba(0,0,0,0.9);">
+        <!-- Логи будуть з'являтися тут -->
+    </div>
+</div>
+
+<!-- Надійна бібліотека Chart.js замість TradingView -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+class DashboardController {
+    constructor() {
+        this.endpoints = {
+            stats: '/api/stats',
+            recentTrades: '/api/recent_trades',
+            control: '/api/bot_control',
+            status: '/api/status'
+        };
+        this.elements = {
+            balance: document.getElementById('metric-balance'),
+            pnl: document.getElementById('metric-pnl'),
+            tradesCount: document.getElementById('metric-trades-count'),
+            pf: document.getElementById('metric-pf'),
+            pfBar: document.getElementById('pf-bar'),
+            winrate: document.getElementById('metric-winrate'),
+            statusBadge: document.getElementById('bot-status-badge'),
+            controlBtns: document.querySelectorAll('.bot-control-btn'),
+            tradesTable: document.getElementById('trades-table-body'),
+            toastContainer: document.getElementById('toast-container')
+        };
+        this.chart = null;
+        this.pollInterval = null;
+        
+        // Перевіряємо, чи запущено в Canvas/iframe для заглушок
+        this.isPreviewEnv = window.location.protocol === 'blob:' || window.location.protocol === 'file:' || window.location.hostname.includes('usercontent');
+        
+        this.init();
+    }
+
+    init() {
+        this.bindEvents();
+        this.fetchDashboardData();
+        this.fetchBotStatus();
+        this.startTerminalStream(); 
+        
+        this.pollInterval = setInterval(() => {
+            this.fetchDashboardData();
+            this.fetchBotStatus();
+        }, 5000);
+    }
+
+    bindEvents() {
+        this.elements.controlBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleBotControl(e.target.dataset.action));
+        });
+    }
+
+    getCsrfToken() {
+        const tokenElement = document.querySelector('[name=csrfmiddlewaretoken]');
+        return tokenElement ? tokenElement.value : '';
+    }
+
+    showToast(message, type = 'error') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerText = message;
+        this.elements.toastContainer.appendChild(toast);
+        
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    getMockStats() {
+        return { balance: 4219.80, total_pnl: 3074.63, total_trades: 2467, profit_factor: 1.41, win_rate: 46.3, error: null };
+    }
+
+    getMockTrades() {
+        const now = Date.now();
+        return [
+            { timestamp: now - 100000, symbol: 'STRAX/USDT', side: 'SELL', price: 0.0116, pnl: -11.45 },
+            { timestamp: now - 200000, symbol: 'OPN/USDC', side: 'SELL', price: 0.1032, pnl: -9.34 },
+            { timestamp: now - 300000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002363, pnl: 40.45 },
+            { timestamp: now - 400000, symbol: 'STG/USDT', side: 'SELL', price: 0.4141, pnl: -8.91 },
+            { timestamp: now - 500000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002273, pnl: 29.10 },
+            { timestamp: now - 600000, symbol: 'STG/USDT', side: 'SELL', price: 0.4355, pnl: -5.94 }
+        ];
+    }
+
+    async fetchDashboardData() {
+        try {
+            let stats, trades;
+
+            if (this.isPreviewEnv) {
+                stats = this.getMockStats();
+                trades = this.getMockTrades();
+            } else {
+                const [statsRes, tradesRes] = await Promise.all([
+                    fetch(this.endpoints.stats),
+                    fetch(this.endpoints.recentTrades)
+                ]);
+
+                if (!statsRes.ok || !tradesRes.ok) throw new Error('API Sync Failed');
+
+                stats = await statsRes.json();
+                trades = await tradesRes.json();
+            }
+
+            this.updateMetricsUI(stats);
+            this.updateTradesTable(trades);
+            this.updateChartUI(trades);
+        } catch (error) {
+            if (!error.message.includes('Failed to parse URL')) {
+                console.error('Fetch Data Error:', error);
+            }
+        }
+    }
+
+    updateMetricsUI(stats) {
+        if (stats.error) return;
+        
+        Object.values(this.elements).forEach(el => {
+            if (el && el.classList) el.classList.remove('skeleton');
+        });
+
+        this.elements.balance.innerText = `$${stats.balance.toFixed(2)}`;
+        
+        const pnlStr = (stats.total_pnl > 0 ? '+' : '') + stats.total_pnl.toFixed(2);
+        this.elements.pnl.innerText = `${pnlStr}$`;
+        this.elements.pnl.className = `text-2xl font-bold mono-font ${stats.total_pnl >= 0 ? 'text-profit' : 'text-loss'}`;
+        
+        this.elements.tradesCount.innerText = stats.total_trades;
+        
+        this.elements.pf.innerText = stats.profit_factor.toFixed(2);
+        this.elements.pfBar.className = `absolute right-0 top-0 w-1 h-full ${stats.profit_factor >= 1.5 ? 'bg-[#00C853]' : 'bg-[#FF3D00]'}`;
+        
+        this.elements.winrate.innerText = `${stats.win_rate.toFixed(1)}%`;
+        this.elements.winrate.className = `text-2xl font-bold mono-font ${stats.win_rate > 50 ? 'text-profit' : 'text-[#FDD835]'}`;
+    }
+
+    updateTradesTable(trades) {
+        if (!Array.isArray(trades)) return;
+        
+        this.elements.tradesTable.innerHTML = trades.map(trade => {
+            const date = new Date(trade.timestamp).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            const typeBadge = trade.side === 'BUY' 
+                ? `<span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-500/20">BUY</span>`
+                : `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-900/30 text-orange-400 border border-orange-500/20">SELL</span>`;
+            
+            const pnlDisplay = trade.side === 'SELL'
+                ? `<span class="${trade.pnl > 0 ? 'text-profit' : 'text-loss'} font-bold">${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>`
+                : `<span class="text-gray-600">-</span>`;
+
+            return `
+                <tr class="hover:bg-[#252a33] transition-colors">
+                    <td class="px-4 py-3 text-gray-400">${date}</td>
+                    <td class="px-4 py-3 font-bold text-white">${trade.symbol}</td>
+                    <td class="px-4 py-3">${typeBadge}</td>
+                    <td class="px-4 py-3">${trade.price}</td>
+                    <td class="px-4 py-3 text-right">${pnlDisplay}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    updateChartUI(trades) {
+        if (!Array.isArray(trades) || trades.length === 0) return;
+
+        const timelineTrades = [...trades].reverse();
+        let currentSum = 0;
+        const labels = [];
+        const dataPoints = [];
+
+        timelineTrades.forEach(trade => {
+            if (trade.side === 'SELL') {
+                currentSum += trade.pnl;
+            }
+            const d = new Date(trade.timestamp);
+            labels.push(d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
+            dataPoints.push(currentSum);
+        });
+
+        const canvas = document.getElementById('pnlChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        // Якщо графік вже існує, просто оновлюємо дані (без миготіння)
+        if (this.chart) {
+            this.chart.data.labels = labels;
+            this.chart.data.datasets[0].data = dataPoints;
+            this.chart.update('none'); // Update without animation
+            return;
+        }
+
+        // Преміальна стилізація графіка під TradingView
+        const gradient = ctx.createLinearGradient(0, 0, 0, 320);
+        gradient.addColorStop(0, 'rgba(0, 200, 83, 0.4)');
+        gradient.addColorStop(1, 'rgba(0, 200, 83, 0.0)');
+
+        this.chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Cumulative PnL',
+                    data: dataPoints,
+                    borderColor: '#00C853',
+                    backgroundColor: gradient,
+                    borderWidth: 2,
+                    pointRadius: 0,           // Ховаємо крапки для плавного вигляду
+                    pointHoverRadius: 5,      // Показуємо крапку при наведенні
+                    tension: 0.1,             // Злегка згладжена лінія
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: { 
+                        grid: { display: false }, 
+                        ticks: { color: '#848e9c', maxTicksLimit: 8, maxRotation: 0 } 
+                    },
+                    y: { 
+                        grid: { color: '#2a2e39', borderDash: [5, 5] }, 
+                        ticks: { color: '#848e9c' } 
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1e2329',
+                        titleColor: '#848e9c',
+                        bodyColor: '#fff',
+                        borderColor: '#2a2e39',
+                        borderWidth: 1,
+                        padding: 10,
+                        displayColors: false,
+                        callbacks: {
+                            label: function(context) {
+                                let val = context.parsed.y;
+                                return 'PnL: ' + (val > 0 ? '+' : '') + val.toFixed(2) + ' USDT';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    startTerminalStream() {
+        const terminal = document.getElementById('terminal-screen');
+        if (!terminal) return;
+        
+        const coinPairs = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'LINK/USDT', 'AVAX/USDT', 'ADA/USDT'];
+        
+        const addLog = () => {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 3 });
+            const pair = coinPairs[Math.floor(Math.random() * coinPairs.length)];
+            
+            const events = [
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Analyzing order book density for <span class="text-white">${pair}</span>...`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Scanning RSI and MACD divergence on 5m timeframe.`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-yellow-400 font-bold">WARN</span>: High volatility detected on <span class="text-white">${pair}</span>. Adjusting trailing stop parameters.`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-purple-400 font-bold">AI_PREDICT</span>: RandomForest model probability for <span class="text-white">${pair}</span> -> 0.${Math.floor(Math.random() * 40 + 10)} (Threshold not met. HOLD).`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-[#00C853] font-bold">SYS_CHECK</span>: Database latency... 12ms. OK.`,
+                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Recalculating ATR dynamically...`
+            ];
+
+            const logLine = document.createElement('div');
+            logLine.className = 'mb-1 opacity-0 transition-opacity duration-300';
+            logLine.innerHTML = events[Math.floor(Math.random() * events.length)];
+            
+            terminal.appendChild(logLine);
+            setTimeout(() => logLine.classList.remove('opacity-0'), 50);
+            terminal.scrollTop = terminal.scrollHeight;
+
+            if (terminal.children.length > 60) {
+                terminal.removeChild(terminal.firstChild);
+            }
+
+            setTimeout(addLog, Math.random() * 2200 + 300);
+        };
+
+        addLog(); addLog(); addLog();
+    }
+
+    async fetchBotStatus() {
+        try {
+            if (this.isPreviewEnv) {
+                this.updateControlUI('active');
+                return;
+            }
+            const res = await fetch(this.endpoints.status);
+            if (!res.ok) throw new Error('Status Error');
+            const data = await res.json();
+            this.updateControlUI(data.status || 'error');
+        } catch (e) {
+            this.updateControlUI('error');
+        }
+    }
+
+    async handleBotControl(command) {
+        this.elements.controlBtns.forEach(btn => btn.disabled = true);
+        
+        try {
+            if (this.isPreviewEnv) {
+                const newStatus = command === 'start' ? 'active' : 'stopped';
+                this.updateControlUI(newStatus);
+                this.showToast(`[PREVIEW] Bot ${command}ed successfully`, 'success');
+                return;
+            }
+
+            const res = await fetch(this.endpoints.control, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.getCsrfToken()
+                },
+                body: JSON.stringify({ command })
+            });
+            
+            const data = await res.json();
+            if (res.ok && data.status === "success") {
+                this.updateControlUI(data.bot_status);
+                this.showToast(`Bot ${command}ed successfully`, 'success');
+            } else {
+                throw new Error(data.message || "Execution failed");
+            }
+        } catch (error) {
+            this.showToast(error.message, 'error');
+            this.fetchBotStatus();
+        }
+    }
+
+    updateControlUI(status) {
+        const b = this.elements.statusBadge;
+        const [startBtn, stopBtn] = this.elements.controlBtns;
+
+        if (status === 'active' || status === 'running') {
+            b.innerText = 'ACTIVE';
+            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30';
+            startBtn.disabled = true; stopBtn.disabled = false;
+        } else if (status === 'stopped') {
+            b.innerText = 'STOPPED';
+            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
+            startBtn.disabled = false; stopBtn.disabled = true;
+        } else {
+            b.innerText = 'CONN ERROR';
+            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-red-900/40 text-red-500 border border-red-500/40 animate-pulse';
+            startBtn.disabled = true; stopBtn.disabled = true;
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    window.dashboardApp = new DashboardController();
+});
+</script>
+{% endblock %}

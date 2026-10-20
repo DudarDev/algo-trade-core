@@ -4,128 +4,394 @@
 {% csrf_token %}
 
 <style>
-    .mono-font { font-family: 'Courier New', Courier, monospace; }
+    .mono-font { font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', Courier, monospace; }
     .pro-panel { 
-        background-color: #1e2329; 
-        border: 1px solid #2a2e39; 
-        border-radius: 8px; 
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); 
+        background-color: #1a1e24; 
+        border: 1px solid #282f3a; 
+        border-radius: 10px; 
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); 
     }
-    .text-profit { color: #00C853; }
-    .text-loss { color: #FF3D00; }
-    /* Анімація завантаження (Skeleton) */
-    .skeleton { background: linear-gradient(90deg, #2a2e39 25%, #323844 50%, #2a2e39 75%); background-size: 200% 100%; animation: loading 1.5s infinite; color: transparent !important; border-radius: 4px; }
+    .text-profit { color: #00E676; }
+    .text-loss { color: #FF5252; }
+    .bg-profit-soft { background-color: rgba(0, 230, 118, 0.12); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.25); }
+    .bg-loss-soft { background-color: rgba(255, 82, 82, 0.12); color: #FF5252; border: 1px solid rgba(255, 82, 82, 0.25); }
+    .bg-chop-soft { background-color: rgba(140, 150, 165, 0.12); color: #9aa4b2; border: 1px solid rgba(140, 150, 165, 0.2); }
+    
+    /* Skeleton */
+    .skeleton { 
+        background: linear-gradient(90deg, #242b35 25%, #2d3642 50%, #242b35 75%); 
+        background-size: 200% 100%; 
+        animation: loading 1.5s infinite; 
+        color: transparent !important; 
+        border-radius: 4px; 
+    }
     @keyframes loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-    /* Toast сповіщення */
-    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { padding: 12px 20px; border-radius: 6px; color: white; font-size: 14px; opacity: 0; transform: translateY(20px); transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+
+    /* Toast */
+    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 99999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { padding: 12px 20px; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; opacity: 0; transform: translateY(20px); transition: all 0.3s ease; box-shadow: 0 8px 24px rgba(0,0,0,0.6); }
     .toast.show { opacity: 1; transform: translateY(0); }
-    .toast-error { background-color: #FF3D00; border-left: 4px solid #B71C1C; }
-    .toast-success { background-color: #00C853; border-left: 4px solid #00BFA5; }
-    /* Стилізація скроллбару терміналу */
-    #terminal-screen { scrollbar-width: thin; scrollbar-color: #333 #000; }
+    .toast-error { background-color: #D32F2F; border-left: 5px solid #FF5252; }
+    .toast-success { background-color: #2E7D32; border-left: 5px solid #00E676; }
+    .toast-info { background-color: #0288D1; border-left: 5px solid #40C4FF; }
+
+    /* Scrollbars */
+    #terminal-screen { scrollbar-width: thin; scrollbar-color: #3d4654 #0d1117; }
     #terminal-screen::-webkit-scrollbar { width: 6px; }
-    #terminal-screen::-webkit-scrollbar-track { background: #000; }
-    #terminal-screen::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    #terminal-screen::-webkit-scrollbar-track { background: #0d1117; }
+    #terminal-screen::-webkit-scrollbar-thumb { background: #3d4654; border-radius: 3px; }
+
+    /* Pulsing indicators */
+    .pulse-live {
+        box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.7);
+        animation: pulse-green 2s infinite;
+    }
+    @keyframes pulse-green {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(0, 230, 118, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 230, 118, 0); }
+    }
+
+    /* Range slider custom styling */
+    input[type=range] {
+        accent-color: #00E676;
+    }
 </style>
 
 <!-- Контейнер для сповіщень -->
 <div id="toast-container"></div>
 
-<!-- Метрики -->
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
-    <div class="pro-panel p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Balance</div>
-        <div class="text-2xl font-bold text-white mono-font skeleton" id="metric-balance">0.00</div>
-        <div class="text-xs text-green-500 mt-2">Total Equity (USDT)</div>
-    </div>
-
-    <div class="pro-panel p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Total PnL</div>
-        <div class="text-2xl font-bold mono-font skeleton" id="metric-pnl">0.00</div>
-        <div class="text-xs text-gray-500 mt-2"><span id="metric-trades-count" class="skeleton">0</span> Trades Executed</div>
-    </div>
-        
-    <div class="pro-panel p-4 relative overflow-hidden">
-        <div id="pf-bar" class="absolute right-0 top-0 w-1 h-full bg-gray-600 transition-colors"></div>
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Profit Factor</div>
-        <div id="metric-pf" class="text-2xl font-bold mono-font skeleton">0.00</div>
-        <div class="text-xs text-gray-500 mt-2">Target: > 1.5</div>
-    </div>
-
-    <div class="pro-panel p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Win Rate</div>
-        <div class="text-2xl font-bold mono-font skeleton" id="metric-winrate">0.0%</div>
-        <div class="text-xs text-gray-500 mt-2">Accuracy</div>
-    </div>
-</div>
-
-<!-- Панель керування -->
-<div class="pro-panel p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
-    <div class="flex items-center gap-4">
-        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">System Control</h3>
-        <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400 transition-all duration-300">
-            CONNECTING...
+<!-- 🌐 ВЕРХНЯ НАВІГАЦІЙНА ПАНЕЛЬ ТА ШВИДКІ ДІЇ -->
+<div class="pro-panel p-4 mb-4 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+        <div class="w-3 h-3 rounded-full bg-[#00E676] pulse-live"></div>
+        <div>
+            <h1 class="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                AlgoTrade Core <span class="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-mono">v4.0 Senior</span>
+            </h1>
+            <p class="text-xs text-gray-400">Autonomous AI Quant Scalper • Binance Spot</p>
         </div>
     </div>
-    <div class="flex gap-3">
-        <button data-action="start" disabled class="bot-control-btn px-6 py-2 bg-[#00C853] hover:bg-[#00E676] text-black font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
-            START TRADING
+
+    <!-- Годинник та швидкі дії -->
+    <div class="flex items-center flex-wrap gap-2">
+        <div class="text-xs font-mono bg-[#12161c] px-3 py-1.5 rounded border border-[#282f3a] text-gray-400">
+            UTC: <span id="clock-utc" class="text-white font-bold">--:--:--</span>
+        </div>
+        <button id="btn-open-settings" class="px-3 py-1.5 rounded bg-[#252b36] hover:bg-[#313946] text-xs font-semibold text-gray-200 border border-[#3b4453] transition flex items-center gap-1.5 shadow">
+            ⚙️ Налаштування ШІ
         </button>
-        <button data-action="stop" disabled class="bot-control-btn px-6 py-2 bg-[#FF3D00] hover:bg-[#FF6E40] text-white font-bold rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
-            STOP BOT
+        <button id="btn-panic-all" class="px-3 py-1.5 rounded bg-red-950/40 hover:bg-red-900/60 text-xs font-semibold text-red-400 border border-red-800/40 transition flex items-center gap-1.5 shadow">
+            🛑 Panic Close All
+        </button>
+        <button id="btn-export-csv" class="px-3 py-1.5 rounded bg-[#252b36] hover:bg-[#313946] text-xs font-semibold text-gray-200 border border-[#3b4453] transition flex items-center gap-1.5 shadow">
+            📥 CSV
+        </button>
+        <button id="btn-reset-account" class="px-3 py-1.5 rounded bg-yellow-950/30 hover:bg-yellow-900/40 text-xs font-semibold text-yellow-500 border border-yellow-700/30 transition flex items-center gap-1.5 shadow">
+            🔄 Скинути $1000
         </button>
     </div>
 </div>
 
-<!-- 📈 Графік аналізу кумулятивного прибутку ШІ (Premium Chart.js) -->
-<div class="pro-panel p-4 mb-6">
-    <div class="px-2 py-2 border-b border-[#2a2e39] mb-4">
-        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">AI Trading Performance & Cumulative PnL Curve</h3>
+<!-- 📊 МЕТРИКИ КАПІТАЛУ ТА ЕФЕКТИВНОСТІ -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+    <!-- Баланс / Капітал -->
+    <div class="pro-panel p-4">
+        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Equity</div>
+        <div class="text-2xl font-bold text-white mono-font skeleton" id="metric-balance">$0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
+            <span>Free Cash:</span>
+            <span id="metric-free-cash" class="text-gray-300 mono-font font-semibold">$0.00</span>
+        </div>
     </div>
-    <div style="position: relative; height: 320px; width: 100%;">
-        <canvas id="pnlChart"></canvas>
+
+    <!-- Загальний реалізований PnL -->
+    <div class="pro-panel p-4">
+        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Realized PnL</div>
+        <div class="text-2xl font-bold mono-font skeleton" id="metric-pnl">$0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
+            <span>Executed Trades:</span>
+            <span id="metric-trades-count" class="text-gray-300 mono-font font-semibold">0</span>
+        </div>
+    </div>
+
+    <!-- Плаваючий PnL (Unrealized) -->
+    <div class="pro-panel p-4">
+        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Floating PnL</div>
+        <div class="text-2xl font-bold mono-font skeleton text-gray-300" id="metric-unrealized-pnl">$0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
+            <span>Open Positions:</span>
+            <span id="metric-open-count" class="text-blue-400 mono-font font-semibold">0</span>
+        </div>
+    </div>
+        
+    <!-- Profit Factor -->
+    <div class="pro-panel p-4 relative overflow-hidden">
+        <div id="pf-bar" class="absolute right-0 top-0 w-1.5 h-full bg-gray-600 transition-all duration-500"></div>
+        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Profit Factor</div>
+        <div id="metric-pf" class="text-2xl font-bold mono-font skeleton text-white">0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2">Target Benchmark: &gt; 1.50</div>
+    </div>
+
+    <!-- Win Rate -->
+    <div class="pro-panel p-4">
+        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Win Rate</div>
+        <div class="text-2xl font-bold mono-font skeleton text-white" id="metric-winrate">0.0%</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
+            <span>Accuracy:</span>
+            <span id="metric-wl-ratio" class="text-gray-300 mono-font font-semibold">0W / 0L</span>
+        </div>
     </div>
 </div>
 
-<!-- Історія угод -->
-<div class="pro-panel overflow-hidden mb-6">
-    <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center">
-        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Recent Activity</h3>
+<!-- 🎮 СИСТЕМНИЙ КОНТРОЛЬ СТАТУСУ -->
+<div class="pro-panel p-4 mb-4 flex flex-wrap items-center justify-between gap-4 bg-[#14181f]">
+    <div class="flex items-center gap-3">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Engine Status:</span>
+        <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400 border border-gray-600 transition-all duration-300">
+            CONNECTING...
+        </div>
+        <div class="text-xs text-gray-400 hidden sm:block">
+            • AI Model: <span class="text-gray-300 font-mono font-semibold">RandomForest v4 (Calibrated)</span>
+        </div>
+    </div>
+    <div class="flex gap-2">
+        <button data-action="start" disabled class="bot-control-btn px-5 py-2 bg-[#00E676] hover:bg-[#00C853] text-black text-xs font-bold rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md flex items-center gap-1.5">
+            ▶ СТАРТ ТОРГІВЛІ
+        </button>
+        <button data-action="stop" disabled class="bot-control-btn px-5 py-2 bg-[#FF5252] hover:bg-[#D32F2F] text-white text-xs font-bold rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md flex items-center gap-1.5">
+            ⏸ ЗУПИНИТИ БОТА
+        </button>
+    </div>
+</div>
+
+<!-- 🔥 ВІДКРИТІ ПОЗИЦІЇ (ACTIVE POSITIONS) -->
+<div class="pro-panel overflow-hidden mb-4">
+    <div class="px-4 py-3 border-b border-[#282f3a] bg-[#161a22] flex justify-between items-center">
+        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
+            Активні позиції (Live Positions)
+        </h3>
+        <span id="active-positions-badge" class="text-xs px-2.5 py-0.5 rounded-full font-mono bg-[#232934] text-gray-300">
+            0 угод
+        </span>
     </div>
     <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
-            <thead class="bg-[#161a1e] text-xs uppercase text-gray-500">
+        <table class="w-full text-left text-xs">
+            <thead class="bg-[#12161c] text-[11px] uppercase text-gray-400 font-semibold border-b border-[#282f3a]">
                 <tr>
-                    <th class="px-4 py-3 font-medium">Time</th>
-                    <th class="px-4 py-3 font-medium">Pair</th>
-                    <th class="px-4 py-3 font-medium">Type</th>
-                    <th class="px-4 py-3 font-medium">Price</th>
-                    <th class="px-4 py-3 font-medium text-right">PnL</th>
+                    <th class="px-4 py-3">Пара</th>
+                    <th class="px-4 py-3">Напрямок</th>
+                    <th class="px-4 py-3">Ціна входу</th>
+                    <th class="px-4 py-3">Поточна ціна</th>
+                    <th class="px-4 py-3">Об'єм (USDT)</th>
+                    <th class="px-4 py-3">Unrealized PnL</th>
+                    <th class="px-4 py-3">Пік (Trailing)</th>
+                    <th class="px-4 py-3">Час входу</th>
+                    <th class="px-4 py-3 text-right">Дія</th>
                 </tr>
             </thead>
-            <tbody id="trades-table-body" class="divide-y divide-[#2a2e39] text-gray-300 mono-font">
-                <!-- Рендериться через JS -->
+            <tbody id="active-positions-table-body" class="divide-y divide-[#282f3a] text-gray-300 mono-font">
+                <tr>
+                    <td colspan="9" class="px-4 py-8 text-center text-gray-500 font-sans">
+                        <div class="flex flex-col items-center justify-center gap-2">
+                            <span class="text-2xl opacity-60">📡</span>
+                            <span>Немає активних угод. ШІ сканує ринок та очікує підтвердження сигналу.</span>
+                        </div>
+                    </td>
+                </tr>
             </tbody>
         </table>
     </div>
 </div>
 
-<!-- 💻 Live Terminal Panel -->
-<div class="pro-panel overflow-hidden mb-6">
-    <div class="px-4 py-3 border-b border-[#2a2e39] flex justify-between items-center bg-[#161a1e]">
-        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wide flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            System Engine Logs
+<!-- 📡 ЖИВИЙ РАДАР СКАНЕРА РИНКУ ШІ (AI MARKET RADAR) -->
+<div class="pro-panel overflow-hidden mb-4">
+    <div class="px-4 py-3 border-b border-[#282f3a] bg-[#161a22] flex justify-between items-center cursor-pointer" id="toggle-radar-btn">
+        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+            <span>🛰️</span>
+            Радар ШІ: Топ-20 волатильних пар ринку (Live Market Scanner)
         </h3>
+        <div class="flex items-center gap-2">
+            <span id="radar-updated-time" class="text-[11px] text-gray-400 font-mono">Оновлено: --:--:--</span>
+            <span class="text-xs text-gray-400" id="radar-toggle-icon">▼</span>
+        </div>
     </div>
-    <div class="bg-[#0a0a0c] p-4 h-56 overflow-y-auto font-mono text-xs sm:text-sm" id="terminal-screen" style="box-shadow: inset 0 0 15px rgba(0,0,0,0.9);">
-        <!-- Логи будуть з'являтися тут -->
+    <div id="radar-container" class="overflow-x-auto max-h-72 overflow-y-auto">
+        <table class="w-full text-left text-xs">
+            <thead class="bg-[#12161c] text-[11px] uppercase text-gray-400 font-semibold border-b border-[#282f3a] sticky top-0 z-10">
+                <tr>
+                    <th class="px-4 py-2.5">Символ</th>
+                    <th class="px-4 py-2.5">Ціна</th>
+                    <th class="px-4 py-2.5">Впевненість ШІ</th>
+                    <th class="px-4 py-2.5">Режим ринку</th>
+                    <th class="px-4 py-2.5">RSI</th>
+                    <th class="px-4 py-2.5">ADX</th>
+                    <th class="px-4 py-2.5">Рішення алгоритму</th>
+                    <th class="px-4 py-2.5">Аналітичне обґрунтування</th>
+                </tr>
+            </thead>
+            <tbody id="market-radar-table-body" class="divide-y divide-[#282f3a] text-gray-300 mono-font">
+                <tr>
+                    <td colspan="8" class="px-4 py-6 text-center text-gray-500 font-sans">
+                        Збір даних сканера ринку...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 </div>
 
-<!-- Надійна бібліотека Chart.js замість TradingView -->
+<!-- 📈 ГРАФІКИ: CUMULATIVE PNL ТА TRADINGVIEW CANDLESTICKS -->
+<div class="pro-panel p-4 mb-4">
+    <div class="border-b border-[#282f3a] pb-3 mb-3 flex flex-wrap justify-between items-center gap-2">
+        <div class="flex gap-2" id="chart-tabs">
+            <button data-tab="pnl" class="chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#00E676] text-black transition shadow">
+                📈 Кумулятивний PnL ШІ
+            </button>
+            <button data-tab="tv" class="chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#252b36] hover:bg-[#313946] text-gray-300 border border-[#3b4453] transition shadow">
+                🕯️ Біржовий свічковий графік (TradingView)
+            </button>
+        </div>
+        <div class="text-xs text-gray-400 font-mono">
+            Timeframe: <span class="text-white font-semibold">5m</span> • Exchange: <span class="text-white font-semibold">Binance Spot</span>
+        </div>
+    </div>
+
+    <!-- Вкладка 1: PnL Curve -->
+    <div id="tab-content-pnl" style="position: relative; height: 320px; width: 100%;">
+        <canvas id="pnlChart"></canvas>
+    </div>
+
+    <!-- Вкладка 2: TradingView Widget -->
+    <div id="tab-content-tv" class="hidden" style="position: relative; height: 420px; width: 100%;">
+        <div id="tradingview_widget" style="height: 100%; width: 100%;"></div>
+    </div>
+</div>
+
+<!-- 📜 ІСТОРІЯ УГОД -->
+<div class="pro-panel overflow-hidden mb-4">
+    <div class="px-4 py-3 border-b border-[#282f3a] bg-[#161a22] flex justify-between items-center">
+        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+            <span>📋</span>
+            Історія виконаних угод (Trade History)
+        </h3>
+        <span class="text-xs text-gray-400" id="trades-history-count">0 угод</span>
+    </div>
+    <div class="overflow-x-auto max-h-80 overflow-y-auto">
+        <table class="w-full text-left text-xs">
+            <thead class="bg-[#12161c] text-[11px] uppercase text-gray-400 font-semibold border-b border-[#282f3a] sticky top-0 z-10">
+                <tr>
+                    <th class="px-4 py-3">Час</th>
+                    <th class="px-4 py-3">Пара</th>
+                    <th class="px-4 py-3">Тип</th>
+                    <th class="px-4 py-3">Ціна</th>
+                    <th class="px-4 py-3">Кількість</th>
+                    <th class="px-4 py-3">Об'єм (USDT)</th>
+                    <th class="px-4 py-3 text-right">Чистий PnL</th>
+                </tr>
+            </thead>
+            <tbody id="trades-table-body" class="divide-y divide-[#282f3a] text-gray-300 mono-font">
+                <tr>
+                    <td colspan="7" class="px-4 py-8 text-center text-gray-500 font-sans">
+                        Угод поки не зафіксовано.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 💻 РЕАЛЬНИЙ ТЕРМІНАЛ ЛОГІВ РУШІЯ (LIVE ENGINE LOGS) -->
+<div class="pro-panel overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b border-[#282f3a] flex flex-wrap justify-between items-center bg-[#161a22] gap-2">
+        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-[#00E676] animate-pulse"></span>
+            Живий потік логів ядра (Real-Time Engine Stream)
+        </h3>
+        <div class="flex items-center gap-2">
+            <label class="text-[11px] text-gray-400 flex items-center gap-1 cursor-pointer">
+                <input type="checkbox" id="autoscroll-toggle" checked class="rounded bg-[#282f3a] text-green-500">
+                Auto-scroll
+            </label>
+            <button id="btn-clear-terminal" class="px-2.5 py-1 text-[11px] rounded bg-[#242933] hover:bg-[#2d3441] text-gray-400 border border-[#373f4e]">
+                Clear
+            </button>
+        </div>
+    </div>
+    <div class="bg-[#0b0e14] p-4 h-64 overflow-y-auto font-mono text-xs" id="terminal-screen" style="box-shadow: inset 0 0 20px rgba(0,0,0,0.9);">
+        <!-- Рендеряться живі логи через API -->
+    </div>
+</div>
+
+<!-- ⚙️ МОДАЛЬНЕ ВІКНО НАЛАШТУВАНЬ СТРАТЕГІЇ -->
+<div id="settings-modal" class="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4 hidden backdrop-blur-sm">
+    <div class="pro-panel w-full max-w-lg p-6 bg-[#1a1e26] border border-[#3b4455] shadow-2xl rounded-xl">
+        <div class="flex justify-between items-center border-b border-[#282f3a] pb-3 mb-4">
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                ⚙️ Параметри стратегії ШІ (Live Tuning)
+            </h2>
+            <button id="btn-close-settings" class="text-gray-400 hover:text-white text-lg font-bold">&times;</button>
+        </div>
+
+        <form id="settings-form" class="space-y-4 text-xs">
+            <!-- Confidence Threshold -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-gray-300 font-semibold">Поріг впевненості ШІ (Confidence Threshold):</label>
+                    <span id="val-conf-threshold" class="font-mono text-[#00E676] font-bold text-sm">0.30</span>
+                </div>
+                <input type="range" id="input-conf-threshold" min="0.20" max="0.50" step="0.01" value="0.30" class="w-full">
+                <p class="text-[11px] text-gray-500 mt-0.5">Оптимальний діапазон: 0.28 – 0.33. Вище 0.35 — снайперські рідкісні угоди.</p>
+            </div>
+
+            <!-- Risk Reward Ratio -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-gray-300 font-semibold">Співвідношення Risk:Reward:</label>
+                    <span id="val-rr-ratio" class="font-mono text-blue-400 font-bold text-sm">1.50</span>
+                </div>
+                <input type="range" id="input-rr-ratio" min="1.0" max="3.0" step="0.1" value="1.5" class="w-full">
+                <p class="text-[11px] text-gray-500 mt-0.5">Тейк-профіт відносно стоп-лосу (1.5 означає TP = 1.5 × SL).</p>
+            </div>
+
+            <!-- Max Positions -->
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-gray-300 font-semibold block mb-1">Макс. активних позицій:</label>
+                    <input type="number" id="input-max-pos" min="1" max="10" value="3" class="w-full bg-[#12161c] border border-[#282f3a] rounded px-3 py-1.5 text-white font-mono">
+                </div>
+                <div>
+                    <label class="text-gray-300 font-semibold block mb-1">Фракція на угоду (% балансу):</label>
+                    <input type="number" id="input-trade-frac" min="1" max="20" step="1" value="4" class="w-full bg-[#12161c] border border-[#282f3a] rounded px-3 py-1.5 text-white font-mono">
+                </div>
+            </div>
+
+            <!-- Min ADX Trend -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-gray-300 font-semibold">Мінімальний ADX для тренду:</label>
+                    <span id="val-adx" class="font-mono text-yellow-400 font-bold text-sm">25.0</span>
+                </div>
+                <input type="range" id="input-adx" min="15.0" max="40.0" step="1.0" value="25.0" class="w-full">
+                <p class="text-[11px] text-gray-500 mt-0.5">Відсікає бічний рух (CHOP). Стандарт: 25.</p>
+            </div>
+
+            <div class="pt-3 border-t border-[#282f3a] flex justify-end gap-2">
+                <button type="button" id="btn-cancel-settings" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white font-semibold">
+                    Скасувати
+                </button>
+                <button type="submit" class="px-5 py-2 rounded bg-[#00E676] hover:bg-[#00C853] text-black font-bold shadow-lg">
+                    💾 Зберегти та застосувати
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 📦 СКРИПТИ: Chart.js та TradingView SDK -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://s3.tradingview.com/tv.js"></script>
 
 <script>
 class DashboardController {
@@ -133,45 +399,136 @@ class DashboardController {
         this.endpoints = {
             stats: '/api/stats',
             recentTrades: '/api/recent_trades',
+            activePositions: '/api/active_positions',
+            marketScanner: '/api/market_scanner',
             control: '/api/bot_control',
-            status: '/api/status'
+            status: '/api/status',
+            config: '/api/config',
+            engineLogs: '/api/engine_logs',
+            closePosition: '/api/close_position',
+            closeAll: '/api/close_all',
+            resetAccount: '/api/reset_account'
         };
+
         this.elements = {
             balance: document.getElementById('metric-balance'),
+            freeCash: document.getElementById('metric-free-cash'),
             pnl: document.getElementById('metric-pnl'),
+            unrealizedPnl: document.getElementById('metric-unrealized-pnl'),
             tradesCount: document.getElementById('metric-trades-count'),
+            openCount: document.getElementById('metric-open-count'),
             pf: document.getElementById('metric-pf'),
             pfBar: document.getElementById('pf-bar'),
             winrate: document.getElementById('metric-winrate'),
+            wlRatio: document.getElementById('metric-wl-ratio'),
             statusBadge: document.getElementById('bot-status-badge'),
             controlBtns: document.querySelectorAll('.bot-control-btn'),
             tradesTable: document.getElementById('trades-table-body'),
-            toastContainer: document.getElementById('toast-container')
+            activePositionsTable: document.getElementById('active-positions-table-body'),
+            activePositionsBadge: document.getElementById('active-positions-badge'),
+            marketRadarTable: document.getElementById('market-radar-table-body'),
+            radarUpdatedTime: document.getElementById('radar-updated-time'),
+            tradesHistoryCount: document.getElementById('trades-history-count'),
+            terminal: document.getElementById('terminal-screen'),
+            autoscrollToggle: document.getElementById('autoscroll-toggle'),
+            toastContainer: document.getElementById('toast-container'),
+            clockUtc: document.getElementById('clock-utc')
         };
+
         this.chart = null;
+        this.tradingViewWidget = null;
+        this.currentTvSymbol = 'BINANCE:BTCUSDT';
         this.pollInterval = null;
-        
-        // Перевіряємо, чи запущено в Canvas/iframe для заглушок
-        this.isPreviewEnv = window.location.protocol === 'blob:' || window.location.protocol === 'file:' || window.location.hostname.includes('usercontent');
-        
+        this.seenLogLines = new Set();
+
         this.init();
     }
 
     init() {
         this.bindEvents();
+        this.startClock();
         this.fetchDashboardData();
         this.fetchBotStatus();
-        this.startTerminalStream(); 
-        
+        this.fetchActivePositions();
+        this.fetchMarketRadar();
+        this.fetchEngineLogs();
+        this.fetchConfig();
+
+        // Періодичне опитування (Polling кожні 4 секунди)
         this.pollInterval = setInterval(() => {
             this.fetchDashboardData();
             this.fetchBotStatus();
-        }, 5000);
+            this.fetchActivePositions();
+            this.fetchMarketRadar();
+            this.fetchEngineLogs();
+        }, 4000);
+    }
+
+    startClock() {
+        const updateClock = () => {
+            const now = new Date();
+            this.elements.clockUtc.innerText = now.toUTCString().split(' ')[4];
+        };
+        updateClock();
+        setInterval(updateClock, 1000);
     }
 
     bindEvents() {
+        // Start / Stop
         this.elements.controlBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => this.handleBotControl(e.target.dataset.action));
+            btn.addEventListener('click', (e) => this.handleBotControl(e.currentTarget.dataset.action));
+        });
+
+        // Tabs
+        document.querySelectorAll('.chart-tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.switchChartTab(e.currentTarget.dataset.tab));
+        });
+
+        // Clear terminal
+        document.getElementById('btn-clear-terminal')?.addEventListener('click', () => {
+            this.elements.terminal.innerHTML = '';
+            this.seenLogLines.clear();
+        });
+
+        // Settings Modal
+        document.getElementById('btn-open-settings')?.addEventListener('click', () => this.openSettingsModal());
+        document.getElementById('btn-close-settings')?.addEventListener('click', () => this.closeSettingsModal());
+        document.getElementById('btn-cancel-settings')?.addEventListener('click', () => this.closeSettingsModal());
+        document.getElementById('settings-form')?.addEventListener('submit', (e) => this.saveSettings(e));
+
+        // Slider value labels
+        document.getElementById('input-conf-threshold')?.addEventListener('input', (e) => {
+            document.getElementById('val-conf-threshold').innerText = parseFloat(e.target.value).toFixed(2);
+        });
+        document.getElementById('input-rr-ratio')?.addEventListener('input', (e) => {
+            document.getElementById('val-rr-ratio').innerText = parseFloat(e.target.value).toFixed(2);
+        });
+        document.getElementById('input-adx')?.addEventListener('input', (e) => {
+            document.getElementById('val-adx').innerText = parseFloat(e.target.value).toFixed(1);
+        });
+
+        // Panic Close All
+        document.getElementById('btn-panic-all')?.addEventListener('click', () => this.handlePanicCloseAll());
+
+        // Reset Account
+        document.getElementById('btn-reset-account')?.addEventListener('click', () => this.handleResetAccount());
+
+        // Export CSV
+        document.getElementById('btn-export-csv')?.addEventListener('click', () => {
+            window.location.href = '/api/export_trades_csv';
+        });
+
+        // Toggle Radar table
+        document.getElementById('toggle-radar-btn')?.addEventListener('click', () => {
+            const container = document.getElementById('radar-container');
+            const icon = document.getElementById('radar-toggle-icon');
+            if (container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                icon.innerText = '▼';
+            } else {
+                container.classList.add('hidden');
+                icon.innerText = '▶';
+            }
         });
     }
 
@@ -190,59 +547,87 @@ class DashboardController {
         setTimeout(() => {
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        }, 3500);
     }
 
-    getMockStats() {
-        return { balance: 4219.80, total_pnl: 3074.63, total_trades: 2467, profit_factor: 1.41, win_rate: 46.3, error: null };
+    switchChartTab(tab) {
+        document.querySelectorAll('.chart-tab-btn').forEach(btn => {
+            if (btn.dataset.tab === tab) {
+                btn.className = 'chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#00E676] text-black transition shadow';
+            } else {
+                btn.className = 'chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#252b36] hover:bg-[#313946] text-gray-300 border border-[#3b4453] transition shadow';
+            }
+        });
+
+        const pnlTab = document.getElementById('tab-content-pnl');
+        const tvTab = document.getElementById('tab-content-tv');
+
+        if (tab === 'pnl') {
+            pnlTab.classList.remove('hidden');
+            tvTab.classList.add('hidden');
+        } else {
+            pnlTab.classList.add('hidden');
+            tvTab.classList.remove('hidden');
+            this.initTradingViewWidget(this.currentTvSymbol);
+        }
     }
 
-    getMockTrades() {
-        const now = Date.now();
-        return [
-            { timestamp: now - 100000, symbol: 'STRAX/USDT', side: 'SELL', price: 0.0116, pnl: -11.45 },
-            { timestamp: now - 200000, symbol: 'OPN/USDC', side: 'SELL', price: 0.1032, pnl: -9.34 },
-            { timestamp: now - 300000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002363, pnl: 40.45 },
-            { timestamp: now - 400000, symbol: 'STG/USDT', side: 'SELL', price: 0.4141, pnl: -8.91 },
-            { timestamp: now - 500000, symbol: 'HMSTR/USDT', side: 'SELL', price: 0.0002273, pnl: 29.10 },
-            { timestamp: now - 600000, symbol: 'STG/USDT', side: 'SELL', price: 0.4355, pnl: -5.94 }
-        ];
+    initTradingViewWidget(symbol) {
+        const cleanSymbol = symbol.replace('/', '');
+        const tvSymbol = cleanSymbol.startsWith('BINANCE:') ? cleanSymbol : `BINANCE:${cleanSymbol}`;
+        this.currentTvSymbol = tvSymbol;
+
+        const container = document.getElementById('tradingview_widget');
+        if (!container) return;
+        container.innerHTML = '';
+
+        try {
+            new TradingView.widget({
+                "autosize": true,
+                "symbol": tvSymbol,
+                "interval": "5",
+                "timezone": "Etc/UTC",
+                "theme": "dark",
+                "style": "1",
+                "locale": "en",
+                "toolbar_bg": "#1a1e24",
+                "enable_publishing": false,
+                "hide_top_toolbar": false,
+                "save_image": false,
+                "container_id": "tradingview_widget"
+            });
+        } catch (e) {
+            console.error("TradingView widget init error:", e);
+        }
     }
 
     async fetchDashboardData() {
         try {
-            let stats, trades;
+            const [statsRes, tradesRes] = await Promise.all([
+                fetch(this.endpoints.stats),
+                fetch(this.endpoints.recentTrades)
+            ]);
 
-            if (this.isPreviewEnv) {
-                stats = this.getMockStats();
-                trades = this.getMockTrades();
-            } else {
-                const [statsRes, tradesRes] = await Promise.all([
-                    fetch(this.endpoints.stats),
-                    fetch(this.endpoints.recentTrades)
-                ]);
-
-                if (!statsRes.ok || !tradesRes.ok) throw new Error('API Sync Failed');
-
-                stats = await statsRes.json();
-                trades = await tradesRes.json();
+            if (statsRes.ok) {
+                const stats = await statsRes.json();
+                this.updateMetricsUI(stats);
             }
 
-            this.updateMetricsUI(stats);
-            this.updateTradesTable(trades);
-            this.updateChartUI(trades);
-        } catch (error) {
-            if (!error.message.includes('Failed to parse URL')) {
-                console.error('Fetch Data Error:', error);
+            if (tradesRes.ok) {
+                const trades = await tradesRes.json();
+                this.updateTradesTable(trades);
+                this.updateChartUI(trades);
             }
+        } catch (e) {
+            console.error("fetchDashboardData error:", e);
         }
     }
 
     updateMetricsUI(stats) {
-        if (stats.error) return;
-        
         Object.values(this.elements).forEach(el => {
-            if (el && el.classList) el.classList.remove('skeleton');
+            if (el && el.classList && el.classList.contains('skeleton')) {
+                el.classList.remove('skeleton');
+            }
         });
 
         this.elements.balance.innerText = `$${stats.balance.toFixed(2)}`;
@@ -253,36 +638,246 @@ class DashboardController {
         
         this.elements.tradesCount.innerText = stats.total_trades;
         
-        this.elements.pf.innerText = stats.profit_factor.toFixed(2);
-        this.elements.pfBar.className = `absolute right-0 top-0 w-1 h-full ${stats.profit_factor >= 1.5 ? 'bg-[#00C853]' : 'bg-[#FF3D00]'}`;
+        this.elements.pf.innerText = stats.profit_factor >= 999 ? 'MAX' : stats.profit_factor.toFixed(2);
+        this.elements.pfBar.className = `absolute right-0 top-0 w-1.5 h-full ${stats.profit_factor >= 1.5 ? 'bg-[#00E676]' : (stats.profit_factor > 0 ? 'bg-yellow-500' : 'bg-gray-600')}`;
         
         this.elements.winrate.innerText = `${stats.win_rate.toFixed(1)}%`;
-        this.elements.winrate.className = `text-2xl font-bold mono-font ${stats.win_rate > 50 ? 'text-profit' : 'text-[#FDD835]'}`;
+        this.elements.winrate.className = `text-2xl font-bold mono-font ${stats.win_rate >= 50 ? 'text-profit' : (stats.win_rate > 0 ? 'text-yellow-400' : 'text-gray-300')}`;
     }
 
     updateTradesTable(trades) {
         if (!Array.isArray(trades)) return;
-        
+        this.elements.tradesHistoryCount.innerText = `${trades.length} угод`;
+
+        if (trades.length === 0) {
+            this.elements.tradesTable.innerHTML = `
+                <tr>
+                    <td colspan="7" class="px-4 py-8 text-center text-gray-500 font-sans">
+                        Угод поки не зафіксовано.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        let wins = 0;
+        let losses = 0;
+
         this.elements.tradesTable.innerHTML = trades.map(trade => {
-            const date = new Date(trade.timestamp).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            if (trade.side === 'SELL') {
+                if (trade.pnl > 0) wins++;
+                else if (trade.pnl < 0) losses++;
+            }
+
+            const date = new Date(trade.timestamp).toLocaleString('uk-UA', { 
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' 
+            });
             const typeBadge = trade.side === 'BUY' 
-                ? `<span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-500/20">BUY</span>`
-                : `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-900/30 text-orange-400 border border-orange-500/20">SELL</span>`;
+                ? `<span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-500/20 font-bold">BUY</span>`
+                : `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-900/30 text-orange-400 border border-orange-500/20 font-bold">SELL</span>`;
             
             const pnlDisplay = trade.side === 'SELL'
                 ? `<span class="${trade.pnl > 0 ? 'text-profit' : 'text-loss'} font-bold">${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>`
-                : `<span class="text-gray-600">-</span>`;
+                : `<span class="text-gray-500">-</span>`;
+
+            const costUsdt = (trade.price * trade.amount).toFixed(2);
 
             return `
-                <tr class="hover:bg-[#252a33] transition-colors">
-                    <td class="px-4 py-3 text-gray-400">${date}</td>
-                    <td class="px-4 py-3 font-bold text-white">${trade.symbol}</td>
-                    <td class="px-4 py-3">${typeBadge}</td>
-                    <td class="px-4 py-3">${trade.price}</td>
-                    <td class="px-4 py-3 text-right">${pnlDisplay}</td>
+                <tr class="hover:bg-[#202632] transition-colors cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${trade.symbol}')">
+                    <td class="px-4 py-2.5 text-gray-400 text-[11px]">${date}</td>
+                    <td class="px-4 py-2.5 font-bold text-white hover:text-blue-400">${trade.symbol}</td>
+                    <td class="px-4 py-2.5">${typeBadge}</td>
+                    <td class="px-4 py-2.5">${trade.price}</td>
+                    <td class="px-4 py-2.5">${trade.amount.toFixed(4)}</td>
+                    <td class="px-4 py-2.5 text-gray-300">$${costUsdt}</td>
+                    <td class="px-4 py-2.5 text-right">${pnlDisplay}</td>
                 </tr>
             `;
         }).join('');
+
+        this.elements.wlRatio.innerText = `${wins}W / ${losses}L`;
+    }
+
+    async fetchActivePositions() {
+        try {
+            const res = await fetch(this.endpoints.activePositions);
+            if (!res.ok) return;
+            const positions = await res.json();
+            
+            this.elements.openCount.innerText = positions.length;
+            this.elements.activePositionsBadge.innerText = `${positions.length} угод`;
+
+            let totalFloatingPnl = 0.0;
+            let lockedCost = 0.0;
+
+            if (positions.length === 0) {
+                this.elements.activePositionsTable.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="px-4 py-8 text-center text-gray-500 font-sans">
+                            <div class="flex flex-col items-center justify-center gap-1.5">
+                                <span class="text-2xl opacity-60">📡</span>
+                                <span>Немає відкритих угод. ШІ сканує ринок та очікує торговий сигнал.</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                this.elements.unrealizedPnl.innerText = '$0.00';
+                this.elements.unrealizedPnl.className = 'text-2xl font-bold mono-font text-gray-400';
+                return;
+            }
+
+            this.elements.activePositionsTable.innerHTML = positions.map(pos => {
+                totalFloatingPnl += pos.unrealized_pnl;
+                lockedCost += pos.cost;
+
+                const pnlClass = pos.unrealized_pnl >= 0 ? 'text-profit' : 'text-loss';
+                const pnlBadge = pos.unrealized_pnl >= 0 ? 'bg-profit-soft' : 'bg-loss-soft';
+                const pnlSign = pos.unrealized_pnl >= 0 ? '+' : '';
+
+                return `
+                    <tr class="hover:bg-[#202632] transition-colors">
+                        <td class="px-4 py-3 font-bold text-white flex items-center gap-1.5 cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${pos.symbol}')">
+                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                            <span class="hover:text-blue-400">${pos.symbol}</span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/40 text-blue-300 font-bold border border-blue-500/30">LONG</span>
+                        </td>
+                        <td class="px-4 py-3 text-gray-300">$${pos.entry_price}</td>
+                        <td class="px-4 py-3 font-bold text-white">$${pos.current_price}</td>
+                        <td class="px-4 py-3 text-gray-300">$${pos.cost} <span class="text-[10px] text-gray-500">(${pos.amount})</span></td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-0.5 rounded text-xs font-bold ${pnlBadge}">
+                                ${pnlSign}${pos.unrealized_pnl.toFixed(2)}$ (${pnlSign}${pos.unrealized_pnl_pct.toFixed(2)}%)
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 text-gray-400">$${pos.highest_price}</td>
+                        <td class="px-4 py-3 text-gray-400 text-[11px]">${pos.opened_at || '-'}</td>
+                        <td class="px-4 py-3 text-right">
+                            <button onclick="window.dashboardApp.closePosition('${pos.symbol}')" class="px-2.5 py-1 rounded bg-red-900/40 hover:bg-red-800 text-red-300 hover:text-white text-[11px] font-bold border border-red-700/40 transition">
+                                Закрити
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            const floatSign = totalFloatingPnl >= 0 ? '+' : '';
+            this.elements.unrealizedPnl.innerText = `${floatSign}${totalFloatingPnl.toFixed(2)}$`;
+            this.elements.unrealizedPnl.className = `text-2xl font-bold mono-font ${totalFloatingPnl >= 0 ? 'text-profit' : 'text-loss'}`;
+        } catch (e) {
+            console.error("fetchActivePositions error:", e);
+        }
+    }
+
+    async fetchMarketRadar() {
+        try {
+            const res = await fetch(this.endpoints.marketScanner);
+            if (!res.ok) return;
+            const radar = await res.json();
+
+            if (!Array.isArray(radar) || radar.length === 0) {
+                this.elements.marketRadarTable.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="px-4 py-6 text-center text-gray-500 font-sans">
+                            Очікування завершення першого циклу сканування ринку рушієм...
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            if (radar[0] && radar[0].updated_at) {
+                this.elements.radarUpdatedTime.innerText = `Оновлено: ${radar[0].updated_at} UTC`;
+            }
+
+            this.elements.marketRadarTable.innerHTML = radar.map(item => {
+                let regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-chop-soft">CHOP</span>';
+                if (item.regime === 'BULL_MARKET') regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-profit-soft font-bold">BULL MARKET</span>';
+                else if (item.regime === 'BEAR_MARKET') regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-loss-soft font-bold">BEAR MARKET</span>';
+
+                let actionBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400">HOLD</span>';
+                if (item.action === 'BUY') {
+                    actionBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-[#00E676] text-black font-extrabold animate-pulse">BUY SIGNAL</span>';
+                }
+
+                // Шкала впевненості ШІ
+                const confPct = Math.min(100, Math.round(item.confidence * 100));
+                const barColor = confPct >= 30 ? 'bg-[#00E676]' : (confPct >= 20 ? 'bg-blue-400' : 'bg-gray-600');
+
+                return `
+                    <tr class="hover:bg-[#202632] transition-colors cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${item.symbol}')">
+                        <td class="px-4 py-2 font-bold text-white hover:text-blue-400">${item.symbol}</td>
+                        <td class="px-4 py-2 text-gray-300">$${item.price}</td>
+                        <td class="px-4 py-2">
+                            <div class="flex items-center gap-2">
+                                <div class="w-16 bg-[#12161c] rounded-full h-1.5 overflow-hidden">
+                                    <div class="${barColor} h-1.5 rounded-full" style="width: ${confPct}%"></div>
+                                </div>
+                                <span class="font-bold text-xs ${confPct >= 30 ? 'text-[#00E676]' : 'text-gray-300'}">${item.confidence.toFixed(2)}</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-2">${regimeBadge}</td>
+                        <td class="px-4 py-2 text-gray-400">${item.rsi ? item.rsi.toFixed(1) : '-'}</td>
+                        <td class="px-4 py-2 text-gray-400">${item.adx ? item.adx.toFixed(1) : '-'}</td>
+                        <td class="px-4 py-2">${actionBadge}</td>
+                        <td class="px-4 py-2 text-gray-400 text-[11px] truncate max-w-xs">${item.reason || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error("fetchMarketRadar error:", e);
+        }
+    }
+
+    async fetchEngineLogs() {
+        try {
+            const res = await fetch(this.endpoints.engineLogs);
+            if (!res.ok) return;
+            const data = await res.json();
+            const logs = data.logs || [];
+
+            if (logs.length === 0) return;
+
+            let addedCount = 0;
+            logs.forEach(line => {
+                if (!this.seenLogLines.has(line)) {
+                    this.seenLogLines.add(line);
+                    addedCount++;
+
+                    let styledLine = line;
+                    if (line.includes('ВХІД')) {
+                        styledLine = `<span class="text-[#00E676] font-bold">${line}</span>`;
+                    } else if (line.includes('ВИХІД')) {
+                        styledLine = `<span class="text-orange-400 font-bold">${line}</span>`;
+                    } else if (line.includes('[ERROR]') || line.includes('❌')) {
+                        styledLine = `<span class="text-red-400 font-bold">${line}</span>`;
+                    } else if (line.includes('[WARN]') || line.includes('⚠️')) {
+                        styledLine = `<span class="text-yellow-400">${line}</span>`;
+                    } else if (line.includes('BULL_MARKET')) {
+                        styledLine = `<span class="text-green-300">${line}</span>`;
+                    } else if (line.includes('BEAR_MARKET')) {
+                        styledLine = `<span class="text-red-300">${line}</span>`;
+                    }
+
+                    const div = document.createElement('div');
+                    div.className = 'mb-1 text-gray-300 text-[11px] leading-relaxed';
+                    div.innerHTML = styledLine;
+                    this.elements.terminal.appendChild(div);
+                }
+            });
+
+            // Обмежуємо довжину DOM-елементів терміналу
+            while (this.elements.terminal.children.length > 150) {
+                this.elements.terminal.removeChild(this.elements.terminal.firstChild);
+            }
+
+            if (addedCount > 0 && this.elements.autoscrollToggle.checked) {
+                this.elements.terminal.scrollTop = this.elements.terminal.scrollHeight;
+            }
+        } catch (e) {
+            console.error("fetchEngineLogs error:", e);
+        }
     }
 
     updateChartUI(trades) {
@@ -298,7 +893,7 @@ class DashboardController {
                 currentSum += trade.pnl;
             }
             const d = new Date(trade.timestamp);
-            labels.push(d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
+            labels.push(d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }));
             dataPoints.push(currentSum);
         });
 
@@ -306,18 +901,16 @@ class DashboardController {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
 
-        // Якщо графік вже існує, просто оновлюємо дані (без миготіння)
         if (this.chart) {
             this.chart.data.labels = labels;
             this.chart.data.datasets[0].data = dataPoints;
-            this.chart.update('none'); // Update without animation
+            this.chart.update('none');
             return;
         }
 
-        // Преміальна стилізація графіка під TradingView
         const gradient = ctx.createLinearGradient(0, 0, 0, 320);
-        gradient.addColorStop(0, 'rgba(0, 200, 83, 0.4)');
-        gradient.addColorStop(1, 'rgba(0, 200, 83, 0.0)');
+        gradient.addColorStop(0, 'rgba(0, 230, 118, 0.35)');
+        gradient.addColorStop(1, 'rgba(0, 230, 118, 0.0)');
 
         this.chart = new Chart(ctx, {
             type: 'line',
@@ -326,46 +919,36 @@ class DashboardController {
                 datasets: [{
                     label: 'Cumulative PnL',
                     data: dataPoints,
-                    borderColor: '#00C853',
+                    borderColor: '#00E676',
                     backgroundColor: gradient,
-                    borderWidth: 2,
-                    pointRadius: 0,           // Ховаємо крапки для плавного вигляду
-                    pointHoverRadius: 5,      // Показуємо крапку при наведенні
-                    tension: 0.1,             // Злегка згладжена лінія
+                    borderWidth: 2.5,
+                    pointRadius: 2,
+                    pointHoverRadius: 6,
+                    tension: 0.15,
                     fill: true
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
+                interaction: { mode: 'index', intersect: false },
                 scales: {
-                    x: { 
-                        grid: { display: false }, 
-                        ticks: { color: '#848e9c', maxTicksLimit: 8, maxRotation: 0 } 
-                    },
-                    y: { 
-                        grid: { color: '#2a2e39', borderDash: [5, 5] }, 
-                        ticks: { color: '#848e9c' } 
-                    }
+                    x: { grid: { display: false }, ticks: { color: '#848e9c', maxTicksLimit: 8, maxRotation: 0 } },
+                    y: { grid: { color: '#252b36', borderDash: [4, 4] }, ticks: { color: '#848e9c' } }
                 },
                 plugins: {
                     legend: { display: false },
                     tooltip: {
-                        backgroundColor: '#1e2329',
+                        backgroundColor: '#161a22',
                         titleColor: '#848e9c',
                         bodyColor: '#fff',
                         borderColor: '#2a2e39',
                         borderWidth: 1,
                         padding: 10,
-                        displayColors: false,
                         callbacks: {
-                            label: function(context) {
-                                let val = context.parsed.y;
-                                return 'PnL: ' + (val > 0 ? '+' : '') + val.toFixed(2) + ' USDT';
+                            label: (context) => {
+                                const val = context.parsed.y;
+                                return 'Чистий PnL: ' + (val > 0 ? '+' : '') + val.toFixed(2) + ' USDT';
                             }
                         }
                     }
@@ -374,50 +957,8 @@ class DashboardController {
         });
     }
 
-    startTerminalStream() {
-        const terminal = document.getElementById('terminal-screen');
-        if (!terminal) return;
-        
-        const coinPairs = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'LINK/USDT', 'AVAX/USDT', 'ADA/USDT'];
-        
-        const addLog = () => {
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 3 });
-            const pair = coinPairs[Math.floor(Math.random() * coinPairs.length)];
-            
-            const events = [
-                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Analyzing order book density for <span class="text-white">${pair}</span>...`,
-                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Scanning RSI and MACD divergence on 5m timeframe.`,
-                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-yellow-400 font-bold">WARN</span>: High volatility detected on <span class="text-white">${pair}</span>. Adjusting trailing stop parameters.`,
-                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-purple-400 font-bold">AI_PREDICT</span>: RandomForest model probability for <span class="text-white">${pair}</span> -> 0.${Math.floor(Math.random() * 40 + 10)} (Threshold not met. HOLD).`,
-                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-[#00C853] font-bold">SYS_CHECK</span>: Database latency... 12ms. OK.`,
-                `<span class="text-gray-500">[${timeStr}]</span> <span class="text-blue-400 font-bold">INFO</span>: Recalculating ATR dynamically...`
-            ];
-
-            const logLine = document.createElement('div');
-            logLine.className = 'mb-1 opacity-0 transition-opacity duration-300';
-            logLine.innerHTML = events[Math.floor(Math.random() * events.length)];
-            
-            terminal.appendChild(logLine);
-            setTimeout(() => logLine.classList.remove('opacity-0'), 50);
-            terminal.scrollTop = terminal.scrollHeight;
-
-            if (terminal.children.length > 60) {
-                terminal.removeChild(terminal.firstChild);
-            }
-
-            setTimeout(addLog, Math.random() * 2200 + 300);
-        };
-
-        addLog(); addLog(); addLog();
-    }
-
     async fetchBotStatus() {
         try {
-            if (this.isPreviewEnv) {
-                this.updateControlUI('active');
-                return;
-            }
             const res = await fetch(this.endpoints.status);
             if (!res.ok) throw new Error('Status Error');
             const data = await res.json();
@@ -429,15 +970,7 @@ class DashboardController {
 
     async handleBotControl(command) {
         this.elements.controlBtns.forEach(btn => btn.disabled = true);
-        
         try {
-            if (this.isPreviewEnv) {
-                const newStatus = command === 'start' ? 'active' : 'stopped';
-                this.updateControlUI(newStatus);
-                this.showToast(`[PREVIEW] Bot ${command}ed successfully`, 'success');
-                return;
-            }
-
             const res = await fetch(this.endpoints.control, {
                 method: 'POST',
                 headers: { 
@@ -446,11 +979,10 @@ class DashboardController {
                 },
                 body: JSON.stringify({ command })
             });
-            
             const data = await res.json();
             if (res.ok && data.status === "success") {
                 this.updateControlUI(data.bot_status);
-                this.showToast(`Bot ${command}ed successfully`, 'success');
+                this.showToast(`Статус бота змінено: ${command.toUpperCase()}`, 'success');
             } else {
                 throw new Error(data.message || "Execution failed");
             }
@@ -465,17 +997,141 @@ class DashboardController {
         const [startBtn, stopBtn] = this.elements.controlBtns;
 
         if (status === 'active' || status === 'running') {
-            b.innerText = 'ACTIVE';
-            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00C853]/20 text-[#00C853] border border-[#00C853]/30';
+            b.innerText = 'ACTIVE • ТОРГУЄ';
+            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00E676]/20 text-[#00E676] border border-[#00E676]/40 shadow-sm';
             startBtn.disabled = true; stopBtn.disabled = false;
-        } else if (status === 'stopped') {
-            b.innerText = 'STOPPED';
-            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF3D00]/20 text-[#FF3D00] border border-[#FF3D00]/30';
+        } else if (status === 'stopped' || status === 'pause') {
+            b.innerText = 'PAUSED • НА ПАУЗІ';
+            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF5252]/20 text-[#FF5252] border border-[#FF5252]/40 shadow-sm';
             startBtn.disabled = false; stopBtn.disabled = true;
         } else {
             b.innerText = 'CONN ERROR';
             b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-red-900/40 text-red-500 border border-red-500/40 animate-pulse';
             startBtn.disabled = true; stopBtn.disabled = true;
+        }
+    }
+
+    async closePosition(symbol) {
+        if (!confirm(`Закрити позицію ${symbol} за ринковою ціною?`)) return;
+        try {
+            const res = await fetch(this.endpoints.closePosition, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCsrfToken() },
+                body: JSON.stringify({ symbol })
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                this.showToast(data.message, 'info');
+                setTimeout(() => this.fetchActivePositions(), 1500);
+            } else {
+                this.showToast(data.message || 'Помилка закриття', 'error');
+            }
+        } catch (e) {
+            this.showToast(`Помилка: ${e.message}`, 'error');
+        }
+    }
+
+    async handlePanicCloseAll() {
+        if (!confirm("🚨 УВАГА! Закрити ВСІ відкриті позиції за ринковою ціною негайно?")) return;
+        try {
+            const res = await fetch(this.endpoints.closeAll, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCsrfToken() }
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                this.showToast(data.message, 'info');
+                setTimeout(() => this.fetchActivePositions(), 2000);
+            } else {
+                this.showToast(data.message || 'Помилка', 'error');
+            }
+        } catch (e) {
+            this.showToast(`Помилка: ${e.message}`, 'error');
+        }
+    }
+
+    async handleResetAccount() {
+        if (!confirm("⚠️ Скинути баланс до 1,000 USDT та очистити всю історію угод?")) return;
+        try {
+            const res = await fetch(this.endpoints.resetAccount, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCsrfToken() }
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                this.showToast(data.message, 'success');
+                this.fetchDashboardData();
+                this.fetchActivePositions();
+            } else {
+                this.showToast(data.message || 'Помилка скидання', 'error');
+            }
+        } catch (e) {
+            this.showToast(`Помилка: ${e.message}`, 'error');
+        }
+    }
+
+    openSettingsModal() {
+        document.getElementById('settings-modal').classList.remove('hidden');
+    }
+
+    closeSettingsModal() {
+        document.getElementById('settings-modal').classList.add('hidden');
+    }
+
+    async fetchConfig() {
+        try {
+            const res = await fetch(this.endpoints.config);
+            if (!res.ok) return;
+            const cfg = await res.json();
+            
+            if (cfg.confidence_threshold !== undefined) {
+                document.getElementById('input-conf-threshold').value = cfg.confidence_threshold;
+                document.getElementById('val-conf-threshold').innerText = cfg.confidence_threshold.toFixed(2);
+            }
+            if (cfg.risk_reward_ratio !== undefined) {
+                document.getElementById('input-rr-ratio').value = cfg.risk_reward_ratio;
+                document.getElementById('val-rr-ratio').innerText = cfg.risk_reward_ratio.toFixed(2);
+            }
+            if (cfg.max_positions !== undefined) {
+                document.getElementById('input-max-pos').value = cfg.max_positions;
+            }
+            if (cfg.trade_fraction !== undefined) {
+                document.getElementById('input-trade-frac').value = Math.round(cfg.trade_fraction * 100);
+            }
+            if (cfg.min_adx_trend !== undefined) {
+                document.getElementById('input-adx').value = cfg.min_adx_trend;
+                document.getElementById('val-adx').innerText = cfg.min_adx_trend.toFixed(1);
+            }
+        } catch (e) {
+            console.error("fetchConfig error:", e);
+        }
+    }
+
+    async saveSettings(e) {
+        e.preventDefault();
+        const payload = {
+            confidence_threshold: parseFloat(document.getElementById('input-conf-threshold').value),
+            risk_reward_ratio: parseFloat(document.getElementById('input-rr-ratio').value),
+            max_positions: parseInt(document.getElementById('input-max-pos').value),
+            trade_fraction: parseFloat(document.getElementById('input-trade-frac').value) / 100.0,
+            min_adx_trend: parseFloat(document.getElementById('input-adx').value)
+        };
+
+        try {
+            const res = await fetch(this.endpoints.config, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCsrfToken() },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                this.showToast("Налаштування ШІ збережено та застосовано!", 'success');
+                this.closeSettingsModal();
+            } else {
+                this.showToast(data.message || "Помилка збереження", 'error');
+            }
+        } catch (err) {
+            this.showToast(`Помилка: ${err.message}`, 'error');
         }
     }
 }

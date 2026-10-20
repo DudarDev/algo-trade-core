@@ -1,7 +1,16 @@
 import os
 import sys
+
+# Налаштовуємо UTF-8 для виводу в консоль Windows без charmap помилок
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 import time
+import json
 import logging
+from logging.handlers import RotatingFileHandler
 import asyncio
 import django
 from datetime import datetime, timezone
@@ -13,11 +22,19 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'web_panel.settings')
 django.setup()
 
 # 2. ФІКС ЛОГУВАННЯ (Після django.setup!)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    force=True
-)
+data_dir_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data_storage')
+os.makedirs(data_dir_path, exist_ok=True)
+engine_log_file = os.path.join(data_dir_path, 'engine.log')
+
+file_handler = RotatingFileHandler(engine_log_file, maxBytes=3_000_000, backupCount=2, encoding='utf-8')
+file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.handlers = [console_handler, file_handler]
 logger = logging.getLogger("Main")
 
 from src.shared.config import settings
@@ -44,6 +61,84 @@ class CryptoBot:
         self.risk_manager = risk_manager
         self.trader = trader
         self.concurrency_limit = asyncio.Semaphore(5)
+        self.latest_scan_results = {}
+        self.data_dir = data_dir_path
+        self.load_runtime_config()
+
+    def load_runtime_config(self):
+        """Динамічне завантаження налаштувань з вебпанелі без перезапуску."""
+        cfg_file = os.path.join(self.data_dir, 'runtime_config.json')
+        if os.path.exists(cfg_file):
+            try:
+                with open(cfg_file, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                if 'confidence_threshold' in cfg:
+                    new_th = float(cfg['confidence_threshold'])
+                    self.strategy.base_threshold = new_th
+                    self.settings_obj = getattr(self, 'settings_obj', None)
+                    settings.CONFIDENCE_THRESHOLD = new_th
+                if 'risk_reward_ratio' in cfg:
+                    new_rr = float(cfg['risk_reward_ratio'])
+                    self.risk_manager.config.min_risk_reward = new_rr
+                    settings.RISK_REWARD_RATIO = new_rr
+                if 'max_positions' in cfg:
+                    new_max = int(cfg['max_positions'])
+                    settings.max_open_positions = new_max
+                    settings.MAX_CONCURRENT_POSITIONS = new_max
+                if 'trade_fraction' in cfg:
+                    settings.TRADE_FRACTION = float(cfg['trade_fraction'])
+                if 'min_adx_trend' in cfg:
+                    new_adx = float(cfg['min_adx_trend'])
+                    self.strategy.min_adx = new_adx
+                    settings.min_adx_trend = new_adx
+            except Exception as e:
+                logger.debug(f"Помилка завантаження runtime_config: {e}")
+
+    async def check_command_queue(self):
+        """Обробка команд ручного керування (Close / Panic Sell) з вебпанелі."""
+        cmd_file = os.path.join(self.data_dir, 'command_queue.json')
+        if not os.path.exists(cmd_file):
+            return
+        try:
+            with open(cmd_file, 'r', encoding='utf-8') as f:
+                cmd_data = json.load(f)
+            try:
+                os.remove(cmd_file)
+            except Exception:
+                pass
+
+            action = cmd_data.get('action')
+            if action == 'close_position':
+                symbol = cmd_data.get('symbol')
+                if symbol and symbol in self.trader.positions:
+                    current_price = await self.exchange.fetch_current_price(symbol)
+                    if not current_price or current_price <= 0:
+                        pos = self.trader.positions[symbol]
+                        current_price = pos.highest_price or pos.entry_price
+                    logger.info(f"🛑 [РУЧНЕ ЗАКРИТТЯ] Команда з дашборду для {symbol}")
+                    await self.trader._close_position(symbol, current_price, reason="Ручне закриття з дашборду")
+            elif action == 'close_all':
+                logger.warning("🚨 [PANIC EXIT] Екстрене закриття ВСІХ відкритих позицій за командою з дашборду!")
+                for symbol in list(self.trader.positions.keys()):
+                    current_price = await self.exchange.fetch_current_price(symbol)
+                    if not current_price or current_price <= 0:
+                        pos = self.trader.positions.get(symbol)
+                        current_price = (pos.highest_price or pos.entry_price) if pos else 0
+                    if current_price > 0:
+                        await self.trader._close_position(symbol, current_price, reason="Panic Exit All")
+        except Exception as e:
+            logger.error(f"❌ Помилка обробки command_queue: {e}")
+
+    def save_market_radar(self):
+        """Збереження знімка ринку та рішень ШІ для вебрадара."""
+        radar_file = os.path.join(self.data_dir, 'market_radar.json')
+        try:
+            radar_list = list(self.latest_scan_results.values())
+            radar_list.sort(key=lambda x: (x.get('action') == 'BUY', x.get('confidence', 0.0)), reverse=True)
+            with open(radar_file, 'w', encoding='utf-8') as f:
+                json.dump(radar_list, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.debug(f"Помилка збереження market_radar: {e}")
 
     def is_bot_active(self) -> bool:
         """Безпечна перевірка статусу з автоматичним створенням рядка при потребі."""
@@ -111,29 +206,49 @@ class CryptoBot:
                     in_position=(symbol in self.trader.positions)
                 )
 
-                if signal_action == "BUY" or signal_action == SignalAction.BUY:
-                    current_price = float(df_features.iloc[-1]['close'])
-                    current_atr = float(df_features.iloc[-1]['ATR_PCT']) * current_price
+                curr_row = df_features.iloc[-1]
+                current_price = float(curr_row['close'])
+                adx_val = float(curr_row.get('ADX', 0.0)) * 100.0
+                rsi_val = float(curr_row.get('RSI', 0.5)) * 100.0
+
+                is_buy = (signal_action == "BUY" or signal_action == SignalAction.BUY)
+                action_str = "BUY" if is_buy else "HOLD"
+                reason_str = meta.reason if hasattr(meta, 'reason') else "Evaluating"
+
+                self.latest_scan_results[symbol] = {
+                    "symbol": symbol,
+                    "price": current_price,
+                    "confidence": round(proba, 2),
+                    "regime": meta.regime.value if hasattr(meta, 'regime') else "CHOPPY_FLAT",
+                    "action": action_str,
+                    "reason": reason_str,
+                    "adx": round(adx_val, 1),
+                    "rsi": round(rsi_val, 1),
+                    "updated_at": datetime.now(timezone.utc).strftime("%H:%M:%S")
+                }
+
+                if is_buy:
+                    current_atr = float(curr_row.get('ATR_PCT', 0.002)) * current_price
                     trade_params = self.risk_manager.evaluate_trade(
                         entry_price=current_price, atr=current_atr,
                         capital=self.trader.balance, trade_type='BUY'
                     )
                     if trade_params:
-                        reason = meta.reason if hasattr(meta, 'reason') else meta.get('reason', 'AI_Signal')
-                        logger.info(f"🔥 ВХІД: {symbol} | Conf: {proba:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason}")
+                        logger.info(f"🔥 ВХІД: {symbol} | Conf: {proba:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason_str}")
                         await self.trader.open_position(
                             symbol=symbol, side=TradeSide.BUY, price=trade_params.entry_price,
                             sl=trade_params.stop_loss, tp=trade_params.take_profit
                         )
                 else:
-                    logger.info(f"📊 {symbol}: Conf={proba:.2f} | {meta.regime.value} | {meta.reason}")
+                    logger.info(f"📊 {symbol}: Conf={proba:.2f} | {meta.regime.value} | {reason_str}")
             except Exception as e:
                 logger.error(f"❌ Помилка обробки {symbol}: {e}")
 
     async def monitor_open_positions(self):
-        """Швидкий моніторинг відкритих позицій кожні 10 секунд (SL / TP / Trailing Stop)."""
+        """Швидкий моніторинг відкритих позицій кожні 10 секунд (SL / TP / Trailing Stop) та черги команд."""
         while True:
             try:
+                await self.check_command_queue()
                 if self.trader.positions:
                     for symbol in list(self.trader.positions.keys()):
                         current_price = await self.exchange.fetch_current_price(symbol)
@@ -142,7 +257,7 @@ class CryptoBot:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.debug(f"Помилка швидкого моніторингу {symbol}: {e}")
+                logger.debug(f"Помилка швидкого моніторингу: {e}")
             await asyncio.sleep(10)
 
     async def run_cycle(self):
@@ -155,6 +270,7 @@ class CryptoBot:
             return
         tasks = [self.process_pair(symbol) for symbol in all_pairs]
         await asyncio.gather(*tasks)
+        self.save_market_radar()
         logger.info(f"✅ Цикл завершено. Баланс: {self.trader.balance:.2f} USDT | Активних позицій: {len(self.trader.positions)}")
 
     async def start(self):
@@ -167,6 +283,7 @@ class CryptoBot:
                     await asyncio.sleep(10)
                     continue
                 try:
+                    self.load_runtime_config()
                     start_time = time.time()
                     await self.run_cycle()
                     elapsed = time.time() - start_time

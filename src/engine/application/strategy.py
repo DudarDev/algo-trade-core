@@ -31,19 +31,30 @@ class SignalMetadata(BaseModel):
     
     model_config = ConfigDict(strict=True)
 
+def _get_float_setting(settings, keys: list, default: float) -> float:
+    for k in keys:
+        try:
+            val = getattr(settings, k, None)
+            if isinstance(val, (int, float)):
+                return float(val)
+        except Exception:
+            pass
+    return default
+
 class HybridStrategy:
     def __init__(self, settings):
         self.settings = settings
-        self.min_adx = float(getattr(settings, 'MIN_ADX_TREND', getattr(settings, 'min_adx_trend', 25.0)))
-        self.base_threshold = float(getattr(settings, 'CONFIDENCE_THRESHOLD', getattr(settings, 'min_ai_confidence', 0.55)))
+        self.min_adx = _get_float_setting(settings, ['MIN_ADX_TREND', 'min_adx_trend'], 25.0)
+        self.min_atr_pct = _get_float_setting(settings, ['MIN_ATR_PCT', 'min_atr_pct'], 0.0010)
+        self.base_threshold = _get_float_setting(settings, ['CONFIDENCE_THRESHOLD', 'min_ai_confidence'], 0.55)
 
     def _detect_regime(self, curr_row: pd.Series) -> MarketRegime:
         ema_dist = float(curr_row.get('EMA_DIST_50', 0))
         atr_pct = float(curr_row.get('ATR_PCT', 0))
         adx = float(curr_row.get('ADX', 0))
 
-        # Тепер ми ПЕРЕВІРЯЄМО ADX! Якщо тренду немає або волатильність низька - це ФЛЕТ
-        if atr_pct < 0.015 or adx < (self.min_adx / 100.0):
+        # Перевіряємо ATR та ADX: якщо волатильність нижча за поріг або немає тренду - це ФЛЕТ
+        if atr_pct < self.min_atr_pct or adx < (self.min_adx / 100.0):
             return MarketRegime.CHOP
         if ema_dist > 0.005:
             return MarketRegime.BULL

@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 BASE_FEATURES = [
     'RSI', 'MACD_HIST', 'BB_WIDTH', 'BB_POS', 'ATR_PCT',
     'ADX', 'STOCH_K', 'STOCH_D', 'OBV_SLOPE', 'EMA_DIST_20',
-    'EMA_DIST_50', 'LOG_RET', 'VOL_SPIKE', 'BUY_PRESSURE'
+    'EMA_DIST_50', 'LOG_RET', 'VOL_SPIKE', 'BUY_PRESSURE',
+    'EMA_CROSS_RATIO', 'RSI_SLOPE', 'CANDLE_BODY_RATIO',
+    'UPPER_SHADOW_RATIO', 'LOWER_SHADOW_RATIO', 'VOLATILITY_RATIO'
 ]
 LAG_FEATURES = ['RSI', 'LOG_RET', 'MACD_HIST']
 LAGS = [1, 2, 3]
@@ -70,14 +72,22 @@ def calculate_features(df: pd.DataFrame) -> pd.DataFrame:
         ema50 = ta.ema(data['close'], length=50)
         data['EMA_DIST_20'] = (data['close'] - ema20) / (ema20 + 1e-9) if ema20 is not None else 0.0
         data['EMA_DIST_50'] = (data['close'] - ema50) / (ema50 + 1e-9) if ema50 is not None else 0.0
+        data['EMA_CROSS_RATIO'] = (ema20 - ema50) / (ema50 + 1e-9) if (ema20 is not None and ema50 is not None) else 0.0
+        data['RSI_SLOPE'] = data['RSI'].diff(periods=3).fillna(0.0)
 
         # 4. Ринковий тиск та об'ємні фічі
         data['LOG_RET'] = np.log(data['close'] / data['close'].shift(1))
         vol_ma = data['volume'].rolling(window=20).mean()
         data['VOL_SPIKE'] = data['volume'] / (vol_ma + 1e-9)
         
-        price_spread = data['high'] - data['low']
-        data['BUY_PRESSURE'] = (data['close'] - data['low']) / (price_spread + 1e-9)
+        price_spread = (data['high'] - data['low']).replace(0, 1e-9)
+        data['BUY_PRESSURE'] = (data['close'] - data['low']) / price_spread
+        data['CANDLE_BODY_RATIO'] = (data['close'] - data['open']).abs() / price_spread
+        data['UPPER_SHADOW_RATIO'] = (data['high'] - np.maximum(data['open'], data['close'])) / price_spread
+        data['LOWER_SHADOW_RATIO'] = (np.minimum(data['open'], data['close']) - data['low']) / price_spread
+
+        atr_rolling = data['ATR_PCT'].rolling(window=50, min_periods=10).mean()
+        data['VOLATILITY_RATIO'] = data['ATR_PCT'] / (atr_rolling + 1e-9)
 
         # 5. Генерація лагів (Lag Features)
         for feature in LAG_FEATURES:

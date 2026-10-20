@@ -23,7 +23,7 @@ logger = logging.getLogger("Main")
 from src.shared.config import settings
 from src.shared.db.session import SessionLocal
 from src.shared.db.repositories import TradingRepository
-from src.engine.domain.models import TradeSide
+from src.engine.domain.models import TradeSide, SignalAction
 from src.engine.infrastructure.telegram_notifier import TelegramNotifier
 from src.engine.infrastructure.exchange_manager import ExchangeManager
 from src.engine.infrastructure.market_scanner import MarketScanner
@@ -111,7 +111,7 @@ class CryptoBot:
                     in_position=(symbol in self.trader.positions)
                 )
 
-                if signal_action == "BUY":
+                if signal_action == "BUY" or signal_action == SignalAction.BUY:
                     current_price = float(df_features.iloc[-1]['close'])
                     current_atr = float(df_features.iloc[-1]['ATR_PCT']) * current_price
                     trade_params = self.risk_manager.evaluate_trade(
@@ -125,36 +125,60 @@ class CryptoBot:
                             symbol=symbol, side=TradeSide.BUY, price=trade_params.entry_price,
                             sl=trade_params.stop_loss, tp=trade_params.take_profit
                         )
+                else:
+                    logger.info(f"📊 {symbol}: Conf={proba:.2f} | {meta.regime.value} | {meta.reason}")
             except Exception as e:
                 logger.error(f"❌ Помилка обробки {symbol}: {e}")
+
+    async def monitor_open_positions(self):
+        """Швидкий моніторинг відкритих позицій кожні 10 секунд (SL / TP / Trailing Stop)."""
+        while True:
+            try:
+                if self.trader.positions:
+                    for symbol in list(self.trader.positions.keys()):
+                        current_price = await self.exchange.fetch_current_price(symbol)
+                        if current_price and current_price > 0:
+                            await self.trader.update_position(symbol, current_price)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Помилка швидкого моніторингу {symbol}: {e}")
+            await asyncio.sleep(10)
 
     async def run_cycle(self):
         logger.info("📡 Пошук волатильних пар...")
         active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=500_000)
-        if not active_pairs:
+        open_positions = list(self.trader.positions.keys())
+        all_pairs = list(dict.fromkeys(open_positions + (active_pairs or [])))
+        if not all_pairs:
+            logger.info("ℹ️ Немає активних пар для сканування.")
             return
-        tasks = [self.process_pair(symbol) for symbol in active_pairs]
+        tasks = [self.process_pair(symbol) for symbol in all_pairs]
         await asyncio.gather(*tasks)
-        logger.info("✅ Цикл завершено.")
+        logger.info(f"✅ Цикл завершено. Баланс: {self.trader.balance:.2f} USDT | Активних позицій: {len(self.trader.positions)}")
 
     async def start(self):
         logger.info("🟢 Бот запущено! Очікування команди з дашборду...")
-        while True:
-            if not self.is_bot_active():
-                logger.info("⏸️ Бот зупинений. Очікування команди START...")
-                await asyncio.sleep(10)
-                continue
-            try:
-                start_time = time.time()
-                await self.run_cycle()
-                elapsed = time.time() - start_time
-                sleep_time = max(0, 300 - elapsed)
-                await asyncio.sleep(sleep_time)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"❌ Помилка циклу: {e}")
-                await asyncio.sleep(60)
+        monitor_task = asyncio.create_task(self.monitor_open_positions())
+        try:
+            while True:
+                if not self.is_bot_active():
+                    logger.info("⏸️ Бот на паузі. Очікування команди START...")
+                    await asyncio.sleep(10)
+                    continue
+                try:
+                    start_time = time.time()
+                    await self.run_cycle()
+                    elapsed = time.time() - start_time
+                    sleep_time = max(10, 60 - elapsed)
+                    await asyncio.sleep(sleep_time)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"❌ Помилка циклу: {e}")
+                    await asyncio.sleep(30)
+        finally:
+            monitor_task.cancel()
 
 
 async def main():

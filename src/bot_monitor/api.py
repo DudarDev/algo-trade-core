@@ -55,15 +55,21 @@ def bot_control(request, payload: BotControlRequest):
 
 @router.get("/stats", response=StatsSchema)
 def get_stats(request):
+    wallet = Wallet.objects.first()
+    free_balance = wallet.usdt_balance if wallet else 1000.0
+    active_positions = ActivePosition.objects.all()
+    locked_balance = sum((pos.amount * pos.entry_price) for pos in active_positions)
+    total_equity = free_balance + locked_balance
+
     all_trades = Trade.objects.all()
     total_trades = all_trades.count()
     
     if total_trades == 0:
-         return {
-             "total_pnl": 0.0, "total_trades": 0, "profit_factor": 0.0, 
-             "win_rate": 0.0, "balance": 0.0, "error": "No trades found yet."
-         }
-         
+        return {
+            "total_pnl": 0.0, "total_trades": 0, "profit_factor": 0.0, 
+            "win_rate": 0.0, "balance": round(total_equity, 2), "error": "No trades found yet."
+        }
+        
     winning_trades = all_trades.filter(pnl__gt=0).count()
     losing_trades = all_trades.filter(pnl__lt=0).count()
     
@@ -74,17 +80,6 @@ def get_stats(request):
     avg_loss = all_trades.filter(pnl__lt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
     
     profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else (999.0 if avg_win > 0 else 0.0)
-    
-    # --- РОЗРАХУНОК РЕАЛЬНОГО КАПІТАЛУ (TOTAL EQUITY) ---
-    wallet = Wallet.objects.first()
-    free_balance = wallet.usdt_balance if wallet else 0.0
-    
-    # Додаємо гроші, які зараз "заморожені" в активних угодах
-    active_positions = ActivePosition.objects.all()
-    # ВИПРАВЛЕНО: Рахуємо еквівалент у USDT (кількість монет * ціну входу), а не просто сумуємо монети!
-    locked_balance = sum((pos.amount * pos.entry_price) for pos in active_positions)
-    
-    total_equity = free_balance + locked_balance
     
     return {
         "total_pnl": round(total_pnl, 2),

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     RSI_BUY_LIMIT: float = Field(default=75.0, ge=0, le=100)
     TREND_FILTER: bool = Field(default=True)
     min_adx_trend: float = Field(default=25.0, ge=0.0)
+    MIN_ATR_PCT: float = Field(default=0.0010, ge=0.0)
+    min_atr_pct: float = Field(default=0.0010, ge=0.0)
     min_ai_confidence: float = Field(default=0.65, ge=0.0, le=1.0)
     ARBITRAGE_FEE_PCT: float = Field(default=0.001, ge=0.0)
     ARBITRAGE_MIN_SPREAD_PCT: float = Field(default=0.5, ge=0.0)

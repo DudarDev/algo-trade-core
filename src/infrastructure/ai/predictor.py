@@ -27,6 +27,7 @@ class GlobalTradingAI:
                 model_path = project_root / model_path
         self.model_path = model_path
         self.feature_cols = get_feature_columns()
+        self._last_mtime = 0.0
         self.model: Optional[MLModelProtocol] = self._load_model()
 
     def _load_model(self) -> Optional[MLModelProtocol]:
@@ -35,11 +36,23 @@ class GlobalTradingAI:
             return None
         try:
             model = joblib.load(self.model_path)
+            self._last_mtime = self.model_path.stat().st_mtime
             logger.info(f"✅ Модель успішно завантажена: {self.model_path.name}")
             return model
         except Exception as e:
             logger.critical(f"🚨 Помилка завантаження моделі: {e}", exc_info=True)
             return None
+
+    def check_for_model_update(self) -> None:
+        """Перевіряє, чи оновився файл моделі на диску, та перезавантажує його на льоту."""
+        try:
+            if self.model_path.exists():
+                current_mtime = self.model_path.stat().st_mtime
+                if current_mtime > self._last_mtime:
+                    logger.info("🔄 [Model Hot-Reload] Виявлено нові ваги моделі на диску! Гаряче перезавантаження...")
+                    self.model = self._load_model()
+        except Exception as e:
+            logger.warning(f"⚠️ Помилка перевірки оновлення моделі: {e}")
 
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Делегуємо розрахунок в єдиний модуль."""
@@ -51,6 +64,7 @@ class GlobalTradingAI:
         return calculate_features(df)
 
     def predict(self, df: pd.DataFrame) -> Tuple[SignalAction, float]:
+        self.check_for_model_update()
         if self.model is None:
             return SignalAction.HOLD, 0.0
 

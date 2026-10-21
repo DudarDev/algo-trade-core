@@ -1,56 +1,125 @@
+import pytest
 import pandas as pd
 from unittest.mock import MagicMock
-from src.engine.application.strategy import HybridStrategy, SignalAction
+from src.engine.application.strategy import HybridStrategy, SignalAction, MarketRegime
+from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
 
-def test_hold_on_low_confidence():
-    # Налаштовуємо мок-конфіг
+@pytest.fixture
+def base_settings():
     settings = MagicMock()
-    settings.CONFIDENCE_THRESHOLD = 0.6
+    settings.CONFIDENCE_THRESHOLD = 0.55
     settings.RSI_BUY_LIMIT = 70
     settings.TREND_FILTER = True
     settings.min_adx_trend = 25.0
+    settings.min_atr_pct = 0.001
+    return settings
 
-    strategy = HybridStrategy(settings)
-    
-    # Ідеально валідний DataFrame для флету/низької впевненості
+def test_hold_on_low_confidence(base_settings):
+    strategy = HybridStrategy(base_settings)
     df = pd.DataFrame({
-        'RSI': [0.3, 0.3],
-        'EMA_DIST_50': [0.1, 0.1],
-        'MACD_HIST': [-0.1, 0.1],
-        'close': [100, 100],
-        'ATR_PCT': [0.02, 0.02], # Достатня волатильність
-        'ADX': [0.35, 0.35]      # Достатній тренд
+        'RSI': [0.5, 0.5],
+        'EMA_DIST_50': [0.01, 0.01],
+        'MACD_HIST': [0.1, 0.1],
+        'close': [100.0, 100.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35]
     })
-    
-    # Передаємо низьку впевненість ШІ (0.2 < 0.6)
-    signal, meta = strategy.get_signal(df, ai_confidence=0.2)
-    
-    # Має повернути HOLD (або None) через низьку впевненість
-    assert signal in [SignalAction.HOLD, None], "Must be HOLD when AI confidence below threshold"
+    signal, meta = strategy.get_signal(df, ai_confidence=0.30)
+    assert signal in [SignalAction.HOLD, None]
+    assert "Insufficient confidence" in meta.reason
 
-
-def test_buy_signal_when_conditions_met():
-    # Налаштовуємо мок-конфіг для успішного входу
-    settings = MagicMock()
-    settings.CONFIDENCE_THRESHOLD = 0.5
-    settings.RSI_BUY_LIMIT = 70
-    settings.TREND_FILTER = True
-    settings.min_adx_trend = 25.0 
-    
-    strategy = HybridStrategy(settings)
-    
-    # Ідеально валідний DataFrame для бичого тренду
+def test_buy_signal_when_conditions_met(base_settings):
+    strategy = HybridStrategy(base_settings)
     df = pd.DataFrame({
-        'RSI': [0.6, 0.6],          # RSI < 70 (не перегрітий)
-        'EMA_DIST_50': [0.1, 0.1],  # Бичий тренд (> 0.005)
+        'RSI': [0.55, 0.55],
+        'EMA_DIST_50': [0.01, 0.01],  # BULL
         'MACD_HIST': [0.1, 0.2],
-        'close': [100, 101],
-        'ATR_PCT': [0.02, 0.02],    # Волатильність > 0.015
-        'ADX': [0.35, 0.35]         # Сильний тренд (ADX 35 > 25)
+        'close': [100.0, 101.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.70)
+    assert signal == SignalAction.BUY
+    assert meta.regime == MarketRegime.BULL
+
+def test_choppy_market_adx_filter(base_settings):
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.50, 0.50],
+        'EMA_DIST_50': [0.001, 0.001],
+        'MACD_HIST': [0.1, 0.1],
+        'close': [100.0, 100.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.15, 0.15]  # ADX = 15 < 25
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.80)
+    assert signal == SignalAction.HOLD
+    assert meta.regime == MarketRegime.CHOP
+    assert "CHOPPY" in meta.reason
+
+def test_overbought_rsi_filter(base_settings):
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.75, 0.75],  # RSI = 75 >= 70
+        'EMA_DIST_50': [0.02, 0.02],
+        'MACD_HIST': [0.1, 0.1],
+        'close': [100.0, 100.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.85)
+    assert signal == SignalAction.HOLD
+    assert "RSI Overbought" in meta.reason
+
+def test_bear_market_falling_macd_filter(base_settings):
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.45, 0.45],
+        'EMA_DIST_50': [-0.02, -0.02],  # BEAR
+        'MACD_HIST': [-0.05, -0.10],   # Negative MACD
+        'close': [100.0, 98.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.30, 0.30]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.85)
+    assert signal == SignalAction.HOLD
+    assert "Bearish MACD in Bear Market" in meta.reason
+
+def test_already_in_position_filter(base_settings):
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.5, 0.5],
+        'EMA_DIST_50': [0.02, 0.02],
+        'MACD_HIST': [0.1, 0.1],
+        'close': [100.0, 101.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.30, 0.30]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.75, in_position=True)
+    assert signal is None
+    assert "Already in position" in meta.reason
+
+def test_adaptive_risk_tightening_strategy(base_settings):
+    risk_controller = AdaptiveRiskController(
+        base_confidence=0.55,
+        base_min_adx=25.0
+    )
+    # Simulate 2 losses
+    risk_controller.record_trade_result(-10.0, 0, 990.0)
+    risk_controller.record_trade_result(-10.0, 0, 980.0)
+
+    # Dynamic confidence threshold rose from 0.55 to 0.61!
+    strategy = HybridStrategy(base_settings, risk_controller=risk_controller)
+    df = pd.DataFrame({
+        'RSI': [0.5, 0.5],
+        'EMA_DIST_50': [0.01, 0.01],
+        'MACD_HIST': [0.1, 0.1],
+        'close': [100.0, 101.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.30, 0.30]
     })
     
-    # Передаємо високу впевненість ШІ (0.7 > 0.5)
-    signal, meta = strategy.get_signal(df, ai_confidence=0.7)
-    
-    # Має повернути BUY
-    assert signal == SignalAction.BUY, f"Expected BUY, got {signal}. Reason: {meta.reason}"
+    # 0.58 would have been BUY under base 0.55, but with adaptive risk it is rejected (0.58 < 0.61)
+    signal, meta = strategy.get_signal(df, ai_confidence=0.58)
+    assert signal == SignalAction.HOLD
+    assert "Insufficient confidence" in meta.reason

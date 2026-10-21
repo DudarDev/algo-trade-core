@@ -48,16 +48,17 @@ def calculate_metrics(df: pd.DataFrame, initial_balance: float = 1000.0) -> dict
     avg_loss = losses['pnl'].mean() if not losses.empty else 0.0
 
     balance = initial_balance
-    curve = []
+    peak = balance
+    max_dd = 0.0
     for _, r in df.iterrows():
         if r['side'] == 'SELL':
             balance += r['pnl']
-            curve.append(balance)
-    if curve:
-        peak = max(curve)
-        dd = max((peak - b)/peak*100 for b in curve) if peak > 0 else 0.0
-    else:
-        dd = 0.0
+            if balance > peak:
+                peak = balance
+            elif peak > 0:
+                cur_dd = ((peak - balance) / peak) * 100.0
+                if cur_dd > max_dd:
+                    max_dd = cur_dd
 
     return {
         'total_trades': total_trades,
@@ -66,6 +67,6 @@ def calculate_metrics(df: pd.DataFrame, initial_balance: float = 1000.0) -> dict
         'total_pnl': round(total_pnl, 2),
         'avg_win': round(avg_win, 2),
         'avg_loss': round(avg_loss, 2),
-        'max_drawdown': round(dd, 2),
+        'max_drawdown': round(max_dd, 2),
         'balance': round(balance, 2),
     }

@@ -10,7 +10,7 @@ import json
 import shutil
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 
 import ccxt
@@ -71,7 +71,7 @@ class WeeklyRetrainService:
         clean_symbol = symbol.replace("/", "_")
         csv_path = self.history_dir / f"{clean_symbol}_{self.timeframe}.csv"
         
-        since = exchange.parse8601((datetime.utcnow() - timedelta(days=self.history_days)).isoformat())
+        since = exchange.parse8601((datetime.now(timezone.utc) - timedelta(days=self.history_days)).isoformat())
         existing_df = None
         
         if csv_path.exists():
@@ -84,7 +84,7 @@ class WeeklyRetrainService:
             except Exception as e:
                 logger.warning(f"⚠️ Помилка читання наявного {csv_path.name}: {e}. Перезавантажую з нуля.")
 
-        logger.info(f"📥 Завантаження свічок для {symbol} (since={datetime.utcfromtimestamp(since/1000).strftime('%Y-%m-%d %H:%M')})...")
+        logger.info(f"📥 Завантаження свічок для {symbol} (since={datetime.fromtimestamp(since/1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M')})...")
         new_candles = []
         retries = 0
 
@@ -289,7 +289,7 @@ class WeeklyRetrainService:
             return False
 
         # 2. Робимо бекап поточної моделі
-        timestamp_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         if self.target_model_path.exists():
             backup_file = self.backups_dir / f"global_rf_v4_backup_{timestamp_str}.pkl"
             shutil.copy2(self.target_model_path, backup_file)
@@ -308,7 +308,7 @@ class WeeklyRetrainService:
 
         # 4. Зберігаємо історію перенавчань
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "DEPLOYED",
             "metrics": metrics,
             "pairs_count": len(self.pairs),

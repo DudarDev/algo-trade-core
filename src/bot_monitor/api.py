@@ -33,6 +33,10 @@ class StatsSchema(BaseModel):
     profit_factor: float
     win_rate: float
     balance: float
+    free_cash: float = 0.0
+    locked_cash: float = 0.0
+    winning_trades: int = 0
+    losing_trades: int = 0
     error: Optional[str] = None
 
 class BotControlRequest(BaseModel):
@@ -94,8 +98,16 @@ def get_stats(request):
     
     if total_trades == 0:
         return {
-            "total_pnl": 0.0, "total_trades": 0, "profit_factor": 0.0, 
-            "win_rate": 0.0, "balance": round(total_equity, 2), "error": "No trades found yet."
+            "total_pnl": 0.0,
+            "total_trades": 0,
+            "profit_factor": 0.0, 
+            "win_rate": 0.0,
+            "balance": round(total_equity, 2),
+            "free_cash": round(free_balance, 2),
+            "locked_cash": round(locked_balance, 2),
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "error": "No trades found yet."
         }
         
     winning_trades = all_trades.filter(pnl__gt=0).count()
@@ -115,6 +127,10 @@ def get_stats(request):
         "profit_factor": round(profit_factor, 2),
         "win_rate": round(win_rate, 1),
         "balance": round(total_equity, 2),
+        "free_cash": round(free_balance, 2),
+        "locked_cash": round(locked_balance, 2),
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
         "error": None
     }
 

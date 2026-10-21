@@ -1,13 +1,108 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uk" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AlgoTrade Dashboard</title>
+    <title>AlgoTrade Pro • Autonomous AI Quant Terminal</title>
+    
+    <!-- Favicon SVG -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+
+    <!-- Google Fonts: Plus Jakarta Sans + JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- FontAwesome 6 Pro CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            dark: '#090d14',
+                            surface: '#121722',
+                            panel: '#181e2b',
+                            border: '#242c3d',
+                            borderLight: '#323d54',
+                            accent: '#00E676',
+                            accentHover: '#00C853',
+                            danger: '#FF4655',
+                            dangerHover: '#E02435',
+                            warn: '#FFB800',
+                            info: '#00B0FF',
+                            purple: '#A855F7'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #080c13;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #090d14;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #252f40;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3b4861;
+        }
+
+        .mono-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-feature-settings: 'tnum' on, 'zero' on;
+        }
+
+        /* Glow effects */
+        .glow-green {
+            box-shadow: 0 0 15px -2px rgba(0, 230, 118, 0.4);
+        }
+        .glow-red {
+            box-shadow: 0 0 15px -2px rgba(255, 70, 85, 0.4);
+        }
+        .glow-blue {
+            box-shadow: 0 0 15px -2px rgba(0, 176, 255, 0.35);
+        }
+
+        /* Card border gradient */
+        .glass-panel {
+            background: linear-gradient(180deg, rgba(24, 30, 43, 0.95) 0%, rgba(18, 23, 34, 0.95) 100%);
+            border: 1px solid #232a3a;
+            backdrop-filter: blur(12px);
+            border-radius: 12px;
+            box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+        }
+        .glass-panel:hover {
+            border-color: #2f384c;
+        }
+    </style>
 </head>
-<body class="bg-[#0b0e11] text-white font-sans antialiased">
-    <div class="max-w-7xl mx-auto px-4 py-6">
+<body class="antialiased min-h-screen flex flex-col">
+    <div class="flex-1 w-full max-w-[1720px] mx-auto px-3 sm:px-5 py-4">
         {% block content %}{% endblock %}
     </div>
 </body>

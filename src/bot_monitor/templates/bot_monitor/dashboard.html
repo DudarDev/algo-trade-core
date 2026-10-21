@@ -3,223 +3,292 @@
 {% block content %}
 {% csrf_token %}
 
-<style>
-    .mono-font { font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', Courier, monospace; }
-    .pro-panel { 
-        background-color: #1a1e24; 
-        border: 1px solid #282f3a; 
-        border-radius: 10px; 
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); 
-    }
-    .text-profit { color: #00E676; }
-    .text-loss { color: #FF5252; }
-    .bg-profit-soft { background-color: rgba(0, 230, 118, 0.12); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.25); }
-    .bg-loss-soft { background-color: rgba(255, 82, 82, 0.12); color: #FF5252; border: 1px solid rgba(255, 82, 82, 0.25); }
-    .bg-chop-soft { background-color: rgba(140, 150, 165, 0.12); color: #9aa4b2; border: 1px solid rgba(140, 150, 165, 0.2); }
-    
-    /* Skeleton */
-    .skeleton { 
-        background: linear-gradient(90deg, #242b35 25%, #2d3642 50%, #242b35 75%); 
-        background-size: 200% 100%; 
-        animation: loading 1.5s infinite; 
-        color: transparent !important; 
-        border-radius: 4px; 
-    }
-    @keyframes loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+<!-- 🔔 КОНТЕЙНЕР ДЛЯ TOAST СПОВІЩЕНЬ -->
+<div id="toast-container" class="fixed bottom-5 right-5 z-[99999] flex flex-col gap-2.5 pointer-events-none"></div>
 
-    /* Toast */
-    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 99999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { padding: 12px 20px; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; opacity: 0; transform: translateY(20px); transition: all 0.3s ease; box-shadow: 0 8px 24px rgba(0,0,0,0.6); }
-    .toast.show { opacity: 1; transform: translateY(0); }
-    .toast-error { background-color: #D32F2F; border-left: 5px solid #FF5252; }
-    .toast-success { background-color: #2E7D32; border-left: 5px solid #00E676; }
-    .toast-info { background-color: #0288D1; border-left: 5px solid #40C4FF; }
-
-    /* Scrollbars */
-    #terminal-screen { scrollbar-width: thin; scrollbar-color: #3d4654 #0d1117; }
-    #terminal-screen::-webkit-scrollbar { width: 6px; }
-    #terminal-screen::-webkit-scrollbar-track { background: #0d1117; }
-    #terminal-screen::-webkit-scrollbar-thumb { background: #3d4654; border-radius: 3px; }
-
-    /* Pulsing indicators */
-    .pulse-live {
-        box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.7);
-        animation: pulse-green 2s infinite;
-    }
-    @keyframes pulse-green {
-        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 230, 118, 0.7); }
-        70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(0, 230, 118, 0); }
-        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 230, 118, 0); }
-    }
-
-    /* Range slider custom styling */
-    input[type=range] {
-        accent-color: #00E676;
-    }
-</style>
-
-<!-- Контейнер для сповіщень -->
-<div id="toast-container"></div>
-
-<!-- 🌐 ВЕРХНЯ НАВІГАЦІЙНА ПАНЕЛЬ ТА ШВИДКІ ДІЇ -->
-<div class="pro-panel p-4 mb-4 flex flex-wrap items-center justify-between gap-4">
-    <div class="flex items-center gap-3">
-        <div class="w-3 h-3 rounded-full bg-[#00E676] pulse-live"></div>
+<!-- 🌐 1. TOPBAR: БРЕНД, ТЕЛЕМЕТРІЯ, РЕАЛЬНИЙ ЧАС ТА ШВИДКІ ДІЇ -->
+<header class="glass-panel px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3 border-brand-border">
+    <!-- Логотип та статус системи -->
+    <div class="flex items-center gap-3.5">
+        <div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-accent/20 to-blue-500/20 border border-brand-accent/40 shadow-inner">
+            <i class="fa-solid fa-bolt text-brand-accent text-lg"></i>
+            <span class="absolute -top-1 -right-1 w-3 h-3 bg-brand-accent rounded-full animate-ping opacity-75"></span>
+            <span class="absolute -top-1 -right-1 w-3 h-3 bg-brand-accent rounded-full"></span>
+        </div>
         <div>
-            <h1 class="text-lg font-bold text-white tracking-wide flex items-center gap-2">
-                AlgoTrade Core <span class="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-mono">v4.0 Senior</span>
-            </h1>
-            <p class="text-xs text-gray-400">Autonomous AI Quant Scalper • Binance Spot</p>
+            <div class="flex items-center gap-2">
+                <h1 class="text-base font-extrabold tracking-tight text-white flex items-center gap-1.5">
+                    AlgoTrade <span class="text-brand-accent font-black">PRO</span>
+                </h1>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                    CORE v4.0
+                </span>
+                <span id="latency-badge" class="px-2 py-0.5 rounded text-[10px] font-mono text-gray-400 bg-black/40 border border-gray-800 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-brand-accent"></span> <span id="ping-val">12ms</span>
+                </span>
+            </div>
+            <p class="text-[11px] text-gray-400 font-medium">Autonomous Multi-Agent AI Quant Scalper • Binance Spot</p>
         </div>
     </div>
 
-    <!-- Годинник та швидкі дії -->
+    <!-- Тікер-стрічка популярних активів (Mini Live Ticker) -->
+    <div class="hidden xl:flex items-center gap-4 px-3 py-1.5 rounded-lg bg-black/30 border border-brand-border text-xs font-mono">
+        <div class="flex items-center gap-1.5">
+            <span class="text-gray-400">BTC</span>
+            <span id="ticker-btc" class="text-white font-bold">$...</span>
+        </div>
+        <span class="text-gray-600">|</span>
+        <div class="flex items-center gap-1.5">
+            <span class="text-gray-400">ETH</span>
+            <span id="ticker-eth" class="text-white font-bold">$...</span>
+        </div>
+        <span class="text-gray-600">|</span>
+        <div class="flex items-center gap-1.5">
+            <span class="text-gray-400">SOL</span>
+            <span id="ticker-sol" class="text-white font-bold">$...</span>
+        </div>
+    </div>
+
+    <!-- Годинники та панель швидких дій -->
     <div class="flex items-center flex-wrap gap-2">
-        <div class="text-xs font-mono bg-[#12161c] px-3 py-1.5 rounded border border-[#282f3a] text-gray-400">
-            UTC: <span id="clock-utc" class="text-white font-bold">--:--:--</span>
+        <div class="text-[11px] font-mono bg-black/40 px-3 py-1.5 rounded-lg border border-brand-border text-gray-400 flex items-center gap-2">
+            <span><i class="fa-regular fa-clock text-gray-500"></i> UTC: <span id="clock-utc" class="text-white font-bold">--:--:--</span></span>
         </div>
-        <button id="btn-open-settings" class="px-3 py-1.5 rounded bg-[#252b36] hover:bg-[#313946] text-xs font-semibold text-gray-200 border border-[#3b4453] transition flex items-center gap-1.5 shadow">
-            ⚙️ Налаштування ШІ
+
+        <!-- Звуковий перемикач -->
+        <button id="btn-toggle-sound" title="Увімкнути/вимкнути аудіо-сповіщення" class="w-8 h-8 rounded-lg bg-brand-panel hover:bg-brand-border text-gray-300 border border-brand-border flex items-center justify-center text-xs transition">
+            <i class="fa-solid fa-volume-high text-brand-accent" id="sound-icon"></i>
         </button>
-        <button id="btn-panic-all" class="px-3 py-1.5 rounded bg-red-950/40 hover:bg-red-900/60 text-xs font-semibold text-red-400 border border-red-800/40 transition flex items-center gap-1.5 shadow">
-            🛑 Panic Close All
+
+        <!-- Налаштування ШІ -->
+        <button id="btn-open-settings" class="px-3 py-1.5 rounded-lg bg-brand-panel hover:bg-brand-border text-xs font-bold text-gray-200 border border-brand-border transition flex items-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-sliders text-blue-400"></i> Налаштування ШІ
         </button>
-        <button id="btn-export-csv" class="px-3 py-1.5 rounded bg-[#252b36] hover:bg-[#313946] text-xs font-semibold text-gray-200 border border-[#3b4453] transition flex items-center gap-1.5 shadow">
-            📥 CSV
+
+        <!-- Panic Exit -->
+        <button id="btn-panic-all" class="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-xs font-bold text-red-400 border border-red-800/40 transition flex items-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-triangle-exclamation"></i> Panic Sell All
         </button>
-        <button id="btn-reset-account" class="px-3 py-1.5 rounded bg-yellow-950/30 hover:bg-yellow-900/40 text-xs font-semibold text-yellow-500 border border-yellow-700/30 transition flex items-center gap-1.5 shadow">
-            🔄 Скинути $1000
+
+        <!-- Експорт CSV -->
+        <button id="btn-export-csv" class="px-3 py-1.5 rounded-lg bg-brand-panel hover:bg-brand-border text-xs font-bold text-gray-200 border border-brand-border transition flex items-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-file-csv text-green-400"></i> CSV
+        </button>
+
+        <!-- Скидання депозиту -->
+        <button id="btn-reset-account" class="px-3 py-1.5 rounded-lg bg-amber-950/30 hover:bg-amber-900/40 text-xs font-bold text-amber-400 border border-amber-700/30 transition flex items-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-rotate-left"></i> Скинути $1000
         </button>
     </div>
-</div>
+</header>
 
-<!-- 📊 МЕТРИКИ КАПІТАЛУ ТА ЕФЕКТИВНОСТІ -->
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-    <!-- Баланс / Капітал -->
-    <div class="pro-panel p-4">
-        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Equity</div>
-        <div class="text-2xl font-bold text-white mono-font skeleton" id="metric-balance">$0.00</div>
-        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
+<!-- 📊 2. EXECUTIVE KPI CARDS (КАРТКИ ГОЛОВНИХ МЕТРИК) -->
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 mb-4">
+    <!-- Картка 1: Загальний баланс / Equity -->
+    <div class="glass-panel p-4 relative overflow-hidden group">
+        <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Total Equity (USDT)</span>
+            <i class="fa-solid fa-wallet text-gray-500 group-hover:text-brand-accent transition"></i>
+        </div>
+        <div class="text-2xl font-extrabold text-white mono-num skeleton tracking-tight" id="metric-balance">$0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between border-t border-brand-border/60 pt-2">
             <span>Free Cash:</span>
-            <span id="metric-free-cash" class="text-gray-300 mono-font font-semibold">$0.00</span>
+            <span id="metric-free-cash" class="text-gray-200 mono-num font-bold">$0.00</span>
         </div>
     </div>
 
-    <!-- Загальний реалізований PnL -->
-    <div class="pro-panel p-4">
-        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Realized PnL</div>
-        <div class="text-2xl font-bold mono-font skeleton" id="metric-pnl">$0.00</div>
-        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
-            <span>Executed Trades:</span>
-            <span id="metric-trades-count" class="text-gray-300 mono-font font-semibold">0</span>
+    <!-- Картка 2: Реалізований PnL -->
+    <div class="glass-panel p-4 relative overflow-hidden group">
+        <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Realized PnL</span>
+            <i class="fa-solid fa-chart-line text-gray-500 group-hover:text-blue-400 transition"></i>
+        </div>
+        <div class="text-2xl font-extrabold mono-num skeleton tracking-tight" id="metric-pnl">$0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between border-t border-brand-border/60 pt-2">
+            <span>Закритих угод:</span>
+            <span id="metric-trades-count" class="text-gray-200 mono-num font-bold">0</span>
         </div>
     </div>
 
-    <!-- Плаваючий PnL (Unrealized) -->
-    <div class="pro-panel p-4">
-        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Floating PnL</div>
-        <div class="text-2xl font-bold mono-font skeleton text-gray-300" id="metric-unrealized-pnl">$0.00</div>
-        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
-            <span>Open Positions:</span>
-            <span id="metric-open-count" class="text-blue-400 mono-font font-semibold">0</span>
+    <!-- Картка 3: Плаваючий PnL відкритих угод -->
+    <div class="glass-panel p-4 relative overflow-hidden group">
+        <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Unrealized PnL</span>
+            <i class="fa-solid fa-wave-square text-gray-500 group-hover:text-purple-400 transition"></i>
+        </div>
+        <div class="text-2xl font-extrabold mono-num skeleton tracking-tight text-gray-300" id="metric-unrealized-pnl">$0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between border-t border-brand-border/60 pt-2">
+            <span>Відкритих позицій:</span>
+            <span id="metric-open-count" class="text-blue-400 mono-num font-bold">0</span>
         </div>
     </div>
-        
-    <!-- Profit Factor -->
-    <div class="pro-panel p-4 relative overflow-hidden">
-        <div id="pf-bar" class="absolute right-0 top-0 w-1.5 h-full bg-gray-600 transition-all duration-500"></div>
-        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Profit Factor</div>
-        <div id="metric-pf" class="text-2xl font-bold mono-font skeleton text-white">0.00</div>
-        <div class="text-[11px] text-gray-400 mt-2">Target Benchmark: &gt; 1.50</div>
-    </div>
 
-    <!-- Win Rate -->
-    <div class="pro-panel p-4">
-        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Win Rate</div>
-        <div class="text-2xl font-bold mono-font skeleton text-white" id="metric-winrate">0.0%</div>
-        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between">
-            <span>Accuracy:</span>
-            <span id="metric-wl-ratio" class="text-gray-300 mono-font font-semibold">0W / 0L</span>
+    <!-- Картка 4: Profit Factor -->
+    <div class="glass-panel p-4 relative overflow-hidden group">
+        <div id="pf-indicator-bar" class="absolute top-0 right-0 w-1.5 h-full bg-gray-700 transition-all duration-500"></div>
+        <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Profit Factor</span>
+            <i class="fa-solid fa-trophy text-gray-500 group-hover:text-amber-400 transition"></i>
+        </div>
+        <div class="text-2xl font-extrabold text-white mono-num skeleton tracking-tight" id="metric-pf">0.00</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between border-t border-brand-border/60 pt-2">
+            <span>Target Benchmark:</span>
+            <span class="text-brand-accent font-bold mono-num">&gt; 1.50</span>
         </div>
     </div>
-</div>
 
-<!-- 🎮 СИСТЕМНИЙ КОНТРОЛЬ СТАТУСУ -->
-<div class="pro-panel p-4 mb-4 flex flex-wrap items-center justify-between gap-4 bg-[#14181f]">
+    <!-- Картка 5: Win Rate -->
+    <div class="glass-panel p-4 relative overflow-hidden group">
+        <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Win Rate (Точність)</span>
+            <i class="fa-solid fa-bullseye text-gray-500 group-hover:text-green-400 transition"></i>
+        </div>
+        <div class="text-2xl font-extrabold text-white mono-num skeleton tracking-tight" id="metric-winrate">0.0%</div>
+        <div class="text-[11px] text-gray-400 mt-2 flex items-center justify-between border-t border-brand-border/60 pt-2">
+            <span>Співвідношення:</span>
+            <span id="metric-wl-ratio" class="text-gray-200 mono-num font-bold">0W / 0L</span>
+        </div>
+    </div>
+</section>
+
+<!-- 🎮 3. ПАНЕЛЬ СТАНУ РУШІЯ ТА КЕРУВАННЯ -->
+<section class="glass-panel p-3.5 mb-4 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-brand-surface to-brand-panel border-brand-border">
     <div class="flex items-center gap-3">
-        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Engine Status:</span>
-        <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-gray-700 text-gray-400 border border-gray-600 transition-all duration-300">
-            CONNECTING...
+        <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Статус рушія:</span>
+            <div id="bot-status-badge" class="px-3 py-1 rounded-full text-xs font-extrabold bg-gray-800 text-gray-400 border border-gray-700 flex items-center gap-1.5 transition-all">
+                <i class="fa-solid fa-circle text-[8px] animate-pulse"></i> ПІДКЛЮЧЕННЯ...
+            </div>
         </div>
-        <div class="text-xs text-gray-400 hidden sm:block">
-            • AI Model: <span class="text-gray-300 font-mono font-semibold">RandomForest v4 (Calibrated)</span>
+        <div class="hidden md:flex items-center gap-2 pl-3 border-l border-brand-border text-xs text-gray-400 font-mono">
+            <span>Стратегія: <strong class="text-white">Hybrid Quantitative Scalper</strong></span>
+            <span>•</span>
+            <span>Таймфрейм: <strong class="text-brand-accent">5m</strong></span>
+            <span>•</span>
+            <span id="current-strategy-summary" class="text-blue-400">Conf: 0.30 | RR: 1.5 | MaxPos: 3</span>
         </div>
     </div>
-    <div class="flex gap-2">
-        <button data-action="start" disabled class="bot-control-btn px-5 py-2 bg-[#00E676] hover:bg-[#00C853] text-black text-xs font-bold rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md flex items-center gap-1.5">
-            ▶ СТАРТ ТОРГІВЛІ
-        </button>
-        <button data-action="stop" disabled class="bot-control-btn px-5 py-2 bg-[#FF5252] hover:bg-[#D32F2F] text-white text-xs font-bold rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md flex items-center gap-1.5">
-            ⏸ ЗУПИНИТИ БОТА
-        </button>
-    </div>
-</div>
 
-<!-- 🔥 ВІДКРИТІ ПОЗИЦІЇ (ACTIVE POSITIONS) -->
-<div class="pro-panel overflow-hidden mb-4">
-    <div class="px-4 py-3 border-b border-[#282f3a] bg-[#161a22] flex justify-between items-center">
-        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
-            Активні позиції (Live Positions)
-        </h3>
-        <span id="active-positions-badge" class="text-xs px-2.5 py-0.5 rounded-full font-mono bg-[#232934] text-gray-300">
+    <!-- Кнопки керування -->
+    <div class="flex items-center gap-2">
+        <button data-action="start" disabled class="bot-control-btn px-5 py-2 bg-brand-accent hover:bg-brand-accentHover text-brand-dark text-xs font-black rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg flex items-center gap-2">
+            <i class="fa-solid fa-play"></i> СТАРТ ТОРГІВЛІ
+        </button>
+        <button data-action="stop" disabled class="bot-control-btn px-5 py-2 bg-brand-danger hover:bg-brand-dangerHover text-white text-xs font-black rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg flex items-center gap-2">
+            <i class="fa-solid fa-pause"></i> ЗУПИНИТИ БОТА
+        </button>
+    </div>
+</section>
+
+<!-- 🔥 4. ВІДКРИТІ ПОЗИЦІЇ (LIVE ACTIVE POSITIONS) -->
+<section class="glass-panel overflow-hidden mb-4 border-brand-border">
+    <div class="px-4 py-3 border-b border-brand-border bg-[#141a24] flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+            <h2 class="text-xs font-extrabold text-white uppercase tracking-wider">
+                Активні позиції (Live Positions)
+            </h2>
+        </div>
+        <span id="active-positions-badge" class="text-xs px-2.5 py-0.5 rounded-full font-mono font-bold bg-brand-panel text-gray-300 border border-brand-border">
             0 угод
         </span>
     </div>
     <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
-            <thead class="bg-[#12161c] text-[11px] uppercase text-gray-400 font-semibold border-b border-[#282f3a]">
+            <thead class="bg-[#0f131a] text-[11px] uppercase text-gray-400 font-bold border-b border-brand-border">
                 <tr>
-                    <th class="px-4 py-3">Пара</th>
-                    <th class="px-4 py-3">Напрямок</th>
+                    <th class="px-4 py-3">Торгова пара</th>
+                    <th class="px-4 py-3">Тип</th>
                     <th class="px-4 py-3">Ціна входу</th>
                     <th class="px-4 py-3">Поточна ціна</th>
-                    <th class="px-4 py-3">Об'єм (USDT)</th>
-                    <th class="px-4 py-3">Unrealized PnL</th>
+                    <th class="px-4 py-3">Розмір (USDT)</th>
+                    <th class="px-4 py-3">Floating PnL</th>
                     <th class="px-4 py-3">Пік (Trailing)</th>
                     <th class="px-4 py-3">Час входу</th>
-                    <th class="px-4 py-3 text-right">Дія</th>
+                    <th class="px-4 py-3 text-right">Керування</th>
                 </tr>
             </thead>
-            <tbody id="active-positions-table-body" class="divide-y divide-[#282f3a] text-gray-300 mono-font">
+            <tbody id="active-positions-table-body" class="divide-y divide-brand-border text-gray-300 mono-num">
                 <tr>
                     <td colspan="9" class="px-4 py-8 text-center text-gray-500 font-sans">
                         <div class="flex flex-col items-center justify-center gap-2">
-                            <span class="text-2xl opacity-60">📡</span>
-                            <span>Немає активних угод. ШІ сканує ринок та очікує підтвердження сигналу.</span>
+                            <i class="fa-solid fa-radar text-2xl text-gray-600 animate-spin" style="animation-duration: 6s;"></i>
+                            <span class="text-xs">Немає відкритих угод. ШІ сканує ринок та очікує виконання умов стратегії.</span>
                         </div>
                     </td>
                 </tr>
             </tbody>
         </table>
     </div>
-</div>
+</section>
 
-<!-- 📡 ЖИВИЙ РАДАР СКАНЕРА РИНКУ ШІ (AI MARKET RADAR) -->
-<div class="pro-panel overflow-hidden mb-4">
-    <div class="px-4 py-3 border-b border-[#282f3a] bg-[#161a22] flex justify-between items-center cursor-pointer" id="toggle-radar-btn">
-        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-            <span>🛰️</span>
-            Радар ШІ: Топ-20 волатильних пар ринку (Live Market Scanner)
-        </h3>
-        <div class="flex items-center gap-2">
-            <span id="radar-updated-time" class="text-[11px] text-gray-400 font-mono">Оновлено: --:--:--</span>
-            <span class="text-xs text-gray-400" id="radar-toggle-icon">▼</span>
+<!-- 📈 5. ГРАФІЧНИЙ ЦЕНТР: TRADINGVIEW ТА CUMULATIVE PNL -->
+<section class="glass-panel p-4 mb-4 border-brand-border">
+    <div class="border-b border-brand-border pb-3 mb-3 flex flex-wrap justify-between items-center gap-3">
+        <!-- Таби графіків -->
+        <div class="flex items-center gap-2" id="chart-tabs">
+            <button data-tab="tv" class="chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-brand-accent text-brand-dark transition shadow-md flex items-center gap-1.5">
+                <i class="fa-solid fa-chart-candlestick"></i> Свічковий графік (TradingView)
+            </button>
+            <button data-tab="pnl" class="chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-brand-panel hover:bg-brand-border text-gray-300 border border-brand-border transition shadow-sm flex items-center gap-1.5">
+                <i class="fa-solid fa-chart-area"></i> Кумулятивний PnL ШІ
+            </button>
+        </div>
+
+        <!-- Швидкі кнопки перемикання популярних пар у TradingView -->
+        <div class="flex items-center gap-1.5 overflow-x-auto py-1">
+            <span class="text-[11px] text-gray-500 font-mono mr-1">Пара:</span>
+            <button onclick="window.dashboardApp.initTradingViewWidget('BINANCE:BTCUSDT')" class="tv-quick-symbol px-2.5 py-1 rounded bg-black/40 hover:bg-brand-border text-[11px] font-mono text-gray-300 border border-brand-border transition">BTC</button>
+            <button onclick="window.dashboardApp.initTradingViewWidget('BINANCE:ETHUSDT')" class="tv-quick-symbol px-2.5 py-1 rounded bg-black/40 hover:bg-brand-border text-[11px] font-mono text-gray-300 border border-brand-border transition">ETH</button>
+            <button onclick="window.dashboardApp.initTradingViewWidget('BINANCE:SOLUSDT')" class="tv-quick-symbol px-2.5 py-1 rounded bg-black/40 hover:bg-brand-border text-[11px] font-mono text-gray-300 border border-brand-border transition">SOL</button>
+            <button onclick="window.dashboardApp.initTradingViewWidget('BINANCE:THETAUSDT')" class="tv-quick-symbol px-2.5 py-1 rounded bg-black/40 hover:bg-brand-border text-[11px] font-mono text-gray-300 border border-brand-border transition">THETA</button>
+            <button onclick="window.dashboardApp.initTradingViewWidget('BINANCE:BMTUSDT')" class="tv-quick-symbol px-2.5 py-1 rounded bg-black/40 hover:bg-brand-border text-[11px] font-mono text-gray-300 border border-brand-border transition">BMT</button>
         </div>
     </div>
-    <div id="radar-container" class="overflow-x-auto max-h-72 overflow-y-auto">
+
+    <!-- Контейнер свічкового графіка TradingView -->
+    <div id="tab-content-tv" style="position: relative; height: 440px; width: 100%;">
+        <div id="tradingview_widget" class="w-full h-full rounded-lg overflow-hidden border border-brand-border/60"></div>
+    </div>
+
+    <!-- Контейнер кривої PnL -->
+    <div id="tab-content-pnl" class="hidden" style="position: relative; height: 440px; width: 100%;">
+        <canvas id="pnlChart"></canvas>
+    </div>
+</section>
+
+<!-- 🛰️ 6. ЖИВИЙ РАДАР РИНКУ ШІ (AI MARKET SCANNER RADAR) -->
+<section class="glass-panel overflow-hidden mb-4 border-brand-border">
+    <div class="px-4 py-3 border-b border-brand-border bg-[#141a24] flex flex-wrap justify-between items-center gap-2">
+        <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-brand-accent"></span>
+            <h2 class="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span>🛰️</span> Радар ринку ШІ: Топ-20 волатильних пар (Market Scanner)
+            </h2>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- Пошуковий фільтр -->
+            <div class="relative">
+                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2 text-gray-500 text-[10px]"></i>
+                <input type="text" id="radar-search" placeholder="Пошук монети..." class="bg-black/40 border border-brand-border rounded-lg pl-7 pr-2.5 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-brand-accent font-mono w-32 sm:w-44">
+            </div>
+
+            <!-- Фільтри режимів -->
+            <div class="hidden sm:flex items-center gap-1 text-[11px]" id="radar-regime-filters">
+                <button data-filter="ALL" class="radar-filter-btn px-2.5 py-0.5 rounded font-bold bg-brand-accent text-brand-dark">Всі</button>
+                <button data-filter="BULL_MARKET" class="radar-filter-btn px-2.5 py-0.5 rounded text-gray-400 hover:text-white bg-black/40 border border-brand-border">Bull</button>
+                <button data-filter="BEAR_MARKET" class="radar-filter-btn px-2.5 py-0.5 rounded text-gray-400 hover:text-white bg-black/40 border border-brand-border">Bear</button>
+                <button data-filter="CHOPPY_FLAT" class="radar-filter-btn px-2.5 py-0.5 rounded text-gray-400 hover:text-white bg-black/40 border border-brand-border">Chop</button>
+            </div>
+
+            <span id="radar-updated-time" class="text-[11px] text-gray-400 font-mono">Оновлено: --:--:--</span>
+        </div>
+    </div>
+    
+    <div id="radar-container" class="overflow-x-auto max-h-80 overflow-y-auto">
         <table class="w-full text-left text-xs">
-            <thead class="bg-[#12161c] text-[11px] uppercase text-gray-400 font-semibold border-b border-[#282f3a] sticky top-0 z-10">
+            <thead class="bg-[#0f131a] text-[11px] uppercase text-gray-400 font-bold border-b border-brand-border sticky top-0 z-10">
                 <tr>
                     <th class="px-4 py-2.5">Символ</th>
                     <th class="px-4 py-2.5">Ціна</th>
@@ -231,158 +300,214 @@
                     <th class="px-4 py-2.5">Аналітичне обґрунтування</th>
                 </tr>
             </thead>
-            <tbody id="market-radar-table-body" class="divide-y divide-[#282f3a] text-gray-300 mono-font">
+            <tbody id="market-radar-table-body" class="divide-y divide-brand-border text-gray-300 mono-num">
                 <tr>
                     <td colspan="8" class="px-4 py-6 text-center text-gray-500 font-sans">
-                        Збір даних сканера ринку...
+                        Отримання свіжих даних сканування біржі...
                     </td>
                 </tr>
             </tbody>
         </table>
     </div>
-</div>
+</section>
 
-<!-- 📈 ГРАФІКИ: CUMULATIVE PNL ТА TRADINGVIEW CANDLESTICKS -->
-<div class="pro-panel p-4 mb-4">
-    <div class="border-b border-[#282f3a] pb-3 mb-3 flex flex-wrap justify-between items-center gap-2">
-        <div class="flex gap-2" id="chart-tabs">
-            <button data-tab="pnl" class="chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#00E676] text-black transition shadow">
-                📈 Кумулятивний PnL ШІ
-            </button>
-            <button data-tab="tv" class="chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#252b36] hover:bg-[#313946] text-gray-300 border border-[#3b4453] transition shadow">
-                🕯️ Біржовий свічковий графік (TradingView)
-            </button>
-        </div>
-        <div class="text-xs text-gray-400 font-mono">
-            Timeframe: <span class="text-white font-semibold">5m</span> • Exchange: <span class="text-white font-semibold">Binance Spot</span>
-        </div>
-    </div>
-
-    <!-- Вкладка 1: PnL Curve -->
-    <div id="tab-content-pnl" style="position: relative; height: 320px; width: 100%;">
-        <canvas id="pnlChart"></canvas>
-    </div>
-
-    <!-- Вкладка 2: TradingView Widget -->
-    <div id="tab-content-tv" class="hidden" style="position: relative; height: 420px; width: 100%;">
-        <div id="tradingview_widget" style="height: 100%; width: 100%;"></div>
-    </div>
-</div>
-
-<!-- 📜 ІСТОРІЯ УГОД -->
-<div class="pro-panel overflow-hidden mb-4">
-    <div class="px-4 py-3 border-b border-[#282f3a] bg-[#161a22] flex justify-between items-center">
-        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-            <span>📋</span>
-            Історія виконаних угод (Trade History)
-        </h3>
-        <span class="text-xs text-gray-400" id="trades-history-count">0 угод</span>
-    </div>
-    <div class="overflow-x-auto max-h-80 overflow-y-auto">
-        <table class="w-full text-left text-xs">
-            <thead class="bg-[#12161c] text-[11px] uppercase text-gray-400 font-semibold border-b border-[#282f3a] sticky top-0 z-10">
-                <tr>
-                    <th class="px-4 py-3">Час</th>
-                    <th class="px-4 py-3">Пара</th>
-                    <th class="px-4 py-3">Тип</th>
-                    <th class="px-4 py-3">Ціна</th>
-                    <th class="px-4 py-3">Кількість</th>
-                    <th class="px-4 py-3">Об'єм (USDT)</th>
-                    <th class="px-4 py-3 text-right">Чистий PnL</th>
-                </tr>
-            </thead>
-            <tbody id="trades-table-body" class="divide-y divide-[#282f3a] text-gray-300 mono-font">
-                <tr>
-                    <td colspan="7" class="px-4 py-8 text-center text-gray-500 font-sans">
-                        Угод поки не зафіксовано.
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- 💻 РЕАЛЬНИЙ ТЕРМІНАЛ ЛОГІВ РУШІЯ (LIVE ENGINE LOGS) -->
-<div class="pro-panel overflow-hidden mb-6">
-    <div class="px-4 py-3 border-b border-[#282f3a] flex flex-wrap justify-between items-center bg-[#161a22] gap-2">
-        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-[#00E676] animate-pulse"></span>
-            Живий потік логів ядра (Real-Time Engine Stream)
-        </h3>
-        <div class="flex items-center gap-2">
-            <label class="text-[11px] text-gray-400 flex items-center gap-1 cursor-pointer">
-                <input type="checkbox" id="autoscroll-toggle" checked class="rounded bg-[#282f3a] text-green-500">
-                Auto-scroll
-            </label>
-            <button id="btn-clear-terminal" class="px-2.5 py-1 text-[11px] rounded bg-[#242933] hover:bg-[#2d3441] text-gray-400 border border-[#373f4e]">
-                Clear
-            </button>
-        </div>
-    </div>
-    <div class="bg-[#0b0e14] p-4 h-64 overflow-y-auto font-mono text-xs" id="terminal-screen" style="box-shadow: inset 0 0 20px rgba(0,0,0,0.9);">
-        <!-- Рендеряться живі логи через API -->
-    </div>
-</div>
-
-<!-- ⚙️ МОДАЛЬНЕ ВІКНО НАЛАШТУВАНЬ СТРАТЕГІЇ -->
-<div id="settings-modal" class="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4 hidden backdrop-blur-sm">
-    <div class="pro-panel w-full max-w-lg p-6 bg-[#1a1e26] border border-[#3b4455] shadow-2xl rounded-xl">
-        <div class="flex justify-between items-center border-b border-[#282f3a] pb-3 mb-4">
-            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                ⚙️ Параметри стратегії ШІ (Live Tuning)
+<!-- 📋 7. ІСТОРІЯ УГОД (TRADE HISTORY) ТА ТЕЛЕМЕТРІЯ -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+    <!-- Ліва частина (2/3): Таблиця історії угод -->
+    <section class="glass-panel overflow-hidden lg:col-span-2 border-brand-border">
+        <div class="px-4 py-3 border-b border-brand-border bg-[#141a24] flex justify-between items-center">
+            <h2 class="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                <i class="fa-solid fa-list-check text-gray-400"></i> Історія виконаних угод (History)
             </h2>
-            <button id="btn-close-settings" class="text-gray-400 hover:text-white text-lg font-bold">&times;</button>
+            <span class="text-xs text-gray-400 font-mono" id="trades-history-count">0 угод</span>
+        </div>
+        <div class="overflow-x-auto max-h-80 overflow-y-auto">
+            <table class="w-full text-left text-xs">
+                <thead class="bg-[#0f131a] text-[11px] uppercase text-gray-400 font-bold border-b border-brand-border sticky top-0 z-10">
+                    <tr>
+                        <th class="px-4 py-2.5">Час</th>
+                        <th class="px-4 py-2.5">Пара</th>
+                        <th class="px-4 py-2.5">Тип</th>
+                        <th class="px-4 py-2.5">Ціна</th>
+                        <th class="px-4 py-2.5">Кількість</th>
+                        <th class="px-4 py-2.5">Об'єм</th>
+                        <th class="px-4 py-2.5 text-right">Чистий PnL</th>
+                    </tr>
+                </thead>
+                <tbody id="trades-table-body" class="divide-y divide-brand-border text-gray-300 mono-num">
+                    <tr>
+                        <td colspan="7" class="px-4 py-8 text-center text-gray-500 font-sans">
+                            Історія угод порожня.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Права частина (1/3): Картка квант-метрик та розподілу ризиків -->
+    <section class="glass-panel p-4 flex flex-col justify-between border-brand-border">
+        <div>
+            <div class="border-b border-brand-border pb-2.5 mb-3 flex items-center justify-between">
+                <h3 class="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <i class="fa-solid fa-shield-halved text-brand-accent"></i> Квант-профіль ризику
+                </h3>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-brand-accent/20 text-brand-accent font-bold">OPTIMAL</span>
+            </div>
+            
+            <div class="space-y-3 text-xs">
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">ШІ Модель:</span>
+                    <span class="font-bold text-white font-mono">Calibrated RF (ROC-AUC 0.71)</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">Базовий поріг входу:</span>
+                    <span class="font-bold text-brand-accent font-mono" id="label-conf-thresh">0.30 (55.7% WR)</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">Цільовий Risk/Reward:</span>
+                    <span class="font-bold text-blue-400 font-mono" id="label-rr-ratio">1 : 1.50</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">Динамічний Trailing Stop:</span>
+                    <span class="font-bold text-emerald-400 font-mono">2.0 ATR offset</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">Біржова комісія (Maker/Taker):</span>
+                    <span class="font-bold text-gray-300 font-mono">0.10% (врахована)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-brand-border bg-black/20 p-3 rounded-lg">
+            <div class="flex items-center gap-2 text-xs font-semibold text-gray-300 mb-1.5">
+                <i class="fa-solid fa-microchip text-brand-accent"></i>
+                <span>Системний воркер:</span>
+            </div>
+            <p class="text-[11px] text-gray-400 leading-relaxed font-sans">
+                Асинхронний циклічний сканер виконує інференс кожні 60 секунд по 20 парах. Паралельний монітор перевіряє Stop Loss / Take Profit кожні 10 секунд.
+            </p>
+        </div>
+    </section>
+</div>
+
+<!-- 💻 8. СИСТЕМНИЙ ТЕРМІНАЛ ЛОГІВ ЯДРА (LIVE REAL ENGINE LOGS) -->
+<section class="glass-panel overflow-hidden mb-6 border-brand-border">
+    <div class="px-4 py-3 border-b border-brand-border flex flex-wrap justify-between items-center bg-[#141a24] gap-2">
+        <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-brand-accent animate-pulse"></span>
+            <h2 class="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-terminal text-gray-400"></i> Живий потік системних логів (Real-Time Terminal)
+            </h2>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- Фільтри логів -->
+            <div class="flex items-center gap-1 text-[11px]">
+                <button data-log-filter="ALL" class="log-filter-btn px-2.5 py-0.5 rounded font-bold bg-brand-accent text-brand-dark">Всі</button>
+                <button data-log-filter="TRADES" class="log-filter-btn px-2.5 py-0.5 rounded text-gray-400 hover:text-white bg-black/40 border border-brand-border">Угоди</button>
+                <button data-log-filter="WARN" class="log-filter-btn px-2.5 py-0.5 rounded text-gray-400 hover:text-white bg-black/40 border border-brand-border">Помилки</button>
+            </div>
+
+            <!-- Автоскрол -->
+            <label class="text-[11px] text-gray-400 flex items-center gap-1.5 cursor-pointer select-none">
+                <input type="checkbox" id="autoscroll-toggle" checked class="rounded bg-brand-panel text-brand-accent focus:ring-0">
+                <span>Auto-scroll</span>
+            </label>
+
+            <!-- Очищення -->
+            <button id="btn-clear-terminal" class="px-2.5 py-1 text-[11px] rounded bg-brand-panel hover:bg-brand-border text-gray-300 border border-brand-border transition">
+                <i class="fa-solid fa-eraser"></i> Очистити
+            </button>
+        </div>
+    </div>
+    
+    <div class="bg-[#070a0f] p-4 h-64 overflow-y-auto font-mono text-xs leading-relaxed" id="terminal-screen" style="box-shadow: inset 0 0 25px rgba(0,0,0,0.95);">
+        <!-- Справжні логи стрімляться через API -->
+    </div>
+</section>
+
+<!-- ⚙️ 9. МОДАЛЬНЕ ВІКНО НАЛАШТУВАНЬ СТРАТЕГІЇ (LIVE SETTINGS & PRESETS) -->
+<div id="settings-modal" class="fixed inset-0 bg-black/80 z-[9999] flex items-center justify-center p-4 hidden backdrop-blur-md">
+    <div class="glass-panel w-full max-w-xl p-6 bg-[#141923] border border-[#303a4c] shadow-2xl rounded-2xl">
+        <div class="flex justify-between items-center border-b border-brand-border pb-3.5 mb-4">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-sliders text-brand-accent text-lg"></i>
+                <h2 class="text-sm font-extrabold text-white uppercase tracking-wider">
+                    Параметри квант-стратегії (Live Tuning)
+                </h2>
+            </div>
+            <button id="btn-close-settings" class="text-gray-400 hover:text-white text-xl font-bold w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition">&times;</button>
+        </div>
+
+        <!-- Пресети стратегій -->
+        <div class="mb-4">
+            <label class="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">Швидкі пресети стратегії:</label>
+            <div class="grid grid-cols-3 gap-2">
+                <button type="button" onclick="window.dashboardApp.applyPreset('aggressive')" class="px-2.5 py-2 rounded-lg bg-black/40 hover:bg-brand-border border border-brand-border text-left transition">
+                    <div class="text-[11px] font-bold text-amber-400">⚡ Агресивний</div>
+                    <div class="text-[10px] text-gray-400">Conf: 0.26 | 5 поз.</div>
+                </button>
+                <button type="button" onclick="window.dashboardApp.applyPreset('balanced')" class="px-2.5 py-2 rounded-lg bg-brand-accent/10 border border-brand-accent/40 text-left transition">
+                    <div class="text-[11px] font-bold text-brand-accent">⚖️ Оптимальний</div>
+                    <div class="text-[10px] text-gray-300">Conf: 0.30 | 55.7% WR</div>
+                </button>
+                <button type="button" onclick="window.dashboardApp.applyPreset('sniper')" class="px-2.5 py-2 rounded-lg bg-black/40 hover:bg-brand-border border border-brand-border text-left transition">
+                    <div class="text-[11px] font-bold text-blue-400">🎯 Снайпер</div>
+                    <div class="text-[10px] text-gray-400">Conf: 0.35 | 75% WR</div>
+                </button>
+            </div>
         </div>
 
         <form id="settings-form" class="space-y-4 text-xs">
             <!-- Confidence Threshold -->
             <div>
                 <div class="flex justify-between items-center mb-1">
-                    <label class="text-gray-300 font-semibold">Поріг впевненості ШІ (Confidence Threshold):</label>
-                    <span id="val-conf-threshold" class="font-mono text-[#00E676] font-bold text-sm">0.30</span>
+                    <label class="text-gray-300 font-bold">Поріг впевненості ШІ (Confidence Threshold):</label>
+                    <span id="val-conf-threshold" class="font-mono text-brand-accent font-extrabold text-sm">0.30</span>
                 </div>
-                <input type="range" id="input-conf-threshold" min="0.20" max="0.50" step="0.01" value="0.30" class="w-full">
-                <p class="text-[11px] text-gray-500 mt-0.5">Оптимальний діапазон: 0.28 – 0.33. Вище 0.35 — снайперські рідкісні угоди.</p>
+                <input type="range" id="input-conf-threshold" min="0.20" max="0.50" step="0.01" value="0.30" class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer">
+                <p class="text-[11px] text-gray-500 mt-1">Оптимальний діапазон: 0.28 – 0.32. Вище 0.35 — винятково снайперські угоди.</p>
             </div>
 
             <!-- Risk Reward Ratio -->
             <div>
                 <div class="flex justify-between items-center mb-1">
-                    <label class="text-gray-300 font-semibold">Співвідношення Risk:Reward:</label>
-                    <span id="val-rr-ratio" class="font-mono text-blue-400 font-bold text-sm">1.50</span>
+                    <label class="text-gray-300 font-bold">Співвідношення Risk:Reward:</label>
+                    <span id="val-rr-ratio" class="font-mono text-blue-400 font-extrabold text-sm">1.50</span>
                 </div>
-                <input type="range" id="input-rr-ratio" min="1.0" max="3.0" step="0.1" value="1.5" class="w-full">
-                <p class="text-[11px] text-gray-500 mt-0.5">Тейк-профіт відносно стоп-лосу (1.5 означає TP = 1.5 × SL).</p>
+                <input type="range" id="input-rr-ratio" min="1.0" max="3.0" step="0.1" value="1.5" class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer">
+                <p class="text-[11px] text-gray-500 mt-1">Тейк-профіт відносно стоп-лосу (1.5 означає TP = 1.5 × SL).</p>
             </div>
 
-            <!-- Max Positions -->
+            <!-- Max Positions & Trade Fraction -->
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="text-gray-300 font-semibold block mb-1">Макс. активних позицій:</label>
-                    <input type="number" id="input-max-pos" min="1" max="10" value="3" class="w-full bg-[#12161c] border border-[#282f3a] rounded px-3 py-1.5 text-white font-mono">
+                    <label class="text-gray-300 font-bold block mb-1">Макс. активних позицій:</label>
+                    <input type="number" id="input-max-pos" min="1" max="10" value="3" class="w-full bg-black/40 border border-brand-border rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-accent">
                 </div>
                 <div>
-                    <label class="text-gray-300 font-semibold block mb-1">Фракція на угоду (% балансу):</label>
-                    <input type="number" id="input-trade-frac" min="1" max="20" step="1" value="4" class="w-full bg-[#12161c] border border-[#282f3a] rounded px-3 py-1.5 text-white font-mono">
+                    <label class="text-gray-300 font-bold block mb-1">Розмір угоди (% балансу):</label>
+                    <input type="number" id="input-trade-frac" min="1" max="25" step="1" value="4" class="w-full bg-black/40 border border-brand-border rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-accent">
                 </div>
             </div>
 
             <!-- Min ADX Trend -->
             <div>
                 <div class="flex justify-between items-center mb-1">
-                    <label class="text-gray-300 font-semibold">Мінімальний ADX для тренду:</label>
-                    <span id="val-adx" class="font-mono text-yellow-400 font-bold text-sm">25.0</span>
+                    <label class="text-gray-300 font-bold">Мінімальний ADX для тренду:</label>
+                    <span id="val-adx" class="font-mono text-amber-400 font-extrabold text-sm">25.0</span>
                 </div>
-                <input type="range" id="input-adx" min="15.0" max="40.0" step="1.0" value="25.0" class="w-full">
-                <p class="text-[11px] text-gray-500 mt-0.5">Відсікає бічний рух (CHOP). Стандарт: 25.</p>
+                <input type="range" id="input-adx" min="15.0" max="40.0" step="1.0" value="25.0" class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer">
+                <p class="text-[11px] text-gray-500 mt-1">Фільтр відсікає бічний тренд (CHOP). Стандартне значення: 25.0.</p>
             </div>
 
-            <div class="pt-3 border-t border-[#282f3a] flex justify-end gap-2">
-                <button type="button" id="btn-cancel-settings" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white font-semibold">
+            <div class="pt-3 border-t border-brand-border flex justify-end gap-2.5">
+                <button type="button" id="btn-cancel-settings" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold transition">
                     Скасувати
                 </button>
-                <button type="submit" class="px-5 py-2 rounded bg-[#00E676] hover:bg-[#00C853] text-black font-bold shadow-lg">
-                    💾 Зберегти та застосувати
+                <button type="submit" class="px-5 py-2 rounded-lg bg-brand-accent hover:bg-brand-accentHover text-brand-dark font-black shadow-lg transition">
+                    💾 Зберегти та застосувати наживо
                 </button>
             </div>
         </form>
@@ -418,7 +543,7 @@ class DashboardController {
             tradesCount: document.getElementById('metric-trades-count'),
             openCount: document.getElementById('metric-open-count'),
             pf: document.getElementById('metric-pf'),
-            pfBar: document.getElementById('pf-bar'),
+            pfIndicatorBar: document.getElementById('pf-indicator-bar'),
             winrate: document.getElementById('metric-winrate'),
             wlRatio: document.getElementById('metric-wl-ratio'),
             statusBadge: document.getElementById('bot-status-badge'),
@@ -432,14 +557,18 @@ class DashboardController {
             terminal: document.getElementById('terminal-screen'),
             autoscrollToggle: document.getElementById('autoscroll-toggle'),
             toastContainer: document.getElementById('toast-container'),
-            clockUtc: document.getElementById('clock-utc')
+            clockUtc: document.getElementById('clock-utc'),
+            pingVal: document.getElementById('ping-val')
         };
 
         this.chart = null;
         this.tradingViewWidget = null;
         this.currentTvSymbol = 'BINANCE:BTCUSDT';
-        this.pollInterval = null;
         this.seenLogLines = new Set();
+        this.radarItems = [];
+        this.soundEnabled = true;
+        this.currentRegimeFilter = 'ALL';
+        this.currentLogFilter = 'ALL';
 
         this.init();
     }
@@ -447,6 +576,8 @@ class DashboardController {
     init() {
         this.bindEvents();
         this.startClock();
+        this.initTradingViewWidget('BINANCE:BTCUSDT');
+        this.fetchMiniTickers();
         this.fetchDashboardData();
         this.fetchBotStatus();
         this.fetchActivePositions();
@@ -454,23 +585,26 @@ class DashboardController {
         this.fetchEngineLogs();
         this.fetchConfig();
 
-        // Періодичне опитування (Polling кожні 4 секунди)
-        this.pollInterval = setInterval(() => {
+        // Швидке періодичне опитування (кожні 3.5 сек)
+        setInterval(() => {
             this.fetchDashboardData();
             this.fetchBotStatus();
             this.fetchActivePositions();
             this.fetchMarketRadar();
             this.fetchEngineLogs();
-        }, 4000);
+        }, 3500);
+
+        // Тікери кожні 15 сек
+        setInterval(() => this.fetchMiniTickers(), 15000);
     }
 
     startClock() {
-        const updateClock = () => {
+        const update = () => {
             const now = new Date();
             this.elements.clockUtc.innerText = now.toUTCString().split(' ')[4];
         };
-        updateClock();
-        setInterval(updateClock, 1000);
+        update();
+        setInterval(update, 1000);
     }
 
     bindEvents() {
@@ -482,6 +616,20 @@ class DashboardController {
         // Tabs
         document.querySelectorAll('.chart-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.switchChartTab(e.currentTarget.dataset.tab));
+        });
+
+        // Sound Toggle
+        document.getElementById('btn-toggle-sound')?.addEventListener('click', () => {
+            this.soundEnabled = !this.soundEnabled;
+            const icon = document.getElementById('sound-icon');
+            if (this.soundEnabled) {
+                icon.className = 'fa-solid fa-volume-high text-brand-accent';
+                this.playTone(880, 0.1);
+                this.showToast('Аудіо-сповіщення увімкнено', 'info');
+            } else {
+                icon.className = 'fa-solid fa-volume-xmark text-gray-500';
+                this.showToast('Аудіо-сповіщення вимкнено', 'info');
+            }
         });
 
         // Clear terminal
@@ -496,7 +644,7 @@ class DashboardController {
         document.getElementById('btn-cancel-settings')?.addEventListener('click', () => this.closeSettingsModal());
         document.getElementById('settings-form')?.addEventListener('submit', (e) => this.saveSettings(e));
 
-        // Slider value labels
+        // Slider value update
         document.getElementById('input-conf-threshold')?.addEventListener('input', (e) => {
             document.getElementById('val-conf-threshold').innerText = parseFloat(e.target.value).toFixed(2);
         });
@@ -518,18 +666,51 @@ class DashboardController {
             window.location.href = '/api/export_trades_csv';
         });
 
-        // Toggle Radar table
-        document.getElementById('toggle-radar-btn')?.addEventListener('click', () => {
-            const container = document.getElementById('radar-container');
-            const icon = document.getElementById('radar-toggle-icon');
-            if (container.classList.contains('hidden')) {
-                container.classList.remove('hidden');
-                icon.innerText = '▼';
-            } else {
-                container.classList.add('hidden');
-                icon.innerText = '▶';
-            }
+        // Radar Search Input
+        document.getElementById('radar-search')?.addEventListener('input', (e) => {
+            this.renderFilteredRadar();
         });
+
+        // Radar Regime Filter Buttons
+        document.querySelectorAll('.radar-filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.radar-filter-btn').forEach(b => {
+                    b.className = 'radar-filter-btn px-2.5 py-0.5 rounded text-gray-400 hover:text-white bg-black/40 border border-brand-border';
+                });
+                e.currentTarget.className = 'radar-filter-btn px-2.5 py-0.5 rounded font-bold bg-brand-accent text-brand-dark';
+                this.currentRegimeFilter = e.currentTarget.dataset.filter;
+                this.renderFilteredRadar();
+            });
+        });
+
+        // Terminal Log Filters
+        document.querySelectorAll('.log-filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.log-filter-btn').forEach(b => {
+                    b.className = 'log-filter-btn px-2.5 py-0.5 rounded text-gray-400 hover:text-white bg-black/40 border border-brand-border';
+                });
+                e.currentTarget.className = 'log-filter-btn px-2.5 py-0.5 rounded font-bold bg-brand-accent text-brand-dark';
+                this.currentLogFilter = e.currentTarget.dataset.logFilter;
+                this.filterTerminalLogs();
+            });
+        });
+    }
+
+    playTone(freq, duration) {
+        if (!this.soundEnabled) return;
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.08, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + duration);
+        } catch (e) {}
     }
 
     getCsrfToken() {
@@ -539,23 +720,28 @@ class DashboardController {
 
     showToast(message, type = 'error') {
         const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.innerText = message;
+        toast.className = `toast toast-${type} pointer-events-auto`;
+        
+        let icon = 'fa-circle-info';
+        if (type === 'success') icon = 'fa-circle-check';
+        else if (type === 'error') icon = 'fa-circle-exclamation';
+        
+        toast.innerHTML = `<i class="fa-solid ${icon} mr-1.5"></i> ${message}`;
         this.elements.toastContainer.appendChild(toast);
         
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => {
             toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
-        }, 3500);
+            setTimeout(() => toast.remove(), 350);
+        }, 3600);
     }
 
     switchChartTab(tab) {
         document.querySelectorAll('.chart-tab-btn').forEach(btn => {
             if (btn.dataset.tab === tab) {
-                btn.className = 'chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#00E676] text-black transition shadow';
+                btn.className = 'chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-brand-accent text-brand-dark transition shadow-md flex items-center gap-1.5';
             } else {
-                btn.className = 'chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#252b36] hover:bg-[#313946] text-gray-300 border border-[#3b4453] transition shadow';
+                btn.className = 'chart-tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-brand-panel hover:bg-brand-border text-gray-300 border border-brand-border transition shadow-sm flex items-center gap-1.5';
             }
         });
 
@@ -589,8 +775,8 @@ class DashboardController {
                 "timezone": "Etc/UTC",
                 "theme": "dark",
                 "style": "1",
-                "locale": "en",
-                "toolbar_bg": "#1a1e24",
+                "locale": "uk",
+                "toolbar_bg": "#121722",
                 "enable_publishing": false,
                 "hide_top_toolbar": false,
                 "save_image": false,
@@ -601,12 +787,31 @@ class DashboardController {
         }
     }
 
+    async fetchMiniTickers() {
+        try {
+            const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+            const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","SOLUSDT"]');
+            if (!res.ok) return;
+            const data = await res.json();
+            data.forEach(item => {
+                const price = parseFloat(item.price);
+                if (item.symbol === 'BTCUSDT') document.getElementById('ticker-btc').innerText = `$${price.toLocaleString()}`;
+                else if (item.symbol === 'ETHUSDT') document.getElementById('ticker-eth').innerText = `$${price.toLocaleString()}`;
+                else if (item.symbol === 'SOLUSDT') document.getElementById('ticker-sol').innerText = `$${price.toFixed(2)}`;
+            });
+        } catch (e) {}
+    }
+
     async fetchDashboardData() {
+        const start = performance.now();
         try {
             const [statsRes, tradesRes] = await Promise.all([
                 fetch(this.endpoints.stats),
                 fetch(this.endpoints.recentTrades)
             ]);
+
+            const latency = Math.round(performance.now() - start);
+            this.elements.pingVal.innerText = `${latency}ms`;
 
             if (statsRes.ok) {
                 const stats = await statsRes.json();
@@ -631,18 +836,27 @@ class DashboardController {
         });
 
         this.elements.balance.innerText = `$${stats.balance.toFixed(2)}`;
+        if (this.elements.freeCash) {
+            const freeVal = (stats.free_cash !== undefined) ? stats.free_cash : stats.balance;
+            this.elements.freeCash.innerText = `$${freeVal.toFixed(2)}`;
+        }
         
         const pnlStr = (stats.total_pnl > 0 ? '+' : '') + stats.total_pnl.toFixed(2);
         this.elements.pnl.innerText = `${pnlStr}$`;
-        this.elements.pnl.className = `text-2xl font-bold mono-font ${stats.total_pnl >= 0 ? 'text-profit' : 'text-loss'}`;
+        this.elements.pnl.className = `text-2xl font-extrabold mono-num tracking-tight ${stats.total_pnl >= 0 ? 'text-brand-accent' : 'text-brand-danger'}`;
         
         this.elements.tradesCount.innerText = stats.total_trades;
         
-        this.elements.pf.innerText = stats.profit_factor >= 999 ? 'MAX' : stats.profit_factor.toFixed(2);
-        this.elements.pfBar.className = `absolute right-0 top-0 w-1.5 h-full ${stats.profit_factor >= 1.5 ? 'bg-[#00E676]' : (stats.profit_factor > 0 ? 'bg-yellow-500' : 'bg-gray-600')}`;
+        const pf = stats.profit_factor;
+        this.elements.pf.innerText = pf >= 999 ? 'MAX' : pf.toFixed(2);
+        this.elements.pfIndicatorBar.className = `absolute top-0 right-0 w-1.5 h-full ${pf >= 1.5 ? 'bg-brand-accent' : (pf > 0 ? 'bg-amber-400' : 'bg-gray-700')}`;
         
         this.elements.winrate.innerText = `${stats.win_rate.toFixed(1)}%`;
-        this.elements.winrate.className = `text-2xl font-bold mono-font ${stats.win_rate >= 50 ? 'text-profit' : (stats.win_rate > 0 ? 'text-yellow-400' : 'text-gray-300')}`;
+        this.elements.winrate.className = `text-2xl font-extrabold mono-num tracking-tight ${stats.win_rate >= 50 ? 'text-brand-accent' : (stats.win_rate > 0 ? 'text-amber-400' : 'text-gray-300')}`;
+
+        if (this.elements.wlRatio && stats.winning_trades !== undefined) {
+            this.elements.wlRatio.innerText = `${stats.winning_trades}W / ${stats.losing_trades}L`;
+        }
     }
 
     updateTradesTable(trades) {
@@ -673,23 +887,25 @@ class DashboardController {
                 day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' 
             });
             const typeBadge = trade.side === 'BUY' 
-                ? `<span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/30 text-blue-400 border border-blue-500/20 font-bold">BUY</span>`
-                : `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-900/30 text-orange-400 border border-orange-500/20 font-bold">SELL</span>`;
+                ? `<span class="px-2 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 font-bold">BUY</span>`
+                : `<span class="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold">SELL</span>`;
             
             const pnlDisplay = trade.side === 'SELL'
-                ? `<span class="${trade.pnl > 0 ? 'text-profit' : 'text-loss'} font-bold">${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>`
+                ? `<span class="${trade.pnl > 0 ? 'text-brand-accent' : 'text-brand-danger'} font-bold">${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>`
                 : `<span class="text-gray-500">-</span>`;
 
             const costUsdt = (trade.price * trade.amount).toFixed(2);
 
             return `
-                <tr class="hover:bg-[#202632] transition-colors cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${trade.symbol}')">
+                <tr class="hover:bg-brand-panel/60 transition-colors cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${trade.symbol}')">
                     <td class="px-4 py-2.5 text-gray-400 text-[11px]">${date}</td>
-                    <td class="px-4 py-2.5 font-bold text-white hover:text-blue-400">${trade.symbol}</td>
+                    <td class="px-4 py-2.5 font-bold text-white hover:text-brand-accent transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-coins text-[10px] text-gray-500"></i> ${trade.symbol}
+                    </td>
                     <td class="px-4 py-2.5">${typeBadge}</td>
                     <td class="px-4 py-2.5">${trade.price}</td>
-                    <td class="px-4 py-2.5">${trade.amount.toFixed(4)}</td>
-                    <td class="px-4 py-2.5 text-gray-300">$${costUsdt}</td>
+                    <td class="px-4 py-2.5 text-gray-300">${trade.amount.toFixed(4)}</td>
+                    <td class="px-4 py-2.5 text-gray-300 font-semibold">$${costUsdt}</td>
                     <td class="px-4 py-2.5 text-right">${pnlDisplay}</td>
                 </tr>
             `;
@@ -715,14 +931,14 @@ class DashboardController {
                     <tr>
                         <td colspan="9" class="px-4 py-8 text-center text-gray-500 font-sans">
                             <div class="flex flex-col items-center justify-center gap-1.5">
-                                <span class="text-2xl opacity-60">📡</span>
+                                <i class="fa-solid fa-satellite-dish text-2xl text-gray-600"></i>
                                 <span>Немає відкритих угод. ШІ сканує ринок та очікує торговий сигнал.</span>
                             </div>
                         </td>
                     </tr>
                 `;
                 this.elements.unrealizedPnl.innerText = '$0.00';
-                this.elements.unrealizedPnl.className = 'text-2xl font-bold mono-font text-gray-400';
+                this.elements.unrealizedPnl.className = 'text-2xl font-extrabold mono-num tracking-tight text-gray-400';
                 return;
             }
 
@@ -730,32 +946,32 @@ class DashboardController {
                 totalFloatingPnl += pos.unrealized_pnl;
                 lockedCost += pos.cost;
 
-                const pnlClass = pos.unrealized_pnl >= 0 ? 'text-profit' : 'text-loss';
-                const pnlBadge = pos.unrealized_pnl >= 0 ? 'bg-profit-soft' : 'bg-loss-soft';
+                const pnlClass = pos.unrealized_pnl >= 0 ? 'text-brand-accent' : 'text-brand-danger';
+                const pnlBadge = pos.unrealized_pnl >= 0 ? 'bg-brand-accent/15 text-brand-accent border border-brand-accent/30' : 'bg-brand-danger/15 text-brand-danger border border-brand-danger/30';
                 const pnlSign = pos.unrealized_pnl >= 0 ? '+' : '';
 
                 return `
-                    <tr class="hover:bg-[#202632] transition-colors">
-                        <td class="px-4 py-3 font-bold text-white flex items-center gap-1.5 cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${pos.symbol}')">
-                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                            <span class="hover:text-blue-400">${pos.symbol}</span>
+                    <tr class="hover:bg-brand-panel/60 transition-colors">
+                        <td class="px-4 py-3 font-bold text-white flex items-center gap-2 cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${pos.symbol}')">
+                            <span class="w-2 h-2 rounded-full bg-brand-accent animate-ping"></span>
+                            <span class="hover:text-brand-accent transition">${pos.symbol}</span>
                         </td>
                         <td class="px-4 py-3">
-                            <span class="px-2 py-0.5 rounded text-[10px] bg-blue-900/40 text-blue-300 font-bold border border-blue-500/30">LONG</span>
+                            <span class="px-2 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400 font-black border border-blue-500/30">LONG SPOT</span>
                         </td>
-                        <td class="px-4 py-3 text-gray-300">$${pos.entry_price}</td>
+                        <td class="px-4 py-3 text-gray-300 font-medium">$${pos.entry_price}</td>
                         <td class="px-4 py-3 font-bold text-white">$${pos.current_price}</td>
-                        <td class="px-4 py-3 text-gray-300">$${pos.cost} <span class="text-[10px] text-gray-500">(${pos.amount})</span></td>
+                        <td class="px-4 py-3 text-gray-300">$${pos.cost} <span class="text-[10px] text-gray-500 font-mono">(${pos.amount})</span></td>
                         <td class="px-4 py-3">
-                            <span class="px-2 py-0.5 rounded text-xs font-bold ${pnlBadge}">
+                            <span class="px-2.5 py-1 rounded text-xs font-black ${pnlBadge}">
                                 ${pnlSign}${pos.unrealized_pnl.toFixed(2)}$ (${pnlSign}${pos.unrealized_pnl_pct.toFixed(2)}%)
                             </span>
                         </td>
                         <td class="px-4 py-3 text-gray-400">$${pos.highest_price}</td>
                         <td class="px-4 py-3 text-gray-400 text-[11px]">${pos.opened_at || '-'}</td>
                         <td class="px-4 py-3 text-right">
-                            <button onclick="window.dashboardApp.closePosition('${pos.symbol}')" class="px-2.5 py-1 rounded bg-red-900/40 hover:bg-red-800 text-red-300 hover:text-white text-[11px] font-bold border border-red-700/40 transition">
-                                Закрити
+                            <button onclick="window.dashboardApp.closePosition('${pos.symbol}')" class="px-3 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white text-[11px] font-bold border border-red-800/40 transition shadow-sm">
+                                <i class="fa-solid fa-xmark mr-1"></i> Закрити
                             </button>
                         </td>
                     </tr>
@@ -764,7 +980,7 @@ class DashboardController {
 
             const floatSign = totalFloatingPnl >= 0 ? '+' : '';
             this.elements.unrealizedPnl.innerText = `${floatSign}${totalFloatingPnl.toFixed(2)}$`;
-            this.elements.unrealizedPnl.className = `text-2xl font-bold mono-font ${totalFloatingPnl >= 0 ? 'text-profit' : 'text-loss'}`;
+            this.elements.unrealizedPnl.className = `text-2xl font-extrabold mono-num tracking-tight ${totalFloatingPnl >= 0 ? 'text-brand-accent' : 'text-brand-danger'}`;
         } catch (e) {
             console.error("fetchActivePositions error:", e);
         }
@@ -775,59 +991,77 @@ class DashboardController {
             const res = await fetch(this.endpoints.marketScanner);
             if (!res.ok) return;
             const radar = await res.json();
+            this.radarItems = Array.isArray(radar) ? radar : [];
 
-            if (!Array.isArray(radar) || radar.length === 0) {
-                this.elements.marketRadarTable.innerHTML = `
-                    <tr>
-                        <td colspan="8" class="px-4 py-6 text-center text-gray-500 font-sans">
-                            Очікування завершення першого циклу сканування ринку рушієм...
-                        </td>
-                    </tr>
-                `;
-                return;
+            if (this.radarItems.length > 0 && this.radarItems[0].updated_at) {
+                this.elements.radarUpdatedTime.innerText = `Оновлено: ${this.radarItems[0].updated_at} UTC`;
             }
 
-            if (radar[0] && radar[0].updated_at) {
-                this.elements.radarUpdatedTime.innerText = `Оновлено: ${radar[0].updated_at} UTC`;
-            }
-
-            this.elements.marketRadarTable.innerHTML = radar.map(item => {
-                let regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-chop-soft">CHOP</span>';
-                if (item.regime === 'BULL_MARKET') regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-profit-soft font-bold">BULL MARKET</span>';
-                else if (item.regime === 'BEAR_MARKET') regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-loss-soft font-bold">BEAR MARKET</span>';
-
-                let actionBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-gray-800 text-gray-400">HOLD</span>';
-                if (item.action === 'BUY') {
-                    actionBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-[#00E676] text-black font-extrabold animate-pulse">BUY SIGNAL</span>';
-                }
-
-                // Шкала впевненості ШІ
-                const confPct = Math.min(100, Math.round(item.confidence * 100));
-                const barColor = confPct >= 30 ? 'bg-[#00E676]' : (confPct >= 20 ? 'bg-blue-400' : 'bg-gray-600');
-
-                return `
-                    <tr class="hover:bg-[#202632] transition-colors cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${item.symbol}')">
-                        <td class="px-4 py-2 font-bold text-white hover:text-blue-400">${item.symbol}</td>
-                        <td class="px-4 py-2 text-gray-300">$${item.price}</td>
-                        <td class="px-4 py-2">
-                            <div class="flex items-center gap-2">
-                                <div class="w-16 bg-[#12161c] rounded-full h-1.5 overflow-hidden">
-                                    <div class="${barColor} h-1.5 rounded-full" style="width: ${confPct}%"></div>
-                                </div>
-                                <span class="font-bold text-xs ${confPct >= 30 ? 'text-[#00E676]' : 'text-gray-300'}">${item.confidence.toFixed(2)}</span>
-                            </div>
-                        </td>
-                        <td class="px-4 py-2">${regimeBadge}</td>
-                        <td class="px-4 py-2 text-gray-400">${item.rsi ? item.rsi.toFixed(1) : '-'}</td>
-                        <td class="px-4 py-2 text-gray-400">${item.adx ? item.adx.toFixed(1) : '-'}</td>
-                        <td class="px-4 py-2">${actionBadge}</td>
-                        <td class="px-4 py-2 text-gray-400 text-[11px] truncate max-w-xs">${item.reason || '-'}</td>
-                    </tr>
-                `;
-            }).join('');
+            this.renderFilteredRadar();
         } catch (e) {
             console.error("fetchMarketRadar error:", e);
         }
+    }
+
+    renderFilteredRadar() {
+        const query = (document.getElementById('radar-search')?.value || '').toUpperCase().trim();
+        let items = this.radarItems;
+
+        if (query) {
+            items = items.filter(x => x.symbol.includes(query));
+        }
+
+        if (this.currentRegimeFilter !== 'ALL') {
+            items = items.filter(x => x.regime === this.currentRegimeFilter);
+        }
+
+        if (items.length === 0) {
+            this.elements.marketRadarTable.innerHTML = `
+                <tr>
+                    <td colspan="8" class="px-4 py-6 text-center text-gray-500 font-sans">
+                        Не знайдено пар за заданими фільтрами.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        this.elements.marketRadarTable.innerHTML = items.map(item => {
+            let regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-gray-800/60 text-gray-400 border border-gray-700">CHOP</span>';
+            if (item.regime === 'BULL_MARKET') regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-brand-accent/15 text-brand-accent font-bold border border-brand-accent/30">BULL MARKET</span>';
+            else if (item.regime === 'BEAR_MARKET') regimeBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-brand-danger/15 text-brand-danger font-bold border border-brand-danger/30">BEAR MARKET</span>';
+
+            let actionBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-gray-800/80 text-gray-400 font-mono">HOLD</span>';
+            if (item.action === 'BUY') {
+                actionBadge = '<span class="px-2.5 py-0.5 rounded text-[10px] bg-brand-accent text-brand-dark font-black animate-pulse shadow-sm">BUY SIGNAL 🚀</span>';
+            }
+
+            // Шкала впевненості ШІ
+            const confPct = Math.min(100, Math.round(item.confidence * 100));
+            const barColor = confPct >= 30 ? 'bg-brand-accent' : (confPct >= 20 ? 'bg-blue-400' : 'bg-gray-600');
+
+            return `
+                <tr class="hover:bg-brand-panel/60 transition-colors cursor-pointer" onclick="window.dashboardApp.initTradingViewWidget('${item.symbol}')">
+                    <td class="px-4 py-2.5 font-bold text-white hover:text-brand-accent transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-chart-line text-[10px] text-gray-500"></i> ${item.symbol}
+                    </td>
+                    <td class="px-4 py-2.5 text-gray-300 font-semibold">$${item.price}</td>
+                    <td class="px-4 py-2.5">
+                        <div class="flex items-center gap-2">
+                            <div class="w-16 bg-black/40 rounded-full h-1.5 overflow-hidden border border-brand-border/40">
+                                <div class="${barColor} h-1.5 rounded-full" style="width: ${confPct}%"></div>
+                            </div>
+                            <span class="font-extrabold text-xs ${confPct >= 30 ? 'text-brand-accent' : 'text-gray-300'}">${item.confidence.toFixed(2)}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-2.5">${regimeBadge}</td>
+                    <td class="px-4 py-2.5 text-gray-400">${item.rsi ? item.rsi.toFixed(1) : '-'}</td>
+                    <td class="px-4 py-2.5 text-gray-400">${item.adx ? item.adx.toFixed(1) : '-'}</td>
+                    <td class="px-4 py-2.5">${actionBadge}</td>
+                    <td class="px-4 py-2.5 text-gray-400 text-[11px] truncate max-w-xs font-sans">${item.reason || '-'}</td>
+                </tr>
+            `;
+        }).join('');
     }
 
     async fetchEngineLogs() {
@@ -845,30 +1079,43 @@ class DashboardController {
                     this.seenLogLines.add(line);
                     addedCount++;
 
-                    let styledLine = line;
+                    // Звуковий сигнал при вході/виході
                     if (line.includes('ВХІД')) {
-                        styledLine = `<span class="text-[#00E676] font-bold">${line}</span>`;
+                        this.playTone(1046, 0.25); // C6 chime
                     } else if (line.includes('ВИХІД')) {
-                        styledLine = `<span class="text-orange-400 font-bold">${line}</span>`;
+                        this.playTone(784, 0.25); // G5 chime
+                    }
+
+                    let styledLine = line;
+                    let tag = 'INFO';
+                    if (line.includes('ВХІД')) {
+                        styledLine = `<span class="text-brand-accent font-black tracking-wide">${line}</span>`;
+                        tag = 'TRADES';
+                    } else if (line.includes('ВИХІД')) {
+                        styledLine = `<span class="text-amber-400 font-bold">${line}</span>`;
+                        tag = 'TRADES';
                     } else if (line.includes('[ERROR]') || line.includes('❌')) {
-                        styledLine = `<span class="text-red-400 font-bold">${line}</span>`;
+                        styledLine = `<span class="text-brand-danger font-bold">${line}</span>`;
+                        tag = 'WARN';
                     } else if (line.includes('[WARN]') || line.includes('⚠️')) {
-                        styledLine = `<span class="text-yellow-400">${line}</span>`;
+                        styledLine = `<span class="text-yellow-400 font-semibold">${line}</span>`;
+                        tag = 'WARN';
                     } else if (line.includes('BULL_MARKET')) {
-                        styledLine = `<span class="text-green-300">${line}</span>`;
+                        styledLine = `<span class="text-emerald-400">${line}</span>`;
                     } else if (line.includes('BEAR_MARKET')) {
-                        styledLine = `<span class="text-red-300">${line}</span>`;
+                        styledLine = `<span class="text-rose-400">${line}</span>`;
                     }
 
                     const div = document.createElement('div');
-                    div.className = 'mb-1 text-gray-300 text-[11px] leading-relaxed';
+                    div.className = 'mb-1 text-gray-300 text-[11px] leading-relaxed log-entry';
+                    div.dataset.tag = tag;
                     div.innerHTML = styledLine;
                     this.elements.terminal.appendChild(div);
                 }
             });
 
-            // Обмежуємо довжину DOM-елементів терміналу
-            while (this.elements.terminal.children.length > 150) {
+            // Обмежуємо довжину логів
+            while (this.elements.terminal.children.length > 200) {
                 this.elements.terminal.removeChild(this.elements.terminal.firstChild);
             }
 
@@ -878,6 +1125,19 @@ class DashboardController {
         } catch (e) {
             console.error("fetchEngineLogs error:", e);
         }
+    }
+
+    filterTerminalLogs() {
+        const entries = this.elements.terminal.querySelectorAll('.log-entry');
+        entries.forEach(el => {
+            if (this.currentLogFilter === 'ALL') {
+                el.style.display = 'block';
+            } else if (this.currentLogFilter === 'TRADES') {
+                el.style.display = el.dataset.tag === 'TRADES' ? 'block' : 'none';
+            } else if (this.currentLogFilter === 'WARN') {
+                el.style.display = el.dataset.tag === 'WARN' ? 'block' : 'none';
+            }
+        });
     }
 
     updateChartUI(trades) {
@@ -908,8 +1168,8 @@ class DashboardController {
             return;
         }
 
-        const gradient = ctx.createLinearGradient(0, 0, 0, 320);
-        gradient.addColorStop(0, 'rgba(0, 230, 118, 0.35)');
+        const gradient = ctx.createLinearGradient(0, 0, 0, 380);
+        gradient.addColorStop(0, 'rgba(0, 230, 118, 0.4)');
         gradient.addColorStop(1, 'rgba(0, 230, 118, 0.0)');
 
         this.chart = new Chart(ctx, {
@@ -922,7 +1182,7 @@ class DashboardController {
                     borderColor: '#00E676',
                     backgroundColor: gradient,
                     borderWidth: 2.5,
-                    pointRadius: 2,
+                    pointRadius: 2.5,
                     pointHoverRadius: 6,
                     tension: 0.15,
                     fill: true
@@ -934,15 +1194,15 @@ class DashboardController {
                 interaction: { mode: 'index', intersect: false },
                 scales: {
                     x: { grid: { display: false }, ticks: { color: '#848e9c', maxTicksLimit: 8, maxRotation: 0 } },
-                    y: { grid: { color: '#252b36', borderDash: [4, 4] }, ticks: { color: '#848e9c' } }
+                    y: { grid: { color: '#232a3a', borderDash: [4, 4] }, ticks: { color: '#848e9c' } }
                 },
                 plugins: {
                     legend: { display: false },
                     tooltip: {
-                        backgroundColor: '#161a22',
+                        backgroundColor: '#141923',
                         titleColor: '#848e9c',
                         bodyColor: '#fff',
-                        borderColor: '#2a2e39',
+                        borderColor: '#2e384c',
                         borderWidth: 1,
                         padding: 10,
                         callbacks: {
@@ -997,22 +1257,22 @@ class DashboardController {
         const [startBtn, stopBtn] = this.elements.controlBtns;
 
         if (status === 'active' || status === 'running') {
-            b.innerText = 'ACTIVE • ТОРГУЄ';
-            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#00E676]/20 text-[#00E676] border border-[#00E676]/40 shadow-sm';
+            b.innerHTML = '<i class="fa-solid fa-circle text-[8px] text-brand-accent animate-pulse"></i> ACTIVE • ТОРГУЄ';
+            b.className = 'px-3 py-1 rounded-full text-xs font-black bg-brand-accent/20 text-brand-accent border border-brand-accent/40 shadow-sm flex items-center gap-1.5';
             startBtn.disabled = true; stopBtn.disabled = false;
         } else if (status === 'stopped' || status === 'pause') {
-            b.innerText = 'PAUSED • НА ПАУЗІ';
-            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-[#FF5252]/20 text-[#FF5252] border border-[#FF5252]/40 shadow-sm';
+            b.innerHTML = '<i class="fa-solid fa-circle text-[8px] text-brand-danger"></i> PAUSED • НА ПАУЗІ';
+            b.className = 'px-3 py-1 rounded-full text-xs font-black bg-brand-danger/20 text-brand-danger border border-brand-danger/40 shadow-sm flex items-center gap-1.5';
             startBtn.disabled = false; stopBtn.disabled = true;
         } else {
-            b.innerText = 'CONN ERROR';
-            b.className = 'px-3 py-1 rounded-full text-xs font-bold bg-red-900/40 text-red-500 border border-red-500/40 animate-pulse';
+            b.innerHTML = '<i class="fa-solid fa-circle text-[8px] text-red-500 animate-ping"></i> CONN ERROR';
+            b.className = 'px-3 py-1 rounded-full text-xs font-black bg-red-900/40 text-red-400 border border-red-500/40 animate-pulse flex items-center gap-1.5';
             startBtn.disabled = true; stopBtn.disabled = true;
         }
     }
 
     async closePosition(symbol) {
-        if (!confirm(`Закрити позицію ${symbol} за ринковою ціною?`)) return;
+        if (!confirm(`Закрити позицію ${symbol} за поточною ринковою ціною?`)) return;
         try {
             const res = await fetch(this.endpoints.closePosition, {
                 method: 'POST',
@@ -1032,7 +1292,7 @@ class DashboardController {
     }
 
     async handlePanicCloseAll() {
-        if (!confirm("🚨 УВАГА! Закрити ВСІ відкриті позиції за ринковою ціною негайно?")) return;
+        if (!confirm("🚨 УВАГА! Екстрено закрити ВСІ відкриті позиції за ринком негайно?")) return;
         try {
             const res = await fetch(this.endpoints.closeAll, {
                 method: 'POST',
@@ -1078,6 +1338,37 @@ class DashboardController {
         document.getElementById('settings-modal').classList.add('hidden');
     }
 
+    applyPreset(type) {
+        if (type === 'aggressive') {
+            document.getElementById('input-conf-threshold').value = 0.26;
+            document.getElementById('val-conf-threshold').innerText = '0.26';
+            document.getElementById('input-rr-ratio').value = 1.3;
+            document.getElementById('val-rr-ratio').innerText = '1.30';
+            document.getElementById('input-max-pos').value = 5;
+            document.getElementById('input-trade-frac').value = 6;
+            document.getElementById('input-adx').value = 20.0;
+            document.getElementById('val-adx').innerText = '20.0';
+        } else if (type === 'balanced') {
+            document.getElementById('input-conf-threshold').value = 0.30;
+            document.getElementById('val-conf-threshold').innerText = '0.30';
+            document.getElementById('input-rr-ratio').value = 1.5;
+            document.getElementById('val-rr-ratio').innerText = '1.50';
+            document.getElementById('input-max-pos').value = 3;
+            document.getElementById('input-trade-frac').value = 4;
+            document.getElementById('input-adx').value = 25.0;
+            document.getElementById('val-adx').innerText = '25.0';
+        } else if (type === 'sniper') {
+            document.getElementById('input-conf-threshold').value = 0.35;
+            document.getElementById('val-conf-threshold').innerText = '0.35';
+            document.getElementById('input-rr-ratio').value = 2.0;
+            document.getElementById('val-rr-ratio').innerText = '2.00';
+            document.getElementById('input-max-pos').value = 2;
+            document.getElementById('input-trade-frac').value = 3;
+            document.getElementById('input-adx').value = 28.0;
+            document.getElementById('val-adx').innerText = '28.0';
+        }
+    }
+
     async fetchConfig() {
         try {
             const res = await fetch(this.endpoints.config);
@@ -1087,10 +1378,12 @@ class DashboardController {
             if (cfg.confidence_threshold !== undefined) {
                 document.getElementById('input-conf-threshold').value = cfg.confidence_threshold;
                 document.getElementById('val-conf-threshold').innerText = cfg.confidence_threshold.toFixed(2);
+                document.getElementById('label-conf-thresh').innerText = `${cfg.confidence_threshold.toFixed(2)} (оптимал)`;
             }
             if (cfg.risk_reward_ratio !== undefined) {
                 document.getElementById('input-rr-ratio').value = cfg.risk_reward_ratio;
                 document.getElementById('val-rr-ratio').innerText = cfg.risk_reward_ratio.toFixed(2);
+                document.getElementById('label-rr-ratio').innerText = `1 : ${cfg.risk_reward_ratio.toFixed(2)}`;
             }
             if (cfg.max_positions !== undefined) {
                 document.getElementById('input-max-pos').value = cfg.max_positions;
@@ -1102,6 +1395,9 @@ class DashboardController {
                 document.getElementById('input-adx').value = cfg.min_adx_trend;
                 document.getElementById('val-adx').innerText = cfg.min_adx_trend.toFixed(1);
             }
+
+            document.getElementById('current-strategy-summary').innerText = 
+                `Conf: ${(cfg.confidence_threshold || 0.30).toFixed(2)} | RR: ${(cfg.risk_reward_ratio || 1.5).toFixed(1)} | MaxPos: ${cfg.max_positions || 3}`;
         } catch (e) {
             console.error("fetchConfig error:", e);
         }
@@ -1127,6 +1423,7 @@ class DashboardController {
             if (res.ok && data.status === 'success') {
                 this.showToast("Налаштування ШІ збережено та застосовано!", 'success');
                 this.closeSettingsModal();
+                this.fetchConfig();
             } else {
                 this.showToast(data.message || "Помилка збереження", 'error');
             }

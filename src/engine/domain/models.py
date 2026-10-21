@@ -22,8 +22,13 @@ class Position(BaseModel):
     tp: float = Field(..., gt=0)
     entry_time: float = Field(default_factory=time.time)
     highest_price: float = Field(default=0.0)
+    
+    # Feature Store & Journaling (Етап 1)
+    regime: str = Field(default="CHOPPY_FLAT")
+    ai_confidence: float = Field(default=0.0)
+    features_snapshot: dict[str, float] = Field(default_factory=dict)
 
-    model_config = ConfigDict(strict=True, validate_assignment=True)
+    model_config = ConfigDict(strict=False, validate_assignment=True)
 
 class ArbitrageOpportunity(BaseModel):
     symbol: str

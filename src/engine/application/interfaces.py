@@ -9,6 +9,9 @@ class DbPositionProtocol(Protocol):
     amount: float
     highest_price: float
     opened_at: datetime
+    regime: str
+    ai_confidence: float
+    features_json: str
 
 
 class NotifierProtocol(Protocol):
@@ -25,7 +28,32 @@ class TradingRepositoryProtocol(Protocol):
     # Використовуємо наш новий суворий протокол замість плейсхолдера
     def get_all_positions(self) -> List[DbPositionProtocol]: ...
     
-    def save_position(self, symbol: str, amount: float, entry_price: float, highest_price: float, cost: float) -> None: ...
+    def save_position(
+        self,
+        symbol: str,
+        amount: float,
+        entry_price: float,
+        highest_price: float,
+        cost: float,
+        regime: str = "CHOPPY_FLAT",
+        ai_confidence: float = 0.0,
+        features_json: str = "{}"
+    ) -> None: ...
+    
     def update_position_high(self, symbol: str, highest_price: float) -> None: ...
     def delete_position(self, symbol: str) -> None: ...
-    def log_trade(self, symbol: str, side: str, price: float, amount: float, cost: float, pnl: float) -> None: ...
+    
+    def log_trade(
+        self,
+        symbol: str,
+        side: str,
+        price: float,
+        amount: float,
+        cost: float,
+        pnl: float,
+        exit_reason: str = "UNKNOWN",
+        regime: str = "CHOPPY_FLAT",
+        ai_confidence: float = 0.0,
+        target_label: int = 0,
+        features_json: str = "{}"
+    ) -> None: ...

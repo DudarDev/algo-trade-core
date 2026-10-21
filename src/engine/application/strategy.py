@@ -42,19 +42,21 @@ def _get_float_setting(settings, keys: list, default: float) -> float:
     return default
 
 class HybridStrategy:
-    def __init__(self, settings):
+    def __init__(self, settings, risk_controller=None):
         self.settings = settings
+        self.risk_controller = risk_controller
         self.min_adx = _get_float_setting(settings, ['MIN_ADX_TREND', 'min_adx_trend'], 25.0)
         self.min_atr_pct = _get_float_setting(settings, ['MIN_ATR_PCT', 'min_atr_pct'], 0.0010)
         self.base_threshold = _get_float_setting(settings, ['CONFIDENCE_THRESHOLD', 'min_ai_confidence'], 0.55)
 
-    def _detect_regime(self, curr_row: pd.Series) -> MarketRegime:
+    def _detect_regime(self, curr_row: pd.Series, effective_min_adx: Optional[float] = None) -> MarketRegime:
         ema_dist = float(curr_row.get('EMA_DIST_50', 0))
         atr_pct = float(curr_row.get('ATR_PCT', 0))
         adx = float(curr_row.get('ADX', 0))
+        min_adx_thresh = effective_min_adx if effective_min_adx is not None else self.min_adx
 
         # Перевіряємо ATR та ADX: якщо волатильність нижча за поріг або немає тренду - це ФЛЕТ
-        if atr_pct < self.min_atr_pct or adx < (self.min_adx / 100.0):
+        if atr_pct < self.min_atr_pct or adx < (min_adx_thresh / 100.0):
             return MarketRegime.CHOP
         if ema_dist > 0.005:
             return MarketRegime.BULL
@@ -74,9 +76,13 @@ class HybridStrategy:
         if df is None or df.empty or len(df) < 2 or not required_cols.issubset(df.columns):
             return None, self._empty_meta()
 
+        # Розрахунок адаптивних динамічних порогів (Етап 3)
+        effective_min_adx = self.risk_controller.get_effective_min_adx(self.min_adx) if self.risk_controller else self.min_adx
+        effective_base_threshold = self.risk_controller.get_effective_confidence_threshold(self.base_threshold) if self.risk_controller else self.base_threshold
+
         curr = df.iloc[-1]
         current_price = float(curr['close'])
-        regime = self._detect_regime(curr)
+        regime = self._detect_regime(curr, effective_min_adx=effective_min_adx)
         
         meta = SignalMetadata(
             price=current_price,
@@ -93,9 +99,9 @@ class HybridStrategy:
 
         # БАЗОВІ ТЕХНІЧНІ ФІЛЬТРИ (Забороняємо торгівлю проти логіки)
         
-        # 1. Жодних угод у мертвому ринку
+        # 1. Жодних угод у мертвому ринку (з урахуванням адаптивного ADX)
         if regime == MarketRegime.CHOP:
-            meta.reason = f"Market is CHOPPY (ADX < {self.min_adx})"
+            meta.reason = f"Market is CHOPPY (ADX < {effective_min_adx:.1f})"
             return SignalAction.HOLD, meta
 
         # 2. Фільтр перегрітості (RSI > 70)
@@ -108,15 +114,15 @@ class HybridStrategy:
             meta.reason = "Bearish MACD in Bear Market"
             return SignalAction.HOLD, meta
 
-        # ШІ ПОРОГИ (Вимоги до дерев рішень)
+        # ШІ ПОРОГИ (Вимоги до дерев рішень із адаптивним зсувом)
         if regime == MarketRegime.BULL:
-            threshold = self.base_threshold
+            threshold = effective_base_threshold
         else: # BEAR (купуємо тільки при дуже сильному сигналі на розворот)
-            threshold = self.base_threshold + 0.10
+            threshold = effective_base_threshold + 0.10
             
         # Ухвалення рішення
         if ai_confidence >= threshold:
-            meta.reason = f"AI_Smart_Signal_{regime.value}(Conf={ai_confidence:.2f})"
+            meta.reason = f"AI_Smart_Signal_{regime.value}(Conf={ai_confidence:.2f}>={threshold:.2f})"
             return SignalAction.BUY, meta
 
         meta.reason = f"Insufficient confidence ({ai_confidence:.2f} < {threshold:.2f})"

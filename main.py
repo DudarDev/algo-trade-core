@@ -12,6 +12,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 import asyncio
+import numpy as np
 import django
 from datetime import datetime, timezone
 from sqlalchemy import text
@@ -48,6 +49,7 @@ from src.infrastructure.ai.predictor import GlobalTradingAI
 from src.engine.application.strategy import HybridStrategy
 from src.engine.application.risk_management import RiskManager, RiskConfig
 from src.engine.application.paper_trader import PaperTrader
+from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
 
 
 class CryptoBot:
@@ -75,6 +77,8 @@ class CryptoBot:
                 if 'confidence_threshold' in cfg:
                     new_th = float(cfg['confidence_threshold'])
                     self.strategy.base_threshold = new_th
+                    if hasattr(self.strategy, 'risk_controller') and self.strategy.risk_controller:
+                        self.strategy.risk_controller.base_confidence = new_th
                     self.settings_obj = getattr(self, 'settings_obj', None)
                     settings.CONFIDENCE_THRESHOLD = new_th
                 if 'risk_reward_ratio' in cfg:
@@ -86,10 +90,15 @@ class CryptoBot:
                     settings.max_open_positions = new_max
                     settings.MAX_CONCURRENT_POSITIONS = new_max
                 if 'trade_fraction' in cfg:
-                    settings.TRADE_FRACTION = float(cfg['trade_fraction'])
+                    new_frac = float(cfg['trade_fraction'])
+                    settings.TRADE_FRACTION = new_frac
+                    if hasattr(self.trader, 'risk_controller') and self.trader.risk_controller:
+                        self.trader.risk_controller.base_risk_pct = new_frac
                 if 'min_adx_trend' in cfg:
                     new_adx = float(cfg['min_adx_trend'])
                     self.strategy.min_adx = new_adx
+                    if hasattr(self.strategy, 'risk_controller') and self.strategy.risk_controller:
+                        self.strategy.risk_controller.base_min_adx = new_adx
                     settings.min_adx_trend = new_adx
             except Exception as e:
                 logger.debug(f"Помилка завантаження runtime_config: {e}")
@@ -235,9 +244,26 @@ class CryptoBot:
                     )
                     if trade_params:
                         logger.info(f"🔥 ВХІД: {symbol} | Conf: {proba:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason_str}")
+                        
+                        # Збираємо числовий зріз ринку для Feature Store
+                        features_dict = {}
+                        for col_k, col_v in curr_row.items():
+                            try:
+                                v_flt = float(col_v)
+                                if not (np.isnan(v_flt) or np.isinf(v_flt)):
+                                    features_dict[str(col_k)] = round(v_flt, 6)
+                            except (ValueError, TypeError):
+                                continue
+
                         await self.trader.open_position(
-                            symbol=symbol, side=TradeSide.BUY, price=trade_params.entry_price,
-                            sl=trade_params.stop_loss, tp=trade_params.take_profit
+                            symbol=symbol,
+                            side=TradeSide.BUY,
+                            price=trade_params.entry_price,
+                            sl=trade_params.stop_loss,
+                            tp=trade_params.take_profit,
+                            regime=meta.regime.value if hasattr(meta, 'regime') else "CHOPPY_FLAT",
+                            ai_confidence=float(proba),
+                            features_snapshot=features_dict
                         )
                 else:
                     logger.info(f"📊 {symbol}: Conf={proba:.2f} | {meta.regime.value} | {reason_str}")
@@ -301,14 +327,27 @@ class CryptoBot:
 async def main():
     db_session = SessionLocal()
     exchange_mgr = ExchangeManager(settings=settings)
+    
+    # Створюємо єдиний контролер адаптивного ризику (Етап 3)
+    risk_controller = AdaptiveRiskController(
+        base_confidence=getattr(settings, 'CONFIDENCE_THRESHOLD', 0.55),
+        base_min_adx=getattr(settings, 'MIN_ADX_TREND', 25.0),
+        base_risk_pct=getattr(settings, 'TRADE_FRACTION', 0.02)
+    )
+
     bot = CryptoBot(
         db_session=db_session,
         exchange=exchange_mgr,
         scanner=MarketScanner(exchange_manager=exchange_mgr),
         ai=GlobalTradingAI(settings=settings),
-        strategy=HybridStrategy(settings=settings),
+        strategy=HybridStrategy(settings=settings, risk_controller=risk_controller),
         risk_manager=RiskManager(config=RiskConfig(max_risk_pct=2.0, min_risk_reward=settings.RISK_REWARD_RATIO)),
-        trader=PaperTrader(settings=settings, repo=TradingRepository(session=db_session), notifier=TelegramNotifier() if settings.ENABLE_TELEGRAM else None)
+        trader=PaperTrader(
+            settings=settings,
+            repo=TradingRepository(session=db_session),
+            notifier=TelegramNotifier() if settings.ENABLE_TELEGRAM else None,
+            risk_controller=risk_controller
+        )
     )
     try:
         await bot.setup()

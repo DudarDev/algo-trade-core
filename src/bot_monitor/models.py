@@ -14,6 +14,11 @@ class Trade(models.Model):
     amount = models.FloatField(help_text="Кількість куплених/проданих монет")
     cost = models.FloatField(help_text="Об'єм інвестиції в базовій валюті (USDT)")
     pnl = models.FloatField(default=0.0, help_text="Чистий прибуток/збиток в базовій валюті (USDT)")
+    exit_reason = models.CharField(max_length=50, default="UNKNOWN", blank=True, help_text="Причина закриття (TP, SL, Trailing, Panic)")
+    regime = models.CharField(max_length=30, default="CHOPPY_FLAT", blank=True, help_text="Ринковий режим на момент входу")
+    ai_confidence = models.FloatField(default=0.0, help_text="Впевненість ШІ моделі при вході")
+    target_label = models.IntegerField(default=0, help_text="1 = Win (TP), 0 = Loss (SL)")
+    features_json = models.TextField(default="{}", blank=True, help_text="Зріз усіх квант-індикаторів на момент відкриття")
     timestamp = models.DateTimeField(help_text="Час виконання угоди")
 
     class Meta:
@@ -54,6 +59,9 @@ class ActivePosition(models.Model):
     entry_price = models.FloatField(help_text="Середня ціна входу")
     highest_price = models.FloatField(help_text="Максимально досягнута ціна (використовується для Trailing Stop)")
     cost = models.FloatField(help_text="Сума вкладених USDT (заморожений баланс)")
+    regime = models.CharField(max_length=30, default="CHOPPY_FLAT", blank=True, help_text="Ринковий режим на момент входу")
+    ai_confidence = models.FloatField(default=0.0, help_text="Впевненість ШІ моделі при вході")
+    features_json = models.TextField(default="{}", blank=True, help_text="Зріз усіх квант-індикаторів на момент відкриття")
     opened_at = models.DateTimeField(help_text="Час відкриття позиції")
 
     class Meta:

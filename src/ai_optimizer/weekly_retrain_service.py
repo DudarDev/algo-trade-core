@@ -232,24 +232,10 @@ class WeeklyRetrainService:
             )
             calibrated_model.fit(X_train, y_train)
             final_model = calibrated_model
-        except ValueError as cv_err:
-            logger.warning(f"⚠️ TimeSeriesSplit calibration fallback ({cv_err}). Використовую prefit calibration...")
-            calib_split = int(len(X_train) * 0.75)
-            X_fit, X_calib = X_train.iloc[:calib_split], X_train.iloc[calib_split:]
-            y_fit, y_calib = y_train.iloc[:calib_split], y_train.iloc[calib_split:]
-            
-            base_rf.fit(X_fit, y_fit)
-            if len(np.unique(y_calib)) >= 2:
-                calibrated_model = CalibratedClassifierCV(
-                    estimator=base_rf,
-                    method="sigmoid",
-                    cv="prefit"
-                )
-                calibrated_model.fit(X_calib, y_calib)
-                final_model = calibrated_model
-            else:
-                base_rf.fit(X_train, y_train)
-                final_model = base_rf
+        except Exception as cv_err:
+            logger.warning(f"⚠️ TimeSeriesSplit calibration fallback ({cv_err}). Використовую базовий RandomForest...")
+            base_rf.fit(X_train, y_train)
+            final_model = base_rf
 
         y_pred = final_model.predict(X_test)
         y_proba = final_model.predict_proba(X_test)[:, 1]

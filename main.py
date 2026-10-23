@@ -65,7 +65,70 @@ class CryptoBot:
         self.concurrency_limit = asyncio.Semaphore(5)
         self.latest_scan_results = {}
         self.data_dir = data_dir_path
+        self.htf_trend_cache = {}
+        self.btc_market_pulse = "HEALTHY"
+        self.btc_pulse_time = 0.0
         self.load_runtime_config()
+
+    async def get_higher_timeframe_trend(self, symbol: str) -> str:
+        """Аналізує старший таймфрейм 1h для відсікання контртрендових входів (MTF Filter)."""
+        now = time.time()
+        cached = self.htf_trend_cache.get(symbol)
+        if cached and (now - cached[1] < 900):  # 15 хвилин кеш
+            return cached[0]
+
+        try:
+            df_1h = await self.exchange.fetch_data(symbol, timeframe='1h', limit=60)
+            if df_1h is not None and len(df_1h) >= 30:
+                ema20 = float(df_1h['close'].ewm(span=20).mean().iloc[-1])
+                ema50 = float(df_1h['close'].ewm(span=50).mean().iloc[-1])
+                curr_price = float(df_1h['close'].iloc[-1])
+
+                if curr_price > ema20 and ema20 > ema50:
+                    trend = "BULLISH"
+                elif curr_price < ema20 and ema20 < ema50:
+                    trend = "BEARISH"
+                else:
+                    trend = "NEUTRAL"
+            else:
+                trend = "NEUTRAL"
+        except Exception as e:
+            logger.debug(f"Помилка аналізу 1h для {symbol}: {e}")
+            trend = "NEUTRAL"
+
+        self.htf_trend_cache[symbol] = (trend, now)
+        return trend
+
+    async def check_btc_market_pulse(self) -> str:
+        """Перевіряє пульс ринку по BTC/USDT (5m). Якщо BTC скидають, блокує альткоїн-лонги."""
+        now = time.time()
+        if now - self.btc_pulse_time < 30:
+            return self.btc_market_pulse
+
+        try:
+            df_btc = await self.exchange.fetch_data('BTC/USDT', timeframe='5m', limit=20)
+            if df_btc is not None and len(df_btc) >= 5:
+                curr_c = float(df_btc['close'].iloc[-1])
+                curr_o = float(df_btc['open'].iloc[-1])
+                prev_c = float(df_btc['close'].iloc[-2])
+
+                candle_change = (curr_c - curr_o) / curr_o
+                two_candle_change = (curr_c - prev_c) / prev_c
+                ema20 = float(df_btc['close'].ewm(span=20).mean().iloc[-1])
+
+                if candle_change < -0.0030 or two_candle_change < -0.0045 or (curr_c < ema20 and candle_change < -0.0018):
+                    self.btc_market_pulse = "BEARISH_DUMP"
+                    logger.warning(f"⚠️ BTC Pulse ALERT: Ринок під тиском (5m: {candle_change*100:.2f}%) -> Альткоїн-лонги заблоковано!")
+                else:
+                    self.btc_market_pulse = "HEALTHY"
+            else:
+                self.btc_market_pulse = "HEALTHY"
+        except Exception as e:
+            logger.debug(f"Помилка аналізу BTC Pulse: {e}")
+            self.btc_market_pulse = "HEALTHY"
+
+        self.btc_pulse_time = now
+        return self.btc_market_pulse
 
     def load_runtime_config(self):
         """Динамічне завантаження налаштувань з вебпанелі без перезапуску."""
@@ -209,16 +272,20 @@ class CryptoBot:
                     return
 
                 final_signal, proba = self.ai.predict(df_features)
+                htf_trend = await self.get_higher_timeframe_trend(symbol)
                 signal_action, meta = self.strategy.get_signal(
                     df=df_features,
                     ai_confidence=proba,
-                    in_position=(symbol in self.trader.positions)
+                    in_position=(symbol in self.trader.positions),
+                    htf_trend=htf_trend,
+                    btc_pulse="HEALTHY" if symbol == 'BTC/USDT' else self.btc_market_pulse
                 )
 
                 curr_row = df_features.iloc[-1]
                 current_price = float(curr_row['close'])
                 adx_val = float(curr_row.get('ADX', 0.0)) * 100.0
                 rsi_val = float(curr_row.get('RSI', 0.5)) * 100.0
+                vol_spike_val = round(float(curr_row.get('VOL_SPIKE', 1.0)), 2)
 
                 is_buy = (signal_action == "BUY" or signal_action == SignalAction.BUY)
                 action_str = "BUY" if is_buy else "HOLD"
@@ -231,6 +298,9 @@ class CryptoBot:
                     "regime": meta.regime.value if hasattr(meta, 'regime') else "CHOPPY_FLAT",
                     "action": action_str,
                     "reason": reason_str,
+                    "htf_trend": htf_trend,
+                    "btc_pulse": self.btc_market_pulse,
+                    "vol_spike": vol_spike_val,
                     "adx": round(adx_val, 1),
                     "rsi": round(rsi_val, 1),
                     "updated_at": datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -287,7 +357,9 @@ class CryptoBot:
             await asyncio.sleep(10)
 
     async def run_cycle(self):
-        logger.info("📡 Пошук волатильних пар...")
+        # 1. Оцінюємо пульс Біткоїна
+        await self.check_btc_market_pulse()
+        logger.info(f"📡 Пошук волатильних пар (BTC Pulse: {self.btc_market_pulse})...")
         active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=2_000_000)
         open_positions = list(self.trader.positions.keys())
         all_pairs = list(dict.fromkeys(open_positions + (active_pairs or [])))

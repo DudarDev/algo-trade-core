@@ -223,3 +223,36 @@ async def test_adaptive_risk_controller_integration(settings, repo):
     assert risk_controller.consecutive_losses == 1
     assert risk_controller.get_effective_confidence_threshold() > 0.55
     assert risk_controller.get_effective_min_adx() > 25.0
+
+@pytest.mark.asyncio
+async def test_breakeven_stop_loss_lock(paper_trader, repo):
+    """Тест 9: Перевірка спрацьовування Breakeven Stop Lock при піднятті ціни вище порогу"""
+    await paper_trader.initialize()
+    
+    # Вхід по $100.0, SL $95.0 (-5%), TP $110.0 (+10%)
+    await paper_trader.open_position(
+        symbol="AVAX/USDT",
+        side=TradeSide.BUY,
+        price=100.0,
+        sl=95.0,
+        tp=110.0
+    )
+
+    pos = paper_trader.positions["AVAX/USDT"]
+    assert pos.sl == 95.0
+
+    # Ціна зростає до $102.5 (+2.5% > +2.0% BREAK_EVEN_TRIGGER_PCT)
+    await paper_trader.update_position("AVAX/USDT", 102.5)
+    
+    # Стоп-лосс повинен бути підтягнутий у беззбитковість ($100.25)
+    assert pos.sl == 100.25
+
+    # Ціна відкочується назад до рівня безубитку ($100.25)
+    await paper_trader.update_position("AVAX/USDT", 100.25)
+
+    # Позиція закрита в безубиток
+    assert "AVAX/USDT" not in paper_trader.positions
+    assert len(repo.logged_trades) == 1
+    logged = repo.logged_trades[0]
+    assert logged["target_label"] == 1 or logged["pnl"] >= 0
+    assert "Breakeven" in logged.get("exit_reason", "")

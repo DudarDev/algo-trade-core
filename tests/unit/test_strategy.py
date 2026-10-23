@@ -123,3 +123,46 @@ def test_adaptive_risk_tightening_strategy(base_settings):
     signal, meta = strategy.get_signal(df, ai_confidence=0.58)
     assert signal == SignalAction.HOLD
     assert "Insufficient confidence" in meta.reason
+
+def test_higher_timeframe_downtrend_blocks_entry(base_settings):
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.55, 0.55],
+        'EMA_DIST_50': [0.01, 0.01],
+        'MACD_HIST': [0.1, 0.2],
+        'close': [100.0, 101.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.80, htf_trend="BEARISH")
+    assert signal == SignalAction.HOLD
+    assert "Higher TF (1h) Downtrend" in meta.reason
+
+def test_btc_market_pulse_bearish_blocks_entry(base_settings):
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.55, 0.55],
+        'EMA_DIST_50': [0.01, 0.01],
+        'MACD_HIST': [0.1, 0.2],
+        'close': [100.0, 101.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.80, btc_pulse="BEARISH_DUMP")
+    assert signal == SignalAction.HOLD
+    assert "BTC Market Pulse Bearish" in meta.reason
+
+def test_vsa_low_volume_blocks_entry(base_settings):
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.55, 0.55],
+        'EMA_DIST_50': [0.01, 0.01],
+        'MACD_HIST': [0.1, 0.2],
+        'close': [100.0, 101.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [0.50, 0.50]  # Low volume breakout < 0.85
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.80)
+    assert signal == SignalAction.HOLD
+    assert "Low Volume Breakout" in meta.reason

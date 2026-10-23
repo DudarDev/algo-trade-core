@@ -8,8 +8,8 @@ class OrderExecutionService:
     @staticmethod
     def calculate_trailing_stop(pos: Position, current_price: float, settings: Settings) -> Tuple[float, float]:
         """
-        Прораховує пікову ціну та новий рівень Stop Loss.
-        Повертает Tuple[highest_price, stop_loss].
+        Прораховує пікову ціну та новий рівень Stop Loss (Breakeven + Trailing Stop).
+        Повертає Tuple[highest_price, stop_loss].
         """
         highest_price = pos.highest_price
         sl = pos.sl
@@ -18,9 +18,20 @@ class OrderExecutionService:
             if current_price > highest_price:
                 highest_price = current_price
 
-            activation_price = pos.entry_price * (1 + settings.TRAILING_STOP_ACTIVATION_PCT)
+            # 1. Breakeven Stop Lock:
+            # Якщо ціна піднялася на >= +1.0%, автоматично фіксуємо безубиток (+0.25% для повного покриття roundtrip-комісій біржі)
+            be_trigger = getattr(settings, 'BREAK_EVEN_TRIGGER_PCT', 0.010)
+            if highest_price >= pos.entry_price * (1 + be_trigger):
+                be_sl = pos.entry_price * 1.0025
+                if be_sl > sl:
+                    sl = be_sl
+
+            # 2. Dynamic Trailing Stop:
+            activation_pct = getattr(settings, 'TRAILING_STOP_ACTIVATION_PCT', 0.025)
+            offset_pct = getattr(settings, 'TRAILING_OFFSET_PCT', 0.010)
+            activation_price = pos.entry_price * (1 + activation_pct)
             if highest_price >= activation_price:
-                new_sl = highest_price * (1 - settings.TRAILING_OFFSET_PCT)
+                new_sl = highest_price * (1 - offset_pct)
                 if new_sl > sl:
                     sl = new_sl
 
@@ -34,6 +45,8 @@ class OrderExecutionService:
         """
         if pos.side == TradeSide.BUY:
             if current_price <= pos.sl:
+                if pos.sl >= pos.entry_price * 1.001:
+                    return "Breakeven Stop 🔒"
                 return "Trailing Stop 🛡️" if pos.sl > pos.entry_price else "Stop Loss 🛑"
             
             if current_price >= pos.tp:

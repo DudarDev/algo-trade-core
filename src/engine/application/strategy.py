@@ -27,6 +27,9 @@ class SignalMetadata(BaseModel):
     rsi: float = Field(..., ge=0.0, le=100.0)
     trend: TrendDirection
     regime: MarketRegime = MarketRegime.CHOP
+    htf_trend: Optional[str] = "NEUTRAL"
+    btc_pulse: Optional[str] = "HEALTHY"
+    vol_spike: Optional[float] = 1.0
     reason: str = "No signal"
     
     model_config = ConfigDict(strict=True)
@@ -69,7 +72,9 @@ class HybridStrategy:
         self, 
         df: pd.DataFrame, 
         ai_confidence: float, 
-        in_position: bool = False
+        in_position: bool = False,
+        htf_trend: Optional[str] = None,
+        btc_pulse: Optional[str] = None
     ) -> Tuple[Optional[SignalAction], SignalMetadata]:
         
         required_cols = {'RSI', 'EMA_DIST_50', 'MACD_HIST', 'ATR_PCT', 'ADX'}
@@ -83,6 +88,7 @@ class HybridStrategy:
         curr = df.iloc[-1]
         current_price = float(curr['close'])
         regime = self._detect_regime(curr, effective_min_adx=effective_min_adx)
+        vol_spike_val = round(float(curr.get('VOL_SPIKE', 1.0)), 2)
         
         meta = SignalMetadata(
             price=current_price,
@@ -90,6 +96,9 @@ class HybridStrategy:
             rsi=round(float(curr['RSI']) * 100, 2), # Повертаємо RSI до формату 0-100
             trend=TrendDirection.UP if curr['EMA_DIST_50'] > 0 else TrendDirection.DOWN,
             regime=regime,
+            htf_trend=htf_trend or "NEUTRAL",
+            btc_pulse=btc_pulse or "HEALTHY",
+            vol_spike=vol_spike_val,
             reason="Evaluating..."
         )
 
@@ -114,6 +123,29 @@ class HybridStrategy:
             meta.reason = "Bearish MACD in Bear Market"
             return SignalAction.HOLD, meta
 
+        # 4. МУЛЬТИ-ТАЙМФРЕЙМ ФІЛЬТР (MTF): Заборона покупок, якщо старший 1h тренд спадний
+        if htf_trend == "BEARISH":
+            meta.reason = "Higher TF (1h) Downtrend (Blocked)"
+            return SignalAction.HOLD, meta
+
+        # 5. BTC MARKET PULSE ФІЛЬТР: Заборона покупок, якщо Bitcoin під тиском скидання
+        if btc_pulse == "BEARISH_DUMP":
+            meta.reason = "BTC Market Pulse Bearish (Blocked)"
+            return SignalAction.HOLD, meta
+
+        # 6. VSA VOLUME CONFIRMATION: Фільтр аномально низького об'єму або слабкого тиску покупців
+        if 'VOL_SPIKE' in curr:
+            vol_spike = float(curr['VOL_SPIKE'])
+            if vol_spike < 0.85:
+                meta.reason = f"Low Volume Breakout ({vol_spike:.2f}x SMA) (Blocked)"
+                return SignalAction.HOLD, meta
+
+        if 'BUY_PRESSURE' in curr:
+            buy_press = float(curr['BUY_PRESSURE'])
+            if buy_press < 0.35:
+                meta.reason = f"Weak Buyer Pressure ({buy_press:.2f}) (Blocked)"
+                return SignalAction.HOLD, meta
+
         # ШІ ПОРОГИ (Вимоги до дерев рішень із адаптивним зсувом)
         if regime == MarketRegime.BULL:
             threshold = effective_base_threshold
@@ -132,5 +164,6 @@ class HybridStrategy:
         return SignalMetadata(
             price=0.01, ai_conf=0.0, rsi=50.0,
             trend=TrendDirection.FLAT, regime=MarketRegime.CHOP,
+            htf_trend="NEUTRAL", btc_pulse="HEALTHY", vol_spike=1.0,
             reason="Invalid DataFrame"
         )

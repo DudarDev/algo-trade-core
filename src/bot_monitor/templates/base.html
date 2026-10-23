@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="uk" class="dark">
+<html lang="uk" class="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +7,22 @@
     
     <!-- Favicon SVG -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+
+    <!-- Anti-FOUC Theme Init Script -->
+    <script>
+        (function() {
+            try {
+                const savedTheme = localStorage.getItem('theme');
+                if (savedTheme === 'dark') {
+                    document.documentElement.classList.remove('light');
+                    document.documentElement.classList.add('dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    document.documentElement.classList.add('light');
+                }
+            } catch (e) {}
+        })();
+    </script>
 
     <!-- Fonts: Inter + JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,40 +42,6 @@
                     fontFamily: {
                         sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', '"Inter"', 'sans-serif'],
                         mono: ['"SF Mono"', '"JetBrains Mono"', 'Menlo', 'monospace'],
-                    },
-                    colors: {
-                        apple: {
-                            base: '#07080a',
-                            surface: '#0d0f15',
-                            card: '#12151e',
-                            cardHover: '#171b26',
-                            border: 'rgba(255, 255, 255, 0.08)',
-                            borderLight: 'rgba(255, 255, 255, 0.14)',
-                            green: '#30D158',
-                            greenHover: '#28bd4d',
-                            red: '#FF453A',
-                            redHover: '#e0382e',
-                            blue: '#0A84FF',
-                            blueHover: '#0070e0',
-                            orange: '#FF9F0A',
-                            purple: '#BF5AF2',
-                            teal: '#64D2FF',
-                            muted: '#86868b'
-                        },
-                        brand: {
-                            dark: '#07080a',
-                            surface: '#0d0f15',
-                            panel: '#12151e',
-                            border: 'rgba(255, 255, 255, 0.08)',
-                            borderLight: 'rgba(255, 255, 255, 0.14)',
-                            accent: '#30D158',
-                            accentHover: '#28bd4d',
-                            danger: '#FF453A',
-                            dangerHover: '#e0382e',
-                            warn: '#FF9F0A',
-                            info: '#0A84FF',
-                            purple: '#BF5AF2'
-                        }
                     }
                 }
             }
@@ -67,20 +49,101 @@
     </script>
 
     <style>
+        :root {
+            --apple-bg: #f5f5f7;
+            --apple-bg-gradient: radial-gradient(ellipse 90% 60% at 50% -20%, rgba(0, 122, 255, 0.05), transparent 70%),
+                                 radial-gradient(ellipse 70% 50% at 85% 10%, rgba(52, 199, 89, 0.04), transparent 60%);
+            --apple-text: #1d1d1f;
+            --apple-text-secondary: #6e6e73;
+            --apple-text-muted: #86868b;
+            --apple-panel-bg: rgba(255, 255, 255, 0.86);
+            --apple-panel-border: rgba(0, 0, 0, 0.08);
+            --apple-panel-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+            --apple-subtle-bg: rgba(0, 0, 0, 0.04);
+            --apple-subtle-hover: rgba(0, 0, 0, 0.07);
+            --apple-seg-bg: rgba(0, 0, 0, 0.06);
+            --apple-seg-active: #ffffff;
+            --apple-seg-active-text: #1d1d1f;
+            --apple-seg-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            --apple-divider: rgba(0, 0, 0, 0.06);
+            
+            --apple-green: #34C759;
+            --apple-green-text: #248a3d;
+            --apple-green-bg: rgba(52, 199, 89, 0.12);
+            --apple-green-border: rgba(52, 199, 89, 0.28);
+            
+            --apple-red: #FF3B30;
+            --apple-red-text: #d70015;
+            --apple-red-bg: rgba(255, 59, 48, 0.12);
+            --apple-red-border: rgba(255, 59, 48, 0.28);
+            
+            --apple-blue: #007AFF;
+            --apple-blue-text: #0062cc;
+            --apple-blue-bg: rgba(0, 122, 255, 0.12);
+            --apple-blue-border: rgba(0, 122, 255, 0.28);
+            
+            --apple-orange: #FF9500;
+            --apple-orange-text: #b25000;
+            --apple-orange-bg: rgba(255, 149, 0, 0.12);
+            
+            --apple-modal-bg: rgba(255, 255, 255, 0.96);
+            --apple-modal-border: rgba(0, 0, 0, 0.1);
+        }
+
+        html.dark {
+            --apple-bg: #060709;
+            --apple-bg-gradient: radial-gradient(ellipse 90% 60% at 50% -25%, rgba(10, 132, 255, 0.07), transparent 70%),
+                                 radial-gradient(ellipse 70% 50% at 85% 10%, rgba(48, 209, 88, 0.04), transparent 60%),
+                                 radial-gradient(ellipse 60% 40% at 15% 90%, rgba(191, 90, 242, 0.03), transparent 60%);
+            --apple-text: #f5f5f7;
+            --apple-text-secondary: #86868b;
+            --apple-text-muted: #636366;
+            --apple-panel-bg: rgba(14, 17, 24, 0.78);
+            --apple-panel-border: rgba(255, 255, 255, 0.08);
+            --apple-panel-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.07), 0 12px 36px -8px rgba(0, 0, 0, 0.55);
+            --apple-subtle-bg: rgba(255, 255, 255, 0.04);
+            --apple-subtle-hover: rgba(255, 255, 255, 0.08);
+            --apple-seg-bg: rgba(255, 255, 255, 0.05);
+            --apple-seg-active: rgba(255, 255, 255, 0.14);
+            --apple-seg-active-text: #ffffff;
+            --apple-seg-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+            --apple-divider: rgba(255, 255, 255, 0.06);
+            
+            --apple-green: #30D158;
+            --apple-green-text: #30D158;
+            --apple-green-bg: rgba(48, 209, 88, 0.15);
+            --apple-green-border: rgba(48, 209, 88, 0.3);
+            
+            --apple-red: #FF453A;
+            --apple-red-text: #FF453A;
+            --apple-red-bg: rgba(255, 69, 58, 0.15);
+            --apple-red-border: rgba(255, 69, 58, 0.3);
+            
+            --apple-blue: #0A84FF;
+            --apple-blue-text: #0A84FF;
+            --apple-blue-bg: rgba(10, 132, 255, 0.15);
+            --apple-blue-border: rgba(10, 132, 255, 0.3);
+            
+            --apple-orange: #FF9F0A;
+            --apple-orange-text: #FF9F0A;
+            --apple-orange-bg: rgba(255, 159, 10, 0.15);
+            
+            --apple-modal-bg: rgba(15, 18, 26, 0.96);
+            --apple-modal-border: rgba(255, 255, 255, 0.12);
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", sans-serif;
-            background-color: #060709;
-            background-image: 
-                radial-gradient(ellipse 90% 60% at 50% -25%, rgba(10, 132, 255, 0.07), transparent 70%),
-                radial-gradient(ellipse 70% 50% at 85% 10%, rgba(48, 209, 88, 0.04), transparent 60%),
-                radial-gradient(ellipse 60% 40% at 15% 90%, rgba(191, 90, 242, 0.03), transparent 60%);
-            color: #f5f5f7;
+            background-color: var(--apple-bg);
+            background-image: var(--apple-bg-gradient);
+            color: var(--apple-text);
             overflow-x: hidden;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
 
-        /* Apple ultra-refined scrollbar */
+        /* Apple refined scrollbar */
         ::-webkit-scrollbar {
             width: 5px;
             height: 5px;
@@ -89,11 +152,11 @@
             background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.16);
+            background: rgba(120, 120, 128, 0.25);
             border-radius: 9999px;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.28);
+            background: rgba(120, 120, 128, 0.45);
         }
 
         .mono-num {
@@ -103,26 +166,24 @@
 
         /* Cupertino frosted glass panel */
         .glass-panel {
-            background: rgba(14, 17, 24, 0.76);
+            background: var(--apple-panel-bg);
             backdrop-filter: blur(28px) saturate(180%);
             -webkit-backdrop-filter: blur(28px) saturate(180%);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--apple-panel-border);
             border-radius: 18px;
-            box-shadow: 
-                inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
-                0 12px 36px -8px rgba(0, 0, 0, 0.55);
+            box-shadow: var(--apple-panel-shadow);
             transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .glass-panel:hover {
-            border-color: rgba(255, 255, 255, 0.12);
+            border-color: rgba(120, 120, 128, 0.2);
         }
 
         /* Apple segmented control tab */
         .apple-seg-container {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--apple-seg-bg);
             padding: 3px;
             border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.07);
+            border: 1px solid var(--apple-panel-border);
             display: inline-flex;
             gap: 2px;
         }
@@ -131,21 +192,21 @@
             border-radius: 9px;
             font-size: 11px;
             font-weight: 600;
-            color: #86868b;
+            color: var(--apple-text-secondary);
             transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .apple-seg-item:hover {
-            color: #f5f5f7;
+            color: var(--apple-text);
         }
         .apple-seg-item.active {
-            background: rgba(255, 255, 255, 0.12);
-            color: #ffffff;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            background: var(--apple-seg-active);
+            color: var(--apple-seg-active-text);
+            box-shadow: var(--apple-seg-shadow);
         }
 
         /* Skeleton shimmer */
         .skeleton {
-            background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+            background: linear-gradient(90deg, rgba(120,120,128,0.06) 25%, rgba(120,120,128,0.15) 50%, rgba(120,120,128,0.06) 75%);
             background-size: 200% 100%;
             animation: shimmer 1.8s infinite;
             border-radius: 6px;
@@ -164,29 +225,28 @@
             border-radius: 14px;
             font-size: 12px;
             font-weight: 600;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.12);
         }
         .toast.show {
             opacity: 1;
             transform: translateY(0) scale(1);
         }
         .toast-success {
-            background: rgba(48, 209, 88, 0.16);
-            color: #30D158;
-            border-color: rgba(48, 209, 88, 0.3);
+            background: var(--apple-green-bg);
+            color: var(--apple-green-text);
+            border: 1px solid var(--apple-green-border);
         }
         .toast-error {
-            background: rgba(255, 69, 58, 0.16);
-            color: #FF453A;
-            border-color: rgba(255, 69, 58, 0.3);
+            background: var(--apple-red-bg);
+            color: var(--apple-red-text);
+            border: 1px solid var(--apple-red-border);
         }
         .toast-info {
-            background: rgba(10, 132, 255, 0.16);
-            color: #0A84FF;
-            border-color: rgba(10, 132, 255, 0.3);
+            background: var(--apple-blue-bg);
+            color: var(--apple-blue-text);
+            border: 1px solid var(--apple-blue-border);
         }
     </style>
 </head>

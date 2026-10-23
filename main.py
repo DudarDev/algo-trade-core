@@ -288,7 +288,7 @@ class CryptoBot:
 
     async def run_cycle(self):
         logger.info("📡 Пошук волатильних пар...")
-        active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=500_000)
+        active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=2_000_000)
         open_positions = list(self.trader.positions.keys())
         all_pairs = list(dict.fromkeys(open_positions + (active_pairs or [])))
         if not all_pairs:

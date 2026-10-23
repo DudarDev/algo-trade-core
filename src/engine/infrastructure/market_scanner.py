@@ -20,7 +20,7 @@ class MarketScanner:
             'LINK/USDT', 'NEAR/USDT', 'SUI/USDT'
         ]
 
-    async def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 250_000.0) -> List[str]:
+    async def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 2_000_000.0) -> List[str]:
         """Шукає пари з найбільшою волатильністю (через Public API), гарантовано додаючи топ-ліквідні активи."""
         for attempt in range(3):
             try:

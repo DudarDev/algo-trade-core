@@ -124,8 +124,9 @@ class PaperTrader:
             ideal_coins = risk_budget / risk_per_coin
             ideal_usdt = ideal_coins * price
 
-            # Капаємо розмір позиції до доступного балансу (залишаємо запас 2%)
-            actual_usdt = min(ideal_usdt, self.balance * 0.98)
+            # Капаємо розмір позиції з урахуванням диверсифікації портфеля (не більше 1/max_positions на угоду)
+            max_alloc_per_trade = (self.balance * 0.95) / max(max_positions, 1)
+            actual_usdt = min(ideal_usdt, max_alloc_per_trade)
             actual_coins = actual_usdt / price
 
             if actual_usdt < 10.0:  # Hard limit для більшості бірж

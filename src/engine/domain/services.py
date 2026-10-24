@@ -19,9 +19,10 @@ class OrderExecutionService:
                 highest_price = current_price
 
             # 1. Breakeven Stop Lock:
-            # Якщо ціна піднялася на >= +1.0%, автоматично фіксуємо безубиток (+0.25% для повного покриття roundtrip-комісій біржі)
+            # Якщо вже зафіксовано Partial TP або ціна піднялася на >= be_trigger (+1.0%),
+            # автоматично фіксуємо безубиток (+0.25% для повного покриття roundtrip-комісій біржі)
             be_trigger = getattr(settings, 'BREAK_EVEN_TRIGGER_PCT', 0.010)
-            if highest_price >= pos.entry_price * (1 + be_trigger):
+            if getattr(pos, 'partial_tp_hit', False) or highest_price >= pos.entry_price * (1 + be_trigger):
                 be_sl = pos.entry_price * 1.0025
                 if be_sl > sl:
                     sl = be_sl
@@ -51,6 +52,11 @@ class OrderExecutionService:
             
             if current_price >= pos.tp:
                 return "Take Profit 🎯"
+
+            # 3. Partial Take Profit (Scale-Out Engine: фіксація 50% об'єму на TP1)
+            partial_tp_pct = getattr(settings, 'PARTIAL_TP_PCT', 0.015)
+            if not getattr(pos, 'partial_tp_hit', False) and current_price >= pos.entry_price * (1 + partial_tp_pct):
+                return "Take Profit 1 (50%) 🎯"
                 
             if (time.time() - pos.entry_time) > settings.TRADE_TIMEOUT_SECONDS:
                 return "Тайм-аут ⏳"

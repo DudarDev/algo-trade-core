@@ -295,6 +295,8 @@ class CryptoBot:
                     "symbol": symbol,
                     "price": current_price,
                     "confidence": round(proba, 2),
+                    "quant_score": getattr(meta, 'quant_score', 0.0),
+                    "ensemble_conf": getattr(meta, 'ensemble_conf', round(proba, 2)),
                     "regime": meta.regime.value if hasattr(meta, 'regime') else "CHOPPY_FLAT",
                     "action": action_str,
                     "reason": reason_str,

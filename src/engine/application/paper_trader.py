@@ -70,7 +70,8 @@ class PaperTrader:
                     entry_time=db_pos.opened_at.timestamp(),
                     regime=getattr(db_pos, 'regime', 'CHOPPY_FLAT'),
                     ai_confidence=getattr(db_pos, 'ai_confidence', 0.0),
-                    features_snapshot=feat_snapshot
+                    features_snapshot=feat_snapshot,
+                    partial_tp_hit=bool(getattr(db_pos, 'partial_tp_hit', 0))
                 )
 
             self._is_initialized = True
@@ -101,20 +102,43 @@ class PaperTrader:
             if symbol in self.positions:
                 return
 
+            # 0. Перевірка аварійного рубильника (Circuit Breaker -3% Daily Loss Protection)
+            if self.risk_controller and hasattr(self.risk_controller, 'is_circuit_breaker_triggered') and self.risk_controller.is_circuit_breaker_triggered():
+                logger.warning(f"🛑 [CIRCUIT BREAKER ACTIVE] Вхід по {symbol} заблоковано: денний ліміт втрат (-3%) вичерпано!")
+                return
+
             # Перевірка на ліміт одночасних угод (захист капіталу від корекції всього ринку)
             max_positions = getattr(self.settings, 'max_open_positions', getattr(self.settings, 'MAX_CONCURRENT_POSITIONS', 3))
             if len(self.positions) >= max_positions:
                 logger.debug(f"⚠️ Пропуск {symbol}: досягнуто ліміт активних позицій ({max_positions}).")
                 return
 
-            # --- РОЗРАХУНОК ОБ'ЄМУ (POSITION SIZING ІЗ ДИНАМІЧНИМ РИЗИКОМ) ---
+            # --- РОЗРАХУНОК ОБ'ЄМУ (POSITION SIZING ІЗ ДИНАМІЧНИМ РИЗИКОМ, ATR & KELLY) ---
             base_risk_pct = getattr(self.settings, 'risk_per_trade_pct', getattr(self.settings, 'TRADE_FRACTION', 0.02))
             if self.risk_controller and hasattr(self.risk_controller, 'get_effective_risk_pct'):
                 risk_pct = self.risk_controller.get_effective_risk_pct(base_risk_pct)
             else:
                 risk_pct = base_risk_pct
 
-            risk_budget = self.balance * risk_pct
+            # Dynamic Kelly Confidence Multiplier (масштабуємо ризик за впевненістю ШІ)
+            conf_multiplier = 1.0
+            if ai_confidence >= 0.70:
+                conf_multiplier = 1.25  # висока ймовірність -> збільшуємо розмір
+            elif ai_confidence >= 0.55:
+                conf_multiplier = 1.00
+            elif ai_confidence > 0.0:
+                conf_multiplier = 0.85  # низька впевненість -> консервативний лот
+
+            # Volatility Sizing (зменшення розміру при надмірній волатильності ATR для захисту від прослизань)
+            atr_pct = float(features_dict.get('ATR_PCT', 0.01))
+            vol_multiplier = 1.0
+            if atr_pct > 0.020:
+                vol_multiplier = 0.75   # високоволатильний шум -> ріжемо об'єм на 25%
+            elif atr_pct < 0.003:
+                vol_multiplier = 0.90   # занадто мертвий ринок
+
+            effective_risk_pct = risk_pct * conf_multiplier * vol_multiplier
+            risk_budget = self.balance * effective_risk_pct
             risk_per_coin = abs(price - sl)
 
             if risk_per_coin <= 0:
@@ -215,10 +239,104 @@ class PaperTrader:
             except Exception as e:
                 logger.warning(f"⚠️ Не вдалося оновити highest_price для {symbol} у БД: {e}")
 
-        # 3. Перевіряємо умови виходу
+        # 3. Перевіряємо умови виходу (Scale-Out або повне закриття)
         exit_reason = OrderExecutionService.evaluate_exit_conditions(pos, current_price, self.settings)
         if exit_reason:
-            await self._close_position(symbol, current_price, exit_reason)
+            if exit_reason.startswith("Take Profit 1"):
+                await self._partial_close_position(symbol, current_price, exit_reason)
+            else:
+                await self._close_position(symbol, current_price, exit_reason)
+
+    async def _partial_close_position(self, symbol: str, close_price: float, reason: str) -> None:
+        """
+        Scale-Out Engine: Часткове закриття 50% позиції на TP1.
+        Фіксує реальний кеш на баланс, переводить залишок у безубиток, оновлює активну позицію в БД та логує трейд.
+        """
+        close_price = float(close_price)
+        pos: Optional[Position] = None
+        closed_coins = 0.0
+        closed_cost = 0.0
+        net_return_amount = 0.0
+        net_pnl = 0.0
+        current_balance = 0.0
+
+        # 1. Фіксуємо частковий прибуток у пам'яті ПІД ЛОКОМ
+        async with self._lock:
+            pos = self.positions.get(symbol)
+            if not pos or getattr(pos, 'partial_tp_hit', False):
+                return
+
+            ratio = getattr(self.settings, 'PARTIAL_TP_RATIO', 0.50)
+            closed_coins = pos.amount_coins * ratio
+            closed_cost = pos.amount_usdt * ratio
+
+            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.001)
+            gross_exit_value_usdt = close_price * closed_coins
+            exit_fee_usdt = gross_exit_value_usdt * fee_pct
+            net_return_amount = gross_exit_value_usdt - exit_fee_usdt
+
+            # Початкова вартість половини з урахуванням вхідної комісії
+            initial_cost_half_with_fee = closed_cost + (closed_cost * fee_pct)
+            net_pnl = net_return_amount - initial_cost_half_with_fee
+
+            # Нараховуємо прибуток на живий баланс
+            self.balance += net_return_amount
+            current_balance = self.balance
+
+            # Модифікуємо позицію: зменшуємо об'єм, ставимо прапорець та переводимо SL у безубиток
+            pos.amount_coins -= closed_coins
+            pos.amount_usdt -= closed_cost
+            pos.partial_tp_hit = True
+            be_sl = pos.entry_price * 1.0025
+            if be_sl > pos.sl:
+                pos.sl = be_sl
+
+        # 2. Оновлюємо базу даних ПОЗА ЛОКОМ
+        try:
+            target_label = 1 if net_pnl > 0 else 0
+            features_json_str = json.dumps(pos.features_snapshot) if pos.features_snapshot else "{}"
+
+            # Записуємо частковий закритий трейд у журнал
+            await asyncio.to_thread(
+                self.repo.log_trade,
+                symbol=symbol,
+                side=TradeSide.SELL.value,
+                price=float(close_price),
+                amount=float(closed_coins),
+                cost=float(net_return_amount),
+                pnl=float(net_pnl),
+                exit_reason=str(reason),
+                regime=getattr(pos, 'regime', 'CHOPPY_FLAT'),
+                ai_confidence=float(getattr(pos, 'ai_confidence', 0.0)),
+                target_label=target_label,
+                features_json=features_json_str
+            )
+
+            # Оновлюємо параметри залишку позиції в таблиці активних позицій
+            await asyncio.to_thread(
+                self.repo.save_position,
+                symbol=symbol,
+                amount=float(pos.amount_coins),
+                entry_price=float(pos.entry_price),
+                highest_price=float(pos.highest_price),
+                cost=float(pos.amount_usdt),
+                regime=pos.regime,
+                ai_confidence=float(pos.ai_confidence),
+                features_json=features_json_str,
+                partial_tp_hit=1
+            )
+            await asyncio.to_thread(self.repo.save_balance, float(current_balance))
+
+            msg = (
+                f"🎯 [ЧАСТКОВИЙ ТЕЙК (50%)] {symbol} | Ціна: {close_price:.4f} | "
+                f"Зафіксовано PnL: {net_pnl:+.2f} USDT | Залишок {pos.amount_usdt:.2f} USDT захищено в безубитку 🔒"
+            )
+            logger.info(msg)
+            if getattr(self.settings, 'ENABLE_TELEGRAM', False) and self.notifier:
+                await self.notifier.send_message(msg)
+
+        except Exception as e:
+            logger.error(f"⚠️ Помилка оновлення БД при частковому закритті {symbol}: {e}")
 
     async def _close_position(self, symbol: str, close_price: float, reason: str) -> None:
         """Атомарно закриває позицію з відрахуванням комісії тейкера та зберігає історію."""

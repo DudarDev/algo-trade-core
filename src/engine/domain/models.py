@@ -27,6 +27,9 @@ class Position(BaseModel):
     regime: str = Field(default="CHOPPY_FLAT")
     ai_confidence: float = Field(default=0.0)
     features_snapshot: dict[str, float] = Field(default_factory=dict)
+    
+    # Scale-Out Engine (Partial Take Profit)
+    partial_tp_hit: bool = Field(default=False)
 
     model_config = ConfigDict(strict=False, validate_assignment=True)
 

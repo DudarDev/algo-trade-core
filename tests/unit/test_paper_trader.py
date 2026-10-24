@@ -252,7 +252,56 @@ async def test_breakeven_stop_loss_lock(paper_trader, repo):
 
     # Позиція закрита в безубиток
     assert "AVAX/USDT" not in paper_trader.positions
-    assert len(repo.logged_trades) == 1
-    logged = repo.logged_trades[0]
+    assert len(repo.logged_trades) >= 1
+    logged = repo.logged_trades[-1]
     assert logged["target_label"] == 1 or logged["pnl"] >= 0
     assert "Breakeven" in logged.get("exit_reason", "")
+
+@pytest.mark.asyncio
+async def test_partial_take_profit_scale_out(paper_trader, repo):
+    """Тест 10: Scale-Out Engine (Partial Take-Profit 50% на TP1 + переведення залишку в безубиток)"""
+    await paper_trader.initialize()
+
+    # Вхід по $100.0, SL $95.0, TP $110.0 (+10%)
+    await paper_trader.open_position(
+        symbol="DOT/USDT",
+        side=TradeSide.BUY,
+        price=100.0,
+        sl=95.0,
+        tp=110.0
+    )
+
+    pos = paper_trader.positions["DOT/USDT"]
+    initial_coins = pos.amount_coins
+    initial_usdt = pos.amount_usdt
+    initial_bal = paper_trader.balance
+
+    # 1. Ціна піднімається до $101.5 (+1.5% PARTIAL_TP_PCT) -> спрацьовує Take Profit 1 (50%)
+    await paper_trader.update_position("DOT/USDT", 101.5)
+
+    # Перевіряємо стан позиції:
+    assert pos.partial_tp_hit is True
+    assert round(pos.amount_coins, 4) == round(initial_coins * 0.5, 4)
+    assert round(pos.amount_usdt, 2) == round(initial_usdt * 0.5, 2)
+    # Залишок переведено в гарантований безубиток (+0.25% fee buffer)
+    assert pos.sl >= 100.25
+    # Баланс поповнено реалізованим кешем
+    assert paper_trader.balance > initial_bal
+
+    # Перевіряємо лог трейдів: має бути зафіксовано перший трейд (TP1 50%)
+    assert len(repo.logged_trades) == 1
+    trade1 = repo.logged_trades[0]
+    assert "Take Profit 1" in trade1["exit_reason"]
+    assert trade1["target_label"] == 1
+    assert trade1["pnl"] > 0
+
+    # 2. Ціна далі зростає до повного TP ($110.0) -> вихід залишку позиції
+    await paper_trader.update_position("DOT/USDT", 110.0)
+
+    # Позиція повністю закрита
+    assert "DOT/USDT" not in paper_trader.positions
+    assert len(repo.logged_trades) == 2
+    trade2 = repo.logged_trades[1]
+    assert "Take Profit" in trade2["exit_reason"]
+    assert trade2["target_label"] == 1
+    assert trade2["pnl"] > 0

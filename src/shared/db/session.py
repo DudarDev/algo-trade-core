@@ -42,6 +42,7 @@ def migrate_schema(target_engine):
                 ("regime", "VARCHAR(30) DEFAULT 'CHOPPY_FLAT'"),
                 ("ai_confidence", "FLOAT DEFAULT 0.0"),
                 ("features_json", "TEXT DEFAULT '{}'"),
+                ("partial_tp_hit", "INTEGER DEFAULT 0"),
             ]
         }
 

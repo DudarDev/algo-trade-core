@@ -21,6 +21,8 @@ class AdaptiveRiskState(BaseModel):
     current_min_adx: float = Field(default=25.0, ge=0.0, le=100.0)
     current_risk_multiplier: float = Field(default=1.0, ge=0.1, le=1.5)
     status_message: str = Field(default="NORMAL")
+    circuit_breaker_active: bool = Field(default=False)
+    daily_loss_usdt: float = Field(default=0.0)
 
     model_config = ConfigDict(strict=True)
 
@@ -59,12 +61,19 @@ class AdaptiveRiskController:
         self.peak_balance: float = 1000.0
         self.current_balance: float = 1000.0
 
+        # Circuit Breaker (-3% Daily Loss Protection)
+        self.day_start_balance: float = 1000.0
+        self.daily_pnl: float = 0.0
+        self.daily_loss_limit_pct: float = 0.030
+        self.circuit_breaker_active: bool = False
+
     def initialize_from_history(self, closed_trades: list, current_balance: float) -> None:
         """
         Відновлює стан ризик-контролера з історії закритих угод у БД при старті.
         """
         self.current_balance = max(10.0, float(current_balance))
         self.peak_balance = max(self.peak_balance, self.current_balance)
+        self.day_start_balance = self.current_balance
 
         if not closed_trades:
             logger.info("🛡️ [Adaptive Risk] Історія угод порожня. Встановлено базові параметри.")
@@ -120,6 +129,16 @@ class AdaptiveRiskController:
             self.consecutive_losses += 1
             self.consecutive_wins = 0
             logger.warning(f"🔴 [Adaptive Risk] Фіксація збитку ({net_pnl:.2f} USDT). Серія збитків: {self.consecutive_losses}.")
+
+        # Circuit Breaker Tracking (-3% Daily Loss Protection)
+        self.daily_pnl += float(net_pnl)
+        max_allowed_loss = self.day_start_balance * self.daily_loss_limit_pct
+        if self.daily_pnl <= -max_allowed_loss:
+            self.circuit_breaker_active = True
+            logger.critical(
+                f"🛑 [CIRCUIT BREAKER TRIGGERED] Денний збиток {self.daily_pnl:.2f} USDT перевищив ліміт "
+                f"(-{max_allowed_loss:.2f} USDT / {self.daily_loss_limit_pct*100:.1f}%). Нові входи ЗАБЛОКОВАНО!"
+            )
 
         state = self.get_state()
         if self.consecutive_losses >= 2:
@@ -229,5 +248,18 @@ class AdaptiveRiskController:
             current_confidence_threshold=self.get_effective_confidence_threshold(),
             current_min_adx=self.get_effective_min_adx(),
             current_risk_multiplier=round(risk_mult, 4),
-            status_message=status_msg
+            status_message=status_msg,
+            circuit_breaker_active=self.circuit_breaker_active,
+            daily_loss_usdt=round(self.daily_pnl, 2)
         )
+
+    def is_circuit_breaker_triggered(self) -> bool:
+        """Повертає True, якщо активовано аварійний рубильник денного збитку (-3%)."""
+        return self.circuit_breaker_active
+
+    def reset_circuit_breaker(self) -> None:
+        """Скидає стан аварійного рубильника при настанні нового торгового дня або вручну."""
+        self.circuit_breaker_active = False
+        self.daily_pnl = 0.0
+        self.day_start_balance = self.current_balance
+        logger.info("🔄 [Circuit Breaker] Аварійний рубильник успішно скинуто.")

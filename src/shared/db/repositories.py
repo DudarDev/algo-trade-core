@@ -45,7 +45,8 @@ class TradingRepository:
         cost: float,
         regime: str = "CHOPPY_FLAT",
         ai_confidence: float = 0.0,
-        features_json: str = "{}"
+        features_json: str = "{}",
+        partial_tp_hit: int = 0
     ) -> None:
         with SessionLocal() as session:
             pos = session.query(ActivePosition).filter_by(symbol=symbol).first()
@@ -57,6 +58,7 @@ class TradingRepository:
                 pos.regime = regime
                 pos.ai_confidence = ai_confidence
                 pos.features_json = features_json
+                pos.partial_tp_hit = partial_tp_hit
             else:
                 pos = ActivePosition(
                     symbol=symbol,
@@ -66,7 +68,8 @@ class TradingRepository:
                     cost=cost,
                     regime=regime,
                     ai_confidence=ai_confidence,
-                    features_json=features_json
+                    features_json=features_json,
+                    partial_tp_hit=partial_tp_hit
                 )
                 session.add(pos)
             session.commit()

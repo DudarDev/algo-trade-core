@@ -46,6 +46,7 @@ class ActivePosition(Base):
     regime: Mapped[str] = mapped_column(String(30), default="CHOPPY_FLAT")
     ai_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     features_json: Mapped[str] = mapped_column(Text, default="{}")
+    partial_tp_hit: Mapped[int] = mapped_column(Integer, default=0)
     
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

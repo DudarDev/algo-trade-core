@@ -30,6 +30,8 @@ class SignalMetadata(BaseModel):
     htf_trend: Optional[str] = "NEUTRAL"
     btc_pulse: Optional[str] = "HEALTHY"
     vol_spike: Optional[float] = 1.0
+    quant_score: Optional[float] = 0.0
+    ensemble_conf: Optional[float] = 0.0
     reason: str = "No signal"
     
     model_config = ConfigDict(strict=True)
@@ -146,6 +148,24 @@ class HybridStrategy:
                 meta.reason = f"Weak Buyer Pressure ({buy_press:.2f}) (Blocked)"
                 return SignalAction.HOLD, meta
 
+        # 7. ENSEMBLE AI CONSENSUS (Дворівневе підтвердження: ML ймовірність + Квант-фактори)
+        trend_score = 1.0 if float(curr.get('EMA_DIST_50', 0)) > 0 else 0.0
+        mom_score = 1.0 if float(curr.get('MACD_HIST', 0)) > 0 else 0.0
+        vol_score = 1.0 if vol_spike_val >= 1.0 and float(curr.get('BUY_PRESSURE', 0.5)) >= 0.45 else 0.5
+        rsi_val = float(meta.rsi)
+        rsi_score = 1.0 if (35.0 <= rsi_val <= 65.0) else 0.5
+
+        quant_factor_score = round(0.30 * trend_score + 0.25 * mom_score + 0.25 * vol_score + 0.20 * rsi_score, 2)
+        ensemble_conf = round(0.65 * float(ai_confidence) + 0.35 * quant_factor_score, 2)
+
+        meta.quant_score = quant_factor_score
+        meta.ensemble_conf = ensemble_conf
+
+        # Фільтр дивергенції ансамблю (якщо квантові фактори різко суперечать сигналу)
+        if quant_factor_score < 0.30:
+            meta.reason = f"Ensemble Factor Divergence (Quant={quant_factor_score:.2f} < 0.30) (Blocked)"
+            return SignalAction.HOLD, meta
+
         # ШІ ПОРОГИ (Вимоги до дерев рішень із адаптивним зсувом)
         if regime == MarketRegime.BULL:
             threshold = effective_base_threshold
@@ -154,7 +174,7 @@ class HybridStrategy:
             
         # Ухвалення рішення
         if ai_confidence >= threshold:
-            meta.reason = f"AI_Smart_Signal_{regime.value}(Conf={ai_confidence:.2f}>={threshold:.2f})"
+            meta.reason = f"AI_Smart_Signal_{regime.value}(Conf={ai_confidence:.2f}>={threshold:.2f}, Ens={ensemble_conf:.2f})"
             return SignalAction.BUY, meta
 
         meta.reason = f"Insufficient confidence ({ai_confidence:.2f} < {threshold:.2f})"
@@ -165,5 +185,6 @@ class HybridStrategy:
             price=0.01, ai_conf=0.0, rsi=50.0,
             trend=TrendDirection.FLAT, regime=MarketRegime.CHOP,
             htf_trend="NEUTRAL", btc_pulse="HEALTHY", vol_spike=1.0,
+            quant_score=0.0, ensemble_conf=0.0,
             reason="Invalid DataFrame"
         )

@@ -90,3 +90,31 @@ def test_adaptive_risk_initialize_from_history():
     assert state.consecutive_losses == 3
     assert state.current_confidence_threshold == 0.63
     assert state.current_min_adx == 31.0
+
+def test_circuit_breaker_daily_loss_limit():
+    controller = AdaptiveRiskController(
+        base_confidence=0.55,
+        base_min_adx=25.0,
+        base_risk_pct=0.02
+    )
+    controller.initialize_from_history([], current_balance=1000.0)
+    assert controller.is_circuit_breaker_triggered() is False
+
+    # 1st loss: -12 USDT (total -12 USDT, limit is -30 USDT)
+    controller.record_trade_result(net_pnl=-12.0, target_label=0, balance_after_trade=988.0)
+    assert controller.is_circuit_breaker_triggered() is False
+
+    # 2nd loss: -10 USDT (total -22 USDT, limit is -30 USDT)
+    controller.record_trade_result(net_pnl=-10.0, target_label=0, balance_after_trade=978.0)
+    assert controller.is_circuit_breaker_triggered() is False
+
+    # 3rd loss: -10 USDT (total -32 USDT <= -30 USDT) -> Circuit Breaker triggers!
+    state = controller.record_trade_result(net_pnl=-10.0, target_label=0, balance_after_trade=968.0)
+    assert controller.is_circuit_breaker_triggered() is True
+    assert state.circuit_breaker_active is True
+    assert state.daily_loss_usdt == -32.0
+
+    # Reset circuit breaker
+    controller.reset_circuit_breaker()
+    assert controller.is_circuit_breaker_triggered() is False
+    assert controller.get_state().circuit_breaker_active is False

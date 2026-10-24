@@ -166,3 +166,22 @@ def test_vsa_low_volume_blocks_entry(base_settings):
     signal, meta = strategy.get_signal(df, ai_confidence=0.80)
     assert signal == SignalAction.HOLD
     assert "Low Volume Breakout" in meta.reason
+
+def test_ensemble_factor_consensus_and_divergence(base_settings):
+    strategy = HybridStrategy(base_settings)
+    # When technical factors are aligned with high confidence:
+    df_bull = pd.DataFrame({
+        'RSI': [0.52, 0.52],
+        'EMA_DIST_50': [0.015, 0.015],
+        'MACD_HIST': [0.15, 0.20],
+        'close': [100.0, 102.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.30, 1.30],
+        'BUY_PRESSURE': [0.65, 0.65]
+    })
+    sig, meta = strategy.get_signal(df_bull, ai_confidence=0.75)
+    assert sig == SignalAction.BUY
+    assert meta.quant_score >= 0.70
+    assert meta.ensemble_conf >= 0.70
+    assert "Ens=" in meta.reason

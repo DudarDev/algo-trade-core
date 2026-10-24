@@ -36,3 +36,5 @@ htmlcov/
 .DS_Store
 Thumbs.db
 bot_deploy.tar.gz
+launch_dashboard.bat
+launch_dashboard.vbs

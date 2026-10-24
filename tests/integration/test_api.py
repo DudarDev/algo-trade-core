@@ -79,3 +79,27 @@ def test_news_endpoint():
     assert "news" in data
     assert "blackouts" in data
     assert isinstance(data["news"], list)
+
+
+def test_system_infra_endpoint():
+    client = Client()
+    response = client.get('/api/monitor/system_infra')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "redis" in data
+    assert "celery" in data
+    assert "ai_ensemble" in data
+    assert data["ai_ensemble"]["ensemble_enabled"] is True
+    assert "rf" in data["ai_ensemble"]["weights"]
+    assert "lightgbm" in data["ai_ensemble"]["weights"]
+
+
+def test_stream_telemetry_endpoint():
+    client = Client()
+    response = client.get('/api/monitor/stream')
+    assert response.status_code == 200
+    assert response['Content-Type'] == 'text/event-stream'
+    # Read the first event chunk
+    content = next(response.streaming_content).decode('utf-8')
+    assert "event: connected" in content

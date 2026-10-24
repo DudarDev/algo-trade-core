@@ -68,6 +68,18 @@ class NewsAnalyzer:
         проганяє через AI NLP аналізатор та оновлює список блекаутів.
         """
         now = time.time()
+        try:
+            from src.engine.infrastructure.cache_manager import cache_manager
+            if not force_refresh:
+                cached = cache_manager.get("news:feed")
+                if cached:
+                    self._cached_news = cached
+                    self._last_fetch_time = now
+                    self._update_blackouts()
+                    return cached
+        except Exception:
+            pass
+
         if not force_refresh and self._cached_news and (now - self._last_fetch_time < self.cache_ttl):
             return self._cached_news
 
@@ -91,6 +103,11 @@ class NewsAnalyzer:
             self._cached_news = all_articles[:40]
             self._last_fetch_time = now
             self._update_blackouts()
+            try:
+                from src.engine.infrastructure.cache_manager import cache_manager
+                cache_manager.set("news:feed", self._cached_news, ttl=self.cache_ttl)
+            except Exception:
+                pass
             return self._cached_news
 
         return self._cached_news or []

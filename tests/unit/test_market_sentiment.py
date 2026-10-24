@@ -25,6 +25,8 @@ async def test_sentiment_format_greed():
 
 @pytest.mark.asyncio
 async def test_sentiment_fetch_fallback():
+    from src.engine.infrastructure.cache_manager import cache_manager
+    cache_manager.delete("sentiment:fng")
     analyzer = MarketSentimentAnalyzer()
     with patch("aiohttp.ClientSession.get", side_effect=Exception("Network down")):
         data = await analyzer.get_market_sentiment()

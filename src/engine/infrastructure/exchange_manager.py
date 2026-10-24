@@ -87,8 +87,23 @@ class ExchangeManager:
 
     async def fetch_current_price(self, symbol: str) -> Optional[float]:
         try:
+            from src.engine.infrastructure.cache_manager import cache_manager
+            cache_key = f"ticker:{symbol}"
+            cached = cache_manager.get(cache_key)
+            if cached is not None:
+                return float(cached)
+        except Exception:
+            pass
+
+        try:
             ticker = await self.public_exchange.fetch_ticker(symbol)
-            return float(ticker['last'])
+            price = float(ticker['last'])
+            try:
+                from src.engine.infrastructure.cache_manager import cache_manager
+                cache_manager.set(f"ticker:{symbol}", price, ttl=3)
+            except Exception:
+                pass
+            return price
         except Exception:
             return None
 

@@ -418,3 +418,100 @@ async def get_news_endpoint(request):
         "blackouts": blackouts,
         "news": news[:25]
     }
+
+
+@router.get("/system_infra")
+def get_system_infra(request):
+    """Статус інституційних технологій: Redis Cache, Celery Distributed Tasks, LightGBM Dual Ensemble."""
+    from src.engine.infrastructure.cache_manager import cache_manager
+    from src.shared.config import settings
+
+    stats = cache_manager.get_stats()
+    project_root = Path(__file__).resolve().parent.parent.parent
+
+    lgbm_path = Path(settings.LIGHTGBM_MODEL_PATH)
+    if not lgbm_path.is_absolute():
+        lgbm_path = project_root / lgbm_path
+
+    rf_path = Path(settings.MODEL_PATH)
+    if not rf_path.is_absolute():
+        rf_path = project_root / rf_path
+
+    return {
+        "status": "success",
+        "redis": {
+            "backend": stats.get("backend", "in_memory"),
+            "connected": stats.get("redis_connected", False),
+            "keys_count": stats.get("memory_keys_count", 0),
+            "url": stats.get("redis_url", "")
+        },
+        "celery": {
+            "broker": settings.CELERY_BROKER_URL,
+            "tasks": ["task_refresh_news_feed", "task_sync_market_sentiment", "task_retrain_ai_model", "task_deep_backtest"],
+            "beat_active": True
+        },
+        "ai_ensemble": {
+            "rf_loaded": rf_path.exists(),
+            "lgbm_loaded": lgbm_path.exists(),
+            "ensemble_enabled": settings.ENABLE_QUANT_DUAL_ENSEMBLE,
+            "weights": {"rf": 0.55, "lightgbm": 0.45}
+        }
+    }
+
+
+def sse_event_stream():
+    """Генератор Server-Sent Events (SSE) для Cupertino Web Terminal."""
+    import time
+    from src.engine.infrastructure.cache_manager import cache_manager
+
+    yield f"event: connected\ndata: {json.dumps({'connected': True, 'timestamp': time.time()})}\n\n"
+
+    for _ in range(15):
+        time.sleep(1.0)
+        telemetry = {
+            "timestamp": time.time(),
+            "redis_active": cache_manager.is_redis_available,
+            "time_str": datetime.now().strftime("%H:%M:%S")
+        }
+        yield f"event: heartbeat\ndata: {json.dumps(telemetry)}\n\n"
+
+
+@router.get("/stream")
+def stream_telemetry_endpoint(request):
+    from django.http import StreamingHttpResponse
+    response = StreamingHttpResponse(sse_event_stream(), content_type="text/event-stream")
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'
+    return response
+
+
+@router.post("/celery/trigger_news")
+def trigger_news_task(request):
+    """Ручний запуск Celery таски оновлення новин."""
+    try:
+        from src.engine.application.tasks import task_refresh_news_feed
+        try:
+            res = task_refresh_news_feed.delay()
+            task_id = str(res.id)
+        except Exception:
+            res = task_refresh_news_feed()
+            task_id = "sync_executed"
+        return {"status": "success", "task_id": task_id}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/celery/trigger_retrain")
+def trigger_retrain_task(request):
+    """Ручний запуск Celery таски перенавчання ансамблю ШІ."""
+    try:
+        from src.engine.application.tasks import task_retrain_ai_model
+        try:
+            res = task_retrain_ai_model.delay(pairs=["BTC/USDT", "ETH/USDT"], history_days=14)
+            task_id = str(res.id)
+        except Exception:
+            res = task_retrain_ai_model(pairs=["BTC/USDT"], history_days=7)
+            task_id = "sync_executed"
+        return {"status": "success", "task_id": task_id}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

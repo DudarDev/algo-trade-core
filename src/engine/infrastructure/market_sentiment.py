@@ -22,6 +22,16 @@ class MarketSentimentAnalyzer:
         або повертає надійне збалансоване кешоване значення з адаптивними квантовими рекомендаціями.
         """
         now = time.time()
+        try:
+            from src.engine.infrastructure.cache_manager import cache_manager
+            cached = cache_manager.get("sentiment:fng")
+            if cached:
+                self._cached_data = cached
+                self._last_fetch_time = now
+                return cached
+        except Exception:
+            pass
+
         if self._cached_data and (now - self._last_fetch_time < self.cache_ttl):
             return self._cached_data
 
@@ -38,6 +48,11 @@ class MarketSentimentAnalyzer:
                             result = self._format_sentiment(raw_val, classification)
                             self._cached_data = result
                             self._last_fetch_time = now
+                            try:
+                                from src.engine.infrastructure.cache_manager import cache_manager
+                                cache_manager.set("sentiment:fng", result, ttl=self.cache_ttl)
+                            except Exception:
+                                pass
                             return result
         except Exception as e:
             logger.debug(f"Не вдалося отримати Fear & Greed онлайн: {e}")
@@ -85,6 +100,7 @@ class MarketSentimentAnalyzer:
 
         return {
             "score": score,
+            "value": score,
             "classification": classification,
             "risk_mode": risk_mode,
             "advice": advice,

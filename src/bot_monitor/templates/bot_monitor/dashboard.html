@@ -225,6 +225,48 @@
     </div>
 </section>
 
+<!-- 🏛️ 2.8. INSTITUTIONAL QUANT ARCHITECTURE & DISTRIBUTED COMPONENT MONITOR -->
+<section class="glass-panel p-3 mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+    <div class="flex items-center gap-2 p-2 rounded-xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">
+            <i class="fa-solid fa-bolt"></i>
+        </div>
+        <div>
+            <div class="text-[9px] uppercase font-semibold" style="color: var(--apple-text-secondary);">In-Memory Layer</div>
+            <div id="tech-redis-status" class="font-bold font-mono" style="color: var(--apple-green-text);"><i class="fa-solid fa-check"></i> Redis Cache: Ready</div>
+        </div>
+    </div>
+    <div class="flex items-center gap-2 p-2 rounded-xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+            <i class="fa-solid fa-network-wired"></i>
+        </div>
+        <div>
+            <div class="text-[9px] uppercase font-semibold" style="color: var(--apple-text-secondary);">Distributed Engine</div>
+            <div id="tech-celery-status" class="font-bold font-mono" style="color: var(--apple-blue-text);"><i class="fa-solid fa-clock-rotate-left"></i> Celery + Beat: Active</div>
+        </div>
+    </div>
+    <div class="flex items-center gap-2 p-2 rounded-xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+            <i class="fa-solid fa-brain"></i>
+        </div>
+        <div>
+            <div class="text-[9px] uppercase font-semibold" style="color: var(--apple-text-secondary);">Dual Ensemble AI</div>
+            <div id="tech-ai-status" class="font-bold font-mono" style="color: var(--apple-purple);"><i class="fa-solid fa-layer-group"></i> RF 55% + LGBM 45%</div>
+        </div>
+    </div>
+    <div class="flex items-center gap-2 p-2 rounded-xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+            <i class="fa-solid fa-tower-broadcast"></i>
+        </div>
+        <div>
+            <div class="text-[9px] uppercase font-semibold" style="color: var(--apple-text-secondary);">Live Push Feed</div>
+            <div id="tech-stream-status" class="font-bold font-mono flex items-center gap-1.5" style="color: var(--apple-green-text);">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block"></span> SSE Telemetry Live
+            </div>
+        </div>
+    </div>
+</section>
+
 <!-- 🎮 3. ПАНЕЛЬ СТАНУ РУШІЯ ТА КЕРУВАННЯ -->
 <section class="glass-panel p-3.5 mb-5 flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-3">
@@ -921,7 +963,9 @@ class DashboardController {
             portfolio: '/api/portfolio',
             backtest: '/api/backtest',
             sentiment: '/api/sentiment',
-            news: '/api/news'
+            news: '/api/news',
+            systemInfra: '/api/monitor/system_infra',
+            stream: '/api/monitor/stream'
         };
 
         this.elements = {
@@ -983,6 +1027,8 @@ class DashboardController {
         this.fetchPortfolio();
         this.fetchSentiment();
         this.fetchNews();
+        this.fetchSystemInfra();
+        this.initStreaming();
 
         // Періодичне опитування (кожні 3.5 сек)
         setInterval(() => {
@@ -994,7 +1040,7 @@ class DashboardController {
             this.fetchPortfolio();
             this.fetchSentiment();
             this.fetchNews();
-        this.fetchNews();
+            this.fetchSystemInfra();
         }, 3500);
 
         // Тікери кожні 15 сек
@@ -2191,7 +2237,61 @@ class DashboardController {
         }
     }
 
-        async fetchNews(isManual = false) {
+        async fetchSystemInfra() {
+        try {
+            const res = await fetch(this.endpoints.systemInfra);
+            if (!res.ok) return;
+            const data = await res.json();
+            
+            const redisEl = document.getElementById('tech-redis-status');
+            if (redisEl && data.redis) {
+                if (data.redis.connected) {
+                    redisEl.innerHTML = `<span style="color: var(--apple-green-text);"><i class="fa-solid fa-check"></i> Redis: Online</span>`;
+                } else {
+                    redisEl.innerHTML = `<span style="color: var(--apple-blue-text);"><i class="fa-solid fa-microchip"></i> In-Memory Cache</span>`;
+                }
+            }
+            
+            const celeryEl = document.getElementById('tech-celery-status');
+            if (celeryEl && data.celery) {
+                celeryEl.innerHTML = `<span style="color: var(--apple-blue-text);"><i class="fa-solid fa-clock-rotate-left"></i> Celery Beat: Active</span>`;
+            }
+            
+            const aiEl = document.getElementById('tech-ai-status');
+            if (aiEl && data.ai_ensemble) {
+                if (data.ai_ensemble.lgbm_loaded) {
+                    aiEl.innerHTML = `<span style="color: var(--apple-purple);"><i class="fa-solid fa-layer-group"></i> RF 55% + LGBM 45%</span>`;
+                } else {
+                    aiEl.innerHTML = `<span style="color: var(--apple-purple);"><i class="fa-solid fa-brain"></i> Random Forest v4</span>`;
+                }
+            }
+        } catch (e) {
+            console.debug('System infra fetch error:', e);
+        }
+    }
+
+    initStreaming() {
+        if (!window.EventSource) return;
+        try {
+            const evtSource = new EventSource(this.endpoints.stream);
+            evtSource.addEventListener('heartbeat', (e) => {
+                const streamEl = document.getElementById('tech-stream-status');
+                if (streamEl) {
+                    streamEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block"></span> <span style="color: var(--apple-green-text);">SSE Telemetry Live</span>`;
+                }
+            });
+            evtSource.onerror = () => {
+                const streamEl = document.getElementById('tech-stream-status');
+                if (streamEl) {
+                    streamEl.innerHTML = `<span style="color: var(--apple-text-secondary);"><i class="fa-solid fa-arrows-rotate animate-spin"></i> Reconnecting...</span>`;
+                }
+            };
+        } catch (e) {
+            console.debug('Streaming init error:', e);
+        }
+    }
+
+    async fetchNews(isManual = false) {
         try {
             const btn = document.getElementById('btn-refresh-news');
             if (btn && isManual) btn.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin"></i>';

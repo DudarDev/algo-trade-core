@@ -185,3 +185,40 @@ def test_ensemble_factor_consensus_and_divergence(base_settings):
     assert meta.quant_score >= 0.70
     assert meta.ensemble_conf >= 0.70
     assert "Ens=" in meta.reason
+
+
+def test_order_book_ask_wall_blocks_entry(base_settings):
+    """Тест: L2 Order Book Ask Wall блокує вхід у лонг для захисту від опору."""
+    strategy = HybridStrategy(base_settings)
+    df_bull = pd.DataFrame({
+        'RSI': [0.52, 0.52],
+        'EMA_DIST_50': [0.015, 0.015],
+        'MACD_HIST': [0.15, 0.20],
+        'close': [100.0, 102.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.30, 1.30],
+        'BUY_PRESSURE': [0.65, 0.65]
+    })
+    sig, meta = strategy.get_signal(df_bull, ai_confidence=0.75, order_book_status="HEAVY_ASK_RESISTANCE")
+    assert sig == SignalAction.HOLD
+    assert "Order Book Ask Wall Resistance" in meta.reason
+
+
+def test_funding_rate_overheated_blocks_entry(base_settings):
+    """Тест: Перегрітий деривативний фандинг (>0.05%) блокує лонг через ризик ліквідаційного проливу."""
+    strategy = HybridStrategy(base_settings)
+    df_bull = pd.DataFrame({
+        'RSI': [0.52, 0.52],
+        'EMA_DIST_50': [0.015, 0.015],
+        'MACD_HIST': [0.15, 0.20],
+        'close': [100.0, 102.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.30, 1.30],
+        'BUY_PRESSURE': [0.65, 0.65]
+    })
+    sig, meta = strategy.get_signal(df_bull, ai_confidence=0.75, funding_sentiment="OVERHEATED_LONGS")
+    assert sig == SignalAction.HOLD
+    assert "Funding Rate Overheated" in meta.reason
+

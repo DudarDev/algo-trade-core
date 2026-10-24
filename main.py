@@ -51,6 +51,7 @@ from src.engine.application.risk_management import RiskManager, RiskConfig
 from src.engine.application.paper_trader import PaperTrader
 from src.engine.application.live_trader import LiveBinanceTrader
 from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
+from src.engine.infrastructure.order_book_analyzer import OrderBookAnalyzer
 
 
 class CryptoBot:
@@ -69,6 +70,7 @@ class CryptoBot:
         self.htf_trend_cache = {}
         self.btc_market_pulse = "HEALTHY"
         self.btc_pulse_time = 0.0
+        self.order_book_analyzer = OrderBookAnalyzer(exchange_manager=self.exchange)
         self.load_runtime_config()
 
     async def get_higher_timeframe_trend(self, symbol: str) -> str:
@@ -274,12 +276,27 @@ class CryptoBot:
 
                 final_signal, proba = self.ai.predict(df_features)
                 htf_trend = await self.get_higher_timeframe_trend(symbol)
+
+                # Оцінка стакану L2 та фандингу для перспективних сетапів (Етап 1: Win Rate 70%+)
+                ob_status = "NEUTRAL"
+                fund_sentiment = "HEALTHY_BALANCED"
+                if proba >= 0.18:
+                    try:
+                        ob_res = await self.order_book_analyzer.analyze_order_book(symbol)
+                        ob_status = ob_res.get("status", "NEUTRAL")
+                        fund_res = await self.order_book_analyzer.get_funding_sentiment(symbol)
+                        fund_sentiment = fund_res.get("sentiment", "HEALTHY_BALANCED")
+                    except Exception:
+                        pass
+
                 signal_action, meta = self.strategy.get_signal(
                     df=df_features,
                     ai_confidence=proba,
                     in_position=(symbol in self.trader.positions),
                     htf_trend=htf_trend,
-                    btc_pulse="HEALTHY" if symbol == 'BTC/USDT' else self.btc_market_pulse
+                    btc_pulse="HEALTHY" if symbol == 'BTC/USDT' else self.btc_market_pulse,
+                    order_book_status=ob_status,
+                    funding_sentiment=fund_sentiment
                 )
 
                 curr_row = df_features.iloc[-1]
@@ -303,6 +320,8 @@ class CryptoBot:
                     "reason": reason_str,
                     "htf_trend": htf_trend,
                     "btc_pulse": self.btc_market_pulse,
+                    "order_book": ob_status,
+                    "funding": fund_sentiment,
                     "vol_spike": vol_spike_val,
                     "adx": round(adx_val, 1),
                     "rsi": round(rsi_val, 1),

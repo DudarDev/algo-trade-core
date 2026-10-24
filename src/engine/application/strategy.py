@@ -32,6 +32,8 @@ class SignalMetadata(BaseModel):
     vol_spike: Optional[float] = 1.0
     quant_score: Optional[float] = 0.0
     ensemble_conf: Optional[float] = 0.0
+    order_book_status: Optional[str] = "NEUTRAL"
+    funding_sentiment: Optional[str] = "HEALTHY_BALANCED"
     reason: str = "No signal"
     
     model_config = ConfigDict(strict=True)
@@ -76,7 +78,9 @@ class HybridStrategy:
         ai_confidence: float, 
         in_position: bool = False,
         htf_trend: Optional[str] = None,
-        btc_pulse: Optional[str] = None
+        btc_pulse: Optional[str] = None,
+        order_book_status: Optional[str] = None,
+        funding_sentiment: Optional[str] = None
     ) -> Tuple[Optional[SignalAction], SignalMetadata]:
         
         required_cols = {'RSI', 'EMA_DIST_50', 'MACD_HIST', 'ATR_PCT', 'ADX'}
@@ -101,6 +105,8 @@ class HybridStrategy:
             htf_trend=htf_trend or "NEUTRAL",
             btc_pulse=btc_pulse or "HEALTHY",
             vol_spike=vol_spike_val,
+            order_book_status=order_book_status or "NEUTRAL",
+            funding_sentiment=funding_sentiment or "HEALTHY_BALANCED",
             reason="Evaluating..."
         )
 
@@ -148,6 +154,15 @@ class HybridStrategy:
                 meta.reason = f"Weak Buyer Pressure ({buy_press:.2f}) (Blocked)"
                 return SignalAction.HOLD, meta
 
+        # 7. L2 ORDER BOOK DEPTH & FUNDING RATE GUARDS (Етап 1: Підвищення вінрейту до 70%+)
+        if order_book_status == "HEAVY_ASK_RESISTANCE":
+            meta.reason = "Order Book Ask Wall Resistance (Blocked)"
+            return SignalAction.HOLD, meta
+
+        if funding_sentiment == "OVERHEATED_LONGS":
+            meta.reason = "Funding Rate Overheated Longs (>0.05%) (Blocked)"
+            return SignalAction.HOLD, meta
+
         # 7. ENSEMBLE AI CONSENSUS (Дворівневе підтвердження: ML ймовірність + Квант-фактори)
         trend_score = 1.0 if float(curr.get('EMA_DIST_50', 0)) > 0 else 0.0
         mom_score = 1.0 if float(curr.get('MACD_HIST', 0)) > 0 else 0.0
@@ -186,5 +201,6 @@ class HybridStrategy:
             trend=TrendDirection.FLAT, regime=MarketRegime.CHOP,
             htf_trend="NEUTRAL", btc_pulse="HEALTHY", vol_spike=1.0,
             quant_score=0.0, ensemble_conf=0.0,
+            order_book_status="NEUTRAL", funding_sentiment="HEALTHY_BALANCED",
             reason="Invalid DataFrame"
         )

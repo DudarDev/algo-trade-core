@@ -170,6 +170,30 @@
     </div>
 </section>
 
+<!-- 💼 2.5. MULTI-ASSET WALLET & BNB FEE OPTIMIZER (APPLE HIG) -->
+<section class="glass-panel p-4 mb-5 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-2xl flex items-center justify-center border text-sm" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-blue);">
+            <i class="fa-solid fa-coins"></i>
+        </div>
+        <div>
+            <div class="flex items-center gap-2">
+                <h3 class="text-xs font-bold uppercase tracking-wider" style="color: var(--apple-text);">Мультивалютний розподіл капіталу</h3>
+                <span id="bnb-discount-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all" style="background: var(--apple-green-bg); color: var(--apple-green-text); border-color: var(--apple-green-border);">
+                    <i class="fa-solid fa-percent"></i> 25% VIP FEE DISCOUNT ACTIVE
+                </span>
+            </div>
+            <div id="portfolio-assets-pills" class="flex flex-wrap items-center gap-2 mt-1.5 text-xs font-mono">
+                <span class="px-2 py-0.5 rounded-lg border text-[11px]" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">USDT: 100%</span>
+            </div>
+        </div>
+    </div>
+    <div class="text-right text-[11px] font-sans" style="color: var(--apple-text-secondary);">
+        <span>BNB Fee Optimizer: </span>
+        <strong id="bnb-optimizer-status" class="font-mono font-bold" style="color: var(--apple-green-text);">Taker Fee: 0.075% (Заощадження 25%)</strong>
+    </div>
+</section>
+
 <!-- 🎮 3. ПАНЕЛЬ СТАНУ РУШІЯ ТА КЕРУВАННЯ -->
 <section class="glass-panel p-3.5 mb-5 flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-3">
@@ -443,6 +467,131 @@
     </section>
 </div>
 
+<!-- 🧪 7.5. QUANTUM BACKTEST & STRATEGY LAB (APPLE CUPERTINO LAB) -->
+<section class="glass-panel p-5 mb-6 overflow-hidden relative">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 mb-4 border-b" style="border-color: var(--apple-divider);">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl flex items-center justify-center border text-sm" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-blue);">
+                <i class="fa-solid fa-flask-vial"></i>
+            </div>
+            <div>
+                <h2 class="text-xs font-bold uppercase tracking-wider flex items-center gap-2" style="color: var(--apple-text);">
+                    Квантова лабораторія бектестів (Strategy & Backtest Lab)
+                </h2>
+                <p class="text-[11px]" style="color: var(--apple-text-secondary);">
+                    Симуляція Scale-Out TP (50% @ 1.5R), Breakeven Lock та VSA фільтрів на історичних свічках
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full border" style="background: var(--apple-blue-bg); border-color: var(--apple-blue-border); color: var(--apple-blue-text);">
+                PRO VERIFIED SIMULATOR
+            </span>
+        </div>
+    </div>
+
+    <!-- Controls Form -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+        <div>
+            <label class="block text-[11px] font-semibold mb-1" style="color: var(--apple-text-secondary);">Торгова пара:</label>
+            <select id="bt-symbol" class="w-full text-xs font-mono font-semibold rounded-xl border p-2" style="border-color: var(--apple-panel-border); color: var(--apple-text); background: var(--apple-subtle-bg);">
+                <option value="BTC/USDT">BTC/USDT</option>
+                <option value="ETH/USDT">ETH/USDT</option>
+                <option value="SOL/USDT">SOL/USDT</option>
+                <option value="AVAX/USDT">AVAX/USDT</option>
+                <option value="BNB/USDT">BNB/USDT</option>
+                <option value="LINK/USDT">LINK/USDT</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-[11px] font-semibold mb-1" style="color: var(--apple-text-secondary);">Таймфрейм:</label>
+            <select id="bt-timeframe" class="w-full text-xs font-mono font-semibold rounded-xl border p-2" style="border-color: var(--apple-panel-border); color: var(--apple-text); background: var(--apple-subtle-bg);">
+                <option value="5m">5 хвилин (5m)</option>
+                <option value="15m">15 хвилин (15m)</option>
+                <option value="1h">1 година (1h)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-[11px] font-semibold mb-1" style="color: var(--apple-text-secondary);">Кількість свічок:</label>
+            <select id="bt-candles" class="w-full text-xs font-mono font-semibold rounded-xl border p-2" style="border-color: var(--apple-panel-border); color: var(--apple-text); background: var(--apple-subtle-bg);">
+                <option value="150">150 свічок (~12 год)</option>
+                <option value="300" selected>300 свічок (~24 год)</option>
+                <option value="500">500 свічок (~42 год)</option>
+                <option value="1000">1000 свічок (~3.5 доби)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-[11px] font-semibold mb-1" style="color: var(--apple-text-secondary);">AI Threshold:</label>
+            <select id="bt-threshold" class="w-full text-xs font-mono font-semibold rounded-xl border p-2" style="border-color: var(--apple-panel-border); color: var(--apple-text); background: var(--apple-subtle-bg);">
+                <option value="0.18">0.18 (Агресивний)</option>
+                <option value="0.22" selected>0.22 (Оптимальний)</option>
+                <option value="0.28">0.28 (Консервативний)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-[11px] font-semibold mb-1" style="color: var(--apple-text-secondary);">Risk-Reward:</label>
+            <select id="bt-rr" class="w-full text-xs font-mono font-semibold rounded-xl border p-2" style="border-color: var(--apple-panel-border); color: var(--apple-text); background: var(--apple-subtle-bg);">
+                <option value="1.5" selected>1 : 1.5</option>
+                <option value="2.0">1 : 2.0</option>
+                <option value="2.5">1 : 2.5</option>
+            </select>
+        </div>
+        <div class="flex items-end">
+            <button id="btn-run-backtest" class="w-full py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition active:scale-95 flex items-center justify-center gap-1.5" style="background: var(--apple-blue);">
+                <i class="fa-solid fa-play"></i> Запустити тест
+            </button>
+        </div>
+    </div>
+
+    <!-- Backtest Metric Highlights (5 Cards) -->
+    <div id="bt-results-container" class="hidden">
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+            <div class="p-3 rounded-2xl border text-center" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                <span class="text-[10px] font-semibold uppercase block mb-1" style="color: var(--apple-text-secondary);">Win Rate (Вінрейт)</span>
+                <span id="bt-winrate" class="text-xl font-extrabold mono-num" style="color: var(--apple-green-text);">--</span>
+            </div>
+            <div class="p-3 rounded-2xl border text-center" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                <span class="text-[10px] font-semibold uppercase block mb-1" style="color: var(--apple-text-secondary);">Profit Factor</span>
+                <span id="bt-pf" class="text-xl font-extrabold mono-num" style="color: var(--apple-text);">--</span>
+            </div>
+            <div class="p-3 rounded-2xl border text-center" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                <span class="text-[10px] font-semibold uppercase block mb-1" style="color: var(--apple-text-secondary);">Net PnL (Дохід)</span>
+                <span id="bt-pnl" class="text-xl font-extrabold mono-num" style="color: var(--apple-green-text);">--</span>
+            </div>
+            <div class="p-3 rounded-2xl border text-center" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                <span class="text-[10px] font-semibold uppercase block mb-1" style="color: var(--apple-text-secondary);">Max Drawdown</span>
+                <span id="bt-dd" class="text-xl font-extrabold mono-num" style="color: var(--apple-red-text);">--</span>
+            </div>
+            <div class="p-3 rounded-2xl border text-center" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                <span class="text-[10px] font-semibold uppercase block mb-1" style="color: var(--apple-text-secondary);">Sharpe Ratio</span>
+                <span id="bt-sharpe" class="text-xl font-extrabold mono-num" style="color: var(--apple-blue-text);">--</span>
+            </div>
+        </div>
+
+        <!-- Equity Curve Chart & Recent Trades Table -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="p-3.5 rounded-2xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                <div class="flex justify-between items-center mb-2 px-1 text-xs font-semibold" style="color: var(--apple-text);">
+                    <span><i class="fa-solid fa-chart-line" style="color: var(--apple-green);"></i> Крива капіталу (Backtest Equity)</span>
+                    <span id="bt-trades-count" class="font-mono text-[11px]" style="color: var(--apple-text-secondary);">0 угод</span>
+                </div>
+                <div class="h-48 relative">
+                    <canvas id="btEquityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="p-3.5 rounded-2xl border flex flex-col" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                <div class="text-xs font-semibold mb-2 px-1" style="color: var(--apple-text);">
+                    <i class="fa-solid fa-list-check" style="color: var(--apple-blue);"></i> Змодельовані угоди (Scale-out & Breakeven)
+                </div>
+                <div class="overflow-y-auto max-h-48 text-xs font-mono space-y-1.5" id="bt-trades-list">
+                    <!-- Заповнюється динамічно JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
 <!-- 💻 8. macOS ТЕРМІНАЛ ЛОГІВ РУШІЯ (LIVE LOGS) -->
 <section class="glass-panel overflow-hidden mb-6">
     <div class="px-5 py-3 border-b flex flex-wrap justify-between items-center gap-2" style="border-color: var(--apple-divider); background: var(--apple-subtle-bg);">
@@ -671,7 +820,9 @@ class DashboardController {
             engineLogs: '/api/engine_logs',
             closePosition: '/api/close_position',
             closeAll: '/api/close_all',
-            resetAccount: '/api/reset_account'
+            resetAccount: '/api/reset_account',
+            portfolio: '/api/portfolio',
+            backtest: '/api/backtest'
         };
 
         this.elements = {
@@ -730,6 +881,7 @@ class DashboardController {
         this.fetchMarketRadar();
         this.fetchEngineLogs();
         this.fetchConfig();
+        this.fetchPortfolio();
 
         // Періодичне опитування (кожні 3.5 сек)
         setInterval(() => {
@@ -738,6 +890,7 @@ class DashboardController {
             this.fetchActivePositions();
             this.fetchMarketRadar();
             this.fetchEngineLogs();
+            this.fetchPortfolio();
         }, 3500);
 
         // Тікери кожні 15 сек
@@ -819,6 +972,9 @@ class DashboardController {
         document.getElementById('btn-close-settings')?.addEventListener('click', () => this.closeSettingsModal());
         document.getElementById('btn-cancel-settings')?.addEventListener('click', () => this.closeSettingsModal());
         document.getElementById('settings-form')?.addEventListener('submit', (e) => this.saveSettings(e));
+
+        // Backtest Lab Button
+        document.getElementById('btn-run-backtest')?.addEventListener('click', () => this.runBacktest());
 
         // Slider value update
         document.getElementById('input-conf-threshold')?.addEventListener('input', (e) => {
@@ -1845,6 +2001,165 @@ class DashboardController {
         } catch (err) {
             this.showToast(`Помилка: ${err.message}`, 'error');
         }
+    }
+
+    async fetchPortfolio() {
+        try {
+            const res = await fetch(this.endpoints.portfolio);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.status === 'success' && data.portfolio) {
+                const p = data.portfolio;
+                const opt = p.bnb_optimizer;
+                const badge = document.getElementById('bnb-discount-badge');
+                const optStatus = document.getElementById('bnb-optimizer-status');
+                if (badge && opt) {
+                    if (opt.discount_active) {
+                        badge.style.background = 'var(--apple-green-bg)';
+                        badge.style.color = 'var(--apple-green-text)';
+                        badge.style.borderColor = 'var(--apple-green-border)';
+                        badge.innerHTML = '<i class="fa-solid fa-percent"></i> 25% VIP FEE DISCOUNT ACTIVE';
+                        if (optStatus) optStatus.innerHTML = `Taker Fee: 0.075% (Заощадження 25%)`;
+                    } else {
+                        badge.style.background = 'var(--apple-orange-bg)';
+                        badge.style.color = 'var(--apple-orange-text)';
+                        badge.style.borderColor = 'rgba(255, 149, 0, 0.3)';
+                        badge.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> BNB < 5 USDT (Знижка неактивна)';
+                        if (optStatus) optStatus.innerHTML = `Taker Fee: 0.100% (Поповніть BNB)`;
+                    }
+                }
+                const pills = document.getElementById('portfolio-assets-pills');
+                if (pills && p.assets) {
+                    pills.innerHTML = p.assets.map(a => `
+                        <span class="px-2 py-0.5 rounded-lg border text-[11px]" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+                            <strong>${a.asset}</strong>: ${a.allocation_pct}% (${a.value_usdt} USDT)
+                        </span>
+                    `).join('');
+                }
+            }
+        } catch (e) {
+            console.debug('Portfolio fetch error:', e);
+        }
+    }
+
+    async runBacktest() {
+        const btn = document.getElementById('btn-run-backtest');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Симуляція...';
+        }
+        try {
+            const payload = {
+                symbol: document.getElementById('bt-symbol')?.value || 'BTC/USDT',
+                timeframe: document.getElementById('bt-timeframe')?.value || '5m',
+                candles: parseInt(document.getElementById('bt-candles')?.value || '300'),
+                confidence_threshold: parseFloat(document.getElementById('bt-threshold')?.value || '0.22'),
+                risk_reward_ratio: parseFloat(document.getElementById('bt-rr')?.value || '1.5'),
+                trade_fraction: 0.04
+            };
+
+            const res = await fetch(this.endpoints.backtest, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.status === 'success' && data.results) {
+                const r = data.results;
+                document.getElementById('bt-results-container')?.classList.remove('hidden');
+                document.getElementById('bt-winrate').innerText = `${r.win_rate}%`;
+                document.getElementById('bt-pf').innerText = r.profit_factor;
+                
+                const pnlEl = document.getElementById('bt-pnl');
+                pnlEl.innerText = `${r.total_pnl >= 0 ? '+' : ''}${r.total_pnl} USDT (${r.return_pct}%)`;
+                pnlEl.style.color = r.total_pnl >= 0 ? 'var(--apple-green-text)' : 'var(--apple-red-text)';
+
+                document.getElementById('bt-dd').innerText = `-${r.max_drawdown}%`;
+                document.getElementById('bt-sharpe').innerText = r.sharpe_ratio;
+                document.getElementById('bt-trades-count').innerText = `${r.total_trades} угод (${r.winning_trades}W / ${r.losing_trades}L)`;
+
+                const listEl = document.getElementById('bt-trades-list');
+                if (listEl && r.trades) {
+                    listEl.innerHTML = r.trades.map(t => {
+                        const isWin = t.pnl > 0;
+                        const col = isWin ? 'var(--apple-green-text)' : 'var(--apple-red-text)';
+                        return `
+                            <div class="flex items-center justify-between p-1.5 rounded-lg border text-[11px]" style="background: var(--apple-panel-bg); border-color: var(--apple-panel-border);">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-[10px] px-1.5 py-0.5 rounded" style="background: var(--apple-subtle-bg);">${t.type}</span>
+                                    <span>${t.time}</span>
+                                    <span class="text-[10px]" style="color: var(--apple-text-secondary);">${t.reason}</span>
+                                </div>
+                                <div class="font-bold" style="color: ${col};">
+                                    ${t.pnl >= 0 ? '+' : ''}${t.pnl} USDT
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+
+                this.renderBacktestChart(r.equity_curve);
+                this.showToast(`Бектест ${payload.symbol} завершено! Вінрейт: ${r.win_rate}%`, 'success');
+            } else {
+                this.showToast('Помилка виконання бектесту', 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            this.showToast(`Помилка: ${e.message}`, 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-play"></i> Запустити тест';
+            }
+        }
+    }
+
+    renderBacktestChart(curve) {
+        const canvas = document.getElementById('btEquityChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const labels = (curve || []).map(c => c.time);
+        const data = (curve || []).map(c => c.equity);
+
+        if (this.btChart) {
+            this.btChart.data.labels = labels;
+            this.btChart.data.datasets[0].data = data;
+            this.btChart.update();
+            return;
+        }
+
+        const isDark = document.documentElement.classList.contains('dark');
+        this.btChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Equity (USDT)',
+                    data: data,
+                    borderColor: '#34C759',
+                    backgroundColor: 'rgba(52, 199, 89, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.25,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { mode: 'index', intersect: false }
+                },
+                scales: {
+                    x: { display: false },
+                    y: {
+                        grid: { color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' },
+                        ticks: { color: isDark ? '#8E8E93' : '#6E6E73', font: { size: 10 } }
+                    }
+                }
+            }
+        });
     }
 }
 

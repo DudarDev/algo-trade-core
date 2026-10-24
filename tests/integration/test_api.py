@@ -22,3 +22,35 @@ def test_bot_control_endpoint():
                            content_type='application/json')
     data = json.loads(response.content)
     assert data['bot_status'] == 'stopped'
+
+
+def test_backtest_endpoint():
+    client = Client()
+    payload = {
+        "symbol": "BTC/USDT",
+        "timeframe": "5m",
+        "candles": 100,
+        "confidence_threshold": 0.20,
+        "risk_reward_ratio": 1.5,
+        "trade_fraction": 0.04
+    }
+    response = client.post('/api/monitor/backtest',
+                           data=json.dumps(payload),
+                           content_type='application/json')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "results" in data
+    assert "win_rate" in data["results"]
+
+
+def test_portfolio_endpoint():
+    client = Client()
+    response = client.get('/api/monitor/portfolio')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "portfolio" in data
+    assert "bnb_optimizer" in data["portfolio"]
+
+

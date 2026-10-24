@@ -103,9 +103,10 @@ class InteractiveTelegramBot:
                 ],
                 [
                     {"text": "📜 Активні позиції", "callback_data": "cmd_positions"},
-                    toggle_btn
+                    {"text": "🗞️ Дайджест 24h", "callback_data": "cmd_digest"}
                 ],
                 [
+                    toggle_btn,
                     {"text": "🚨 ПАНІКА: Закрити ВСЕ 🚨", "callback_data": "cmd_close_all"}
                 ]
             ]
@@ -348,6 +349,14 @@ class InteractiveTelegramBot:
                 await self.edit_message(session, chat_id, msg_id, text, self.get_inline_keyboard(is_active))
                 await self.answer_callback(session, cb_id)
 
+            elif action == "cmd_digest":
+                from src.engine.infrastructure.telegram_scheduler import TelegramDigestScheduler
+                sched = TelegramDigestScheduler(self)
+                digest_text = await asyncio.to_thread(sched.generate_daily_digest)
+                _, is_active = await asyncio.to_thread(self.format_status_message)
+                await self.edit_message(session, chat_id, msg_id, digest_text, self.get_inline_keyboard(is_active))
+                await self.answer_callback(session, cb_id, "Дайджест оновлено!")
+
             elif action == "cmd_pause":
                 if BotControlService and hasattr(BotControlService, 'change_status'):
                     await asyncio.to_thread(BotControlService.change_status, "stop")
@@ -433,6 +442,18 @@ class InteractiveTelegramBot:
                 await self._send_request(session, "sendMessage", {
                     "chat_id": chat_id,
                     "text": pos_text,
+                    "reply_markup": self.get_inline_keyboard(is_active),
+                    "parse_mode": "HTML"
+                })
+
+            elif text in ["/digest", "🗞️ Дайджест"]:
+                from src.engine.infrastructure.telegram_scheduler import TelegramDigestScheduler
+                sched = TelegramDigestScheduler(self)
+                digest_text = await asyncio.to_thread(sched.generate_daily_digest)
+                _, is_active = await asyncio.to_thread(self.format_status_message)
+                await self._send_request(session, "sendMessage", {
+                    "chat_id": chat_id,
+                    "text": digest_text,
                     "reply_markup": self.get_inline_keyboard(is_active),
                     "parse_mode": "HTML"
                 })

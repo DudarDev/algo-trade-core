@@ -420,6 +420,12 @@ class CryptoBot:
         await asyncio.gather(*tasks)
         self.save_market_radar()
         logger.info(f"✅ Цикл завершено. Баланс: {self.trader.balance:.2f} USDT | Активних позицій: {len(self.trader.positions)}")
+        # Очищення пам'яті та кешу для стабільної роботи на 1GB VPS (Zero-Leak Protection)
+        if len(self.htf_trend_cache) > 50:
+            now_ts = time.time()
+            self.htf_trend_cache = {k: v for k, v in self.htf_trend_cache.items() if now_ts - v[1] < 1800}
+        import gc
+        gc.collect()
 
     async def start(self):
         logger.info("🟢 Бот запущено! Очікування команди з дашборду...")

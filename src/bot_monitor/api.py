@@ -403,3 +403,18 @@ async def get_sentiment_endpoint(request):
     sentiment = await analyzer.get_market_sentiment()
     return {"status": "success", "sentiment": sentiment}
 
+
+
+@router.get("/news")
+async def get_news_endpoint(request):
+    """Отримання стрічки свіжих криптоновин з AI сентиментом та активних блекаутів."""
+    from src.engine.infrastructure.news_analyzer import NewsAnalyzer
+    analyzer = NewsAnalyzer()
+    news = await analyzer.fetch_latest_news()
+    blackouts = analyzer.get_active_blackouts()
+    return {
+        "status": "success",
+        "count": len(news),
+        "blackouts": blackouts,
+        "news": news[:25]
+    }

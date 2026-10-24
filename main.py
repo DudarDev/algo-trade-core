@@ -53,6 +53,7 @@ from src.engine.application.live_trader import LiveBinanceTrader
 from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
 from src.engine.infrastructure.order_book_analyzer import OrderBookAnalyzer
 from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
+from src.engine.infrastructure.news_analyzer import NewsAnalyzer
 
 
 class CryptoBot:
@@ -74,6 +75,7 @@ class CryptoBot:
         self.order_book_analyzer = OrderBookAnalyzer(exchange_manager=self.exchange)
         self.sentiment_analyzer = MarketSentimentAnalyzer()
         self.current_sentiment = {}
+        self.news_analyzer = NewsAnalyzer()
         self.load_runtime_config()
 
     async def get_higher_timeframe_trend(self, symbol: str) -> str:
@@ -303,6 +305,14 @@ class CryptoBot:
                     funding_sentiment=fund_sentiment
                 )
 
+                # Захисний мораторій від екстрених негативних новин (Black Swan Blackout)
+                is_news_blocked, news_block_reason = self.news_analyzer.is_symbol_blacklisted_by_news(symbol)
+                if is_news_blocked and is_buy:
+                    logger.warning(f"🚨 [NEWS BLACKOUT] Вхід у {symbol} заблоковано: {news_block_reason}")
+                    is_buy = False
+                    action_str = "BLOCKED_NEWS"
+                    reason_str = news_block_reason
+
                 curr_row = df_features.iloc[-1]
                 current_price = float(curr_row['close'])
                 adx_val = float(curr_row.get('ADX', 0.0)) * 100.0
@@ -390,6 +400,15 @@ class CryptoBot:
             logger.info(f"🌐 [Macro Sentiment] F&G Score: {self.current_sentiment.get('score')} ({self.current_sentiment.get('classification')}) | Mode: {self.current_sentiment.get('risk_mode')}")
         except Exception as e:
             logger.debug(f"Sentiment check warning: {e}")
+        # 2. Оновлення свіжих новин та активних блекаутів
+        try:
+            await self.news_analyzer.fetch_latest_news()
+            blackouts = self.news_analyzer.get_active_blackouts()
+            if blackouts:
+                logger.warning(f"🛡️ [News Blackouts Active] Пари під захисним баном: {list(blackouts.keys())}")
+        except Exception as e:
+            logger.debug(f"News fetch warning: {e}")
+
         logger.info(f"📡 Пошук волатильних пар (BTC Pulse: {self.btc_market_pulse})...")
         active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=2_000_000)
         open_positions = list(self.trader.positions.keys())

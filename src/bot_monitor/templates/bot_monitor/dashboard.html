@@ -833,6 +833,72 @@
     </div>
 </div>
 
+
+<!-- 📰 7.8. AI CRYPTO NEWS RADAR & SENTIMENT INTEL (APPLE CUPERTINO HIG) -->
+<section class="glass-panel p-5 mb-6 overflow-hidden relative">
+    <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 mb-4 border-b" style="border-color: var(--apple-divider);">
+        <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl flex items-center justify-center border text-sm" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-blue);">
+                <i class="fa-solid fa-newspaper"></i>
+            </div>
+            <div>
+                <h2 class="text-xs font-bold uppercase tracking-wider flex items-center gap-2" style="color: var(--apple-text);">
+                    ШІ-Радар Світових Криптоновин (AI Crypto News & Intel)
+                </h2>
+                <p class="text-[11px]" style="color: var(--apple-text-secondary);">
+                    Аналіз тональності новин у реальному часі (CoinTelegraph, Decrypt) та автоматичний Black Swan Blackout захист
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <div id="news-blackout-badge" class="hidden text-[10px] font-mono font-bold px-2.5 py-1 rounded-full border animate-pulse" style="background: var(--apple-red-bg); border-color: var(--apple-red-border); color: var(--apple-red-text);">
+                <i class="fa-solid fa-shield-virus"></i> BLACKOUT ACTIVE
+            </div>
+            <button id="btn-refresh-news" class="px-3 py-1 text-xs font-semibold rounded-xl border flex items-center gap-1.5 transition-all hover:opacity-80 active:scale-95" style="border-color: var(--apple-panel-border); color: var(--apple-text); background: var(--apple-subtle-bg);">
+                <i class="fa-solid fa-arrows-rotate"></i> Оновити
+            </button>
+        </div>
+    </div>
+
+    <!-- Active Blackouts Alert Bar -->
+    <div id="blackouts-banner" class="hidden mb-4 p-3 rounded-xl border flex items-center justify-between text-xs" style="background: var(--apple-red-bg); border-color: var(--apple-red-border); color: var(--apple-red-text);">
+        <div class="flex items-center gap-2">
+            <i class="fa-solid fa-triangle-exclamation text-base"></i>
+            <span id="blackouts-text" class="font-semibold">Увага! Активовано захисний мораторій на купівлю...</span>
+        </div>
+    </div>
+
+    <!-- Filter Pills -->
+    <div class="flex flex-wrap items-center gap-1.5 mb-4 text-xs font-mono" id="news-filter-group">
+        <button class="news-filter-btn px-2.5 py-1 rounded-lg border font-semibold text-[11px] transition-all" data-filter="ALL" style="background: var(--apple-blue); color: #fff; border-color: var(--apple-blue);">
+            Всі (All)
+        </button>
+        <button class="news-filter-btn px-2.5 py-1 rounded-lg border font-semibold text-[11px] transition-all" data-filter="BTC" style="background: var(--apple-subtle-bg); color: var(--apple-text); border-color: var(--apple-panel-border);">
+            BTC
+        </button>
+        <button class="news-filter-btn px-2.5 py-1 rounded-lg border font-semibold text-[11px] transition-all" data-filter="ETH" style="background: var(--apple-subtle-bg); color: var(--apple-text); border-color: var(--apple-panel-border);">
+            ETH
+        </button>
+        <button class="news-filter-btn px-2.5 py-1 rounded-lg border font-semibold text-[11px] transition-all" data-filter="SOL" style="background: var(--apple-subtle-bg); color: var(--apple-text); border-color: var(--apple-panel-border);">
+            SOL
+        </button>
+        <button class="news-filter-btn px-2.5 py-1 rounded-lg border font-semibold text-[11px] transition-all" data-filter="BULLISH" style="background: var(--apple-subtle-bg); color: var(--apple-green-text); border-color: var(--apple-panel-border);">
+            🟢 Bullish
+        </button>
+        <button class="news-filter-btn px-2.5 py-1 rounded-lg border font-semibold text-[11px] transition-all" data-filter="BEARISH" style="background: var(--apple-subtle-bg); color: var(--apple-red-text); border-color: var(--apple-panel-border);">
+            🔴 Bearish
+        </button>
+    </div>
+
+    <!-- News Cards Grid -->
+    <div id="news-grid-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[520px] overflow-y-auto pr-1">
+        <div class="col-span-full py-8 text-center text-xs" style="color: var(--apple-text-secondary);">
+            <i class="fa-solid fa-circle-notch fa-spin text-base mb-2"></i>
+            <div>Завантаження та аналіз свіжих новин криптосвіту...</div>
+        </div>
+    </div>
+</section>
+
 <!-- 📦 СКРИПТИ: Chart.js та TradingView SDK -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://s3.tradingview.com/tv.js"></script>
@@ -854,7 +920,8 @@ class DashboardController {
             resetAccount: '/api/reset_account',
             portfolio: '/api/portfolio',
             backtest: '/api/backtest',
-            sentiment: '/api/sentiment'
+            sentiment: '/api/sentiment',
+            news: '/api/news'
         };
 
         this.elements = {
@@ -915,6 +982,7 @@ class DashboardController {
         this.fetchConfig();
         this.fetchPortfolio();
         this.fetchSentiment();
+        this.fetchNews();
 
         // Періодичне опитування (кожні 3.5 сек)
         setInterval(() => {
@@ -925,6 +993,8 @@ class DashboardController {
             this.fetchEngineLogs();
             this.fetchPortfolio();
             this.fetchSentiment();
+            this.fetchNews();
+        this.fetchNews();
         }, 3500);
 
         // Тікери кожні 15 сек
@@ -2123,6 +2193,128 @@ class DashboardController {
         } catch (e) {
             console.debug('Portfolio fetch error:', e);
         }
+    }
+
+        async fetchNews(isManual = false) {
+        try {
+            const btn = document.getElementById('btn-refresh-news');
+            if (btn && isManual) btn.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin"></i>';
+            const res = await fetch(this.endpoints.news);
+            if (btn && isManual) setTimeout(() => { btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Оновити'; }, 500);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.status === 'success' && data.news) {
+                this.allNews = data.news;
+                this.lastNewsBlackouts = data.blackouts || {};
+                this.renderNews(this.lastNewsBlackouts);
+            }
+        } catch (e) {
+            console.debug('News fetch error:', e);
+        }
+    }
+
+    renderNews(blackouts = {}) {
+        const container = document.getElementById('news-grid-container');
+        if (!container) return;
+
+        // Blackouts banner
+        const bBadge = document.getElementById('news-blackout-badge');
+        const bBanner = document.getElementById('blackouts-banner');
+        const bText = document.getElementById('blackouts-text');
+        const bKeys = Object.keys(blackouts);
+        if (bKeys.length > 0) {
+            if (bBadge) bBadge.classList.remove('hidden');
+            if (bBanner) {
+                bBanner.classList.remove('hidden');
+                const bDetails = bKeys.map(k => `${k}/USDT (${blackouts[k].minutes_remaining} хв): ${blackouts[k].reason}`).join(' | ');
+                if (bText) bText.innerHTML = `🚨 <strong>Black Swan Blackout:</strong> Покупки заблоковано для: ${bDetails}`;
+            }
+        } else {
+            if (bBadge) bBadge.classList.add('hidden');
+            if (bBanner) bBanner.classList.add('hidden');
+        }
+
+        const filter = this.currentNewsFilter || 'ALL';
+        let items = this.allNews || [];
+        if (filter !== 'ALL') {
+            if (filter === 'BULLISH' || filter === 'BEARISH') {
+                items = items.filter(n => n.sentiment === filter);
+            } else {
+                items = items.filter(n => n.symbols && n.symbols.includes(filter));
+            }
+        }
+
+        if (items.length === 0) {
+            container.innerHTML = `<div class="col-span-full py-8 text-center text-xs" style="color: var(--apple-text-secondary);">Не знайдено новин за обраним фільтром (${filter}).</div>`;
+            return;
+        }
+
+        container.innerHTML = items.map(item => {
+            let sentBg = 'var(--apple-subtle-bg)';
+            let sentColor = 'var(--apple-text-secondary)';
+            let sentBorder = 'var(--apple-panel-border)';
+            let sentIcon = 'fa-scale-balanced';
+
+            if (item.sentiment === 'BULLISH') {
+                sentBg = 'var(--apple-green-bg)';
+                sentColor = 'var(--apple-green-text)';
+                sentBorder = 'var(--apple-green-border)';
+                sentIcon = 'fa-arrow-trend-up';
+            } else if (item.sentiment === 'BEARISH') {
+                sentBg = 'var(--apple-red-bg)';
+                sentColor = 'var(--apple-red-text)';
+                sentBorder = 'var(--apple-red-border)';
+                sentIcon = 'fa-arrow-trend-down';
+            }
+
+            const symbolsPills = (item.symbols || []).map(s => `
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+                    ${s}
+                </span>
+            `).join('');
+
+            const impactBadge = item.impact === 'HIGH' ? `
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border" style="background: var(--apple-red-bg); border-color: var(--apple-red-border); color: var(--apple-red-text);">
+                    🔥 HIGH IMPACT
+                </span>
+            ` : (item.impact === 'MEDIUM' ? `
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border" style="background: var(--apple-orange-bg); border-color: rgba(255,149,0,0.3); color: var(--apple-orange-text);">
+                    ⚡ MED
+                </span>
+            ` : '');
+
+            return `
+                <div class="p-3.5 rounded-2xl border flex flex-col justify-between transition-all hover:scale-[1.01]" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+                    <div>
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border" style="background: var(--apple-panel-bg); border-color: var(--apple-divider); color: var(--apple-blue-text);">
+                                    ${item.source}
+                                </span>
+                                ${symbolsPills}
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                ${impactBadge}
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1" style="background: ${sentBg}; border-color: ${sentBorder}; color: ${sentColor};">
+                                    <i class="fa-solid ${sentIcon}"></i> ${item.sentiment}
+                                </span>
+                            </div>
+                        </div>
+                        <h4 class="text-xs font-bold leading-snug mb-2" style="color: var(--apple-text);">
+                            <a href="${item.link}" target="_blank" rel="noopener noreferrer" class="hover:underline">
+                                ${item.title} <i class="fa-solid fa-arrow-up-right-from-square text-[9px] opacity-70"></i>
+                            </a>
+                        </h4>
+                    </div>
+                    <div class="mt-2 pt-2 border-t text-[11px] leading-relaxed font-sans" style="border-color: var(--apple-divider); color: var(--apple-text-secondary); background: var(--apple-panel-bg); border-radius: 8px; padding: 6px 8px;">
+                        <span class="font-semibold block text-[10px] uppercase tracking-wider mb-0.5" style="color: var(--apple-blue-text);">
+                            <i class="fa-solid fa-microchip"></i> ШІ-Висновок:
+                        </span>
+                        ${item.ai_takeaway}
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
 
     async runBacktest() {

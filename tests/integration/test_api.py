@@ -23,6 +23,11 @@ def test_bot_control_endpoint():
     data = json.loads(response.content)
     assert data['bot_status'] == 'stopped'
 
+    # Відновлюємо активний стан після тесту
+    client.post('/api/monitor/control',
+                data=json.dumps({'command': 'start'}),
+                content_type='application/json')
+
 
 def test_backtest_endpoint():
     client = Client()
@@ -63,3 +68,14 @@ def test_sentiment_endpoint():
     assert "sentiment" in data
     assert "score" in data["sentiment"]
     assert "risk_mode" in data["sentiment"]
+
+
+def test_news_endpoint():
+    client = Client()
+    response = client.get('/api/monitor/news')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "news" in data
+    assert "blackouts" in data
+    assert isinstance(data["news"], list)

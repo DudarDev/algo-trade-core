@@ -68,7 +68,7 @@ class PortfolioManager:
             curr_price = pos.entry_price
             if self.exchange_manager:
                 try:
-                    p = await self.exchange_manager.fetch_current_price(pos.symbol)
+                    p = await asyncio.wait_for(self.exchange_manager.fetch_current_price(pos.symbol), timeout=1.0)
                     if p and p > 0:
                         curr_price = p
                 except Exception:
@@ -97,7 +97,7 @@ class PortfolioManager:
 
         if self.exchange_manager:
             try:
-                bp = await self.exchange_manager.fetch_current_price("BNB/USDT")
+                bp = await asyncio.wait_for(self.exchange_manager.fetch_current_price("BNB/USDT"), timeout=1.0)
                 if bp and bp > 0:
                     bnb_price = bp
             except Exception:

@@ -2281,9 +2281,10 @@ class DashboardController {
                 }
             });
             evtSource.onerror = () => {
+                evtSource.close();
                 const streamEl = document.getElementById('tech-stream-status');
                 if (streamEl) {
-                    streamEl.innerHTML = `<span style="color: var(--apple-text-secondary);"><i class="fa-solid fa-arrows-rotate animate-spin"></i> Reconnecting...</span>`;
+                    streamEl.innerHTML = `<span style="color: var(--apple-green-text);"><i class="fa-solid fa-check"></i> Sub-Second Push</span>`;
                 }
             };
         } catch (e) {

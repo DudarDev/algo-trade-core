@@ -460,20 +460,18 @@ def get_system_infra(request):
 
 
 def sse_event_stream():
-    """Генератор Server-Sent Events (SSE) для Cupertino Web Terminal."""
+    """Генератор Server-Sent Events (SSE) для Cupertino Web Terminal (Non-blocking)."""
     import time
     from src.engine.infrastructure.cache_manager import cache_manager
 
-    yield f"event: connected\ndata: {json.dumps({'connected': True, 'timestamp': time.time()})}\n\n"
-
-    for _ in range(15):
-        time.sleep(1.0)
-        telemetry = {
-            "timestamp": time.time(),
-            "redis_active": cache_manager.is_redis_available,
-            "time_str": datetime.now().strftime("%H:%M:%S")
-        }
-        yield f"event: heartbeat\ndata: {json.dumps(telemetry)}\n\n"
+    telemetry = {
+        "connected": True,
+        "timestamp": time.time(),
+        "redis_active": cache_manager.is_redis_available,
+        "time_str": datetime.now().strftime("%H:%M:%S")
+    }
+    yield f"event: connected\ndata: {json.dumps(telemetry)}\n\n"
+    yield f"event: heartbeat\ndata: {json.dumps(telemetry)}\n\n"
 
 
 @router.get("/stream")

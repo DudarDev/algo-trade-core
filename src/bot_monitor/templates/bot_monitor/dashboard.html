@@ -194,6 +194,37 @@
     </div>
 </section>
 
+<!-- 🌐 2.6. MACRO MARKET SENTIMENT & FEAR/GREED INDEX (APPLE HIG) -->
+<section class="glass-panel p-4 mb-5 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-2xl flex items-center justify-center border text-sm" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-purple);">
+            <i class="fa-solid fa-gauge-high"></i>
+        </div>
+        <div>
+            <div class="flex items-center gap-2">
+                <h3 class="text-xs font-bold uppercase tracking-wider" style="color: var(--apple-text);">Макро-Сентимент & Crypto Fear & Greed</h3>
+                <span id="sentiment-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all" style="background: var(--apple-blue-bg); color: var(--apple-blue-text); border-color: var(--apple-blue-border);">
+                    <i class="fa-solid fa-compass"></i> BALANCED REGIME
+                </span>
+            </div>
+            <p id="sentiment-advice" class="text-xs mt-1 font-sans" style="color: var(--apple-text-secondary);">
+                Синхронізація макро-індексу ринку...
+            </p>
+        </div>
+    </div>
+    <div class="flex items-center gap-3 text-right">
+        <div>
+            <div class="text-[10px] uppercase font-semibold" style="color: var(--apple-text-secondary);">Fear & Greed Index</div>
+            <div class="text-lg font-bold font-mono" id="sentiment-score" style="color: var(--apple-text);">
+                51 <span class="text-xs font-normal" style="color: var(--apple-text-secondary);">/ 100 (Neutral)</span>
+            </div>
+        </div>
+        <div class="w-20 h-2 rounded-full overflow-hidden border" style="border-color: var(--apple-panel-border); background: var(--apple-subtle-bg);">
+            <div id="sentiment-meter-bar" class="h-full transition-all duration-500" style="width: 51%; background: var(--apple-blue);"></div>
+        </div>
+    </div>
+</section>
+
 <!-- 🎮 3. ПАНЕЛЬ СТАНУ РУШІЯ ТА КЕРУВАННЯ -->
 <section class="glass-panel p-3.5 mb-5 flex flex-wrap items-center justify-between gap-3">
     <div class="flex items-center gap-3">
@@ -822,7 +853,8 @@ class DashboardController {
             closeAll: '/api/close_all',
             resetAccount: '/api/reset_account',
             portfolio: '/api/portfolio',
-            backtest: '/api/backtest'
+            backtest: '/api/backtest',
+            sentiment: '/api/sentiment'
         };
 
         this.elements = {
@@ -882,6 +914,7 @@ class DashboardController {
         this.fetchEngineLogs();
         this.fetchConfig();
         this.fetchPortfolio();
+        this.fetchSentiment();
 
         // Періодичне опитування (кожні 3.5 сек)
         setInterval(() => {
@@ -891,6 +924,7 @@ class DashboardController {
             this.fetchMarketRadar();
             this.fetchEngineLogs();
             this.fetchPortfolio();
+            this.fetchSentiment();
         }, 3500);
 
         // Тікери кожні 15 сек
@@ -2000,6 +2034,55 @@ class DashboardController {
             }
         } catch (err) {
             this.showToast(`Помилка: ${err.message}`, 'error');
+        }
+    }
+
+    async fetchSentiment() {
+        try {
+            const res = await fetch(this.endpoints.sentiment);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.status === 'success' && data.sentiment) {
+                const s = data.sentiment;
+                const scoreEl = document.getElementById('sentiment-score');
+                if (scoreEl) scoreEl.innerHTML = `${s.score} <span class="text-xs font-normal" style="color: var(--apple-text-secondary);">/ 100 (${s.classification})</span>`;
+
+                const adviceEl = document.getElementById('sentiment-advice');
+                if (adviceEl) adviceEl.innerText = s.advice;
+
+                const badgeEl = document.getElementById('sentiment-badge');
+                if (badgeEl) {
+                    badgeEl.innerHTML = `<i class="fa-solid fa-shield-halved"></i> ${s.risk_mode}`;
+                    if (s.score < 25) {
+                        badgeEl.style.background = 'var(--apple-red-bg)';
+                        badgeEl.style.color = 'var(--apple-red-text)';
+                        badgeEl.style.borderColor = 'var(--apple-red-border)';
+                    } else if (s.score < 45) {
+                        badgeEl.style.background = 'var(--apple-orange-bg)';
+                        badgeEl.style.color = 'var(--apple-orange-text)';
+                        badgeEl.style.borderColor = 'rgba(255, 149, 0, 0.3)';
+                    } else if (s.score <= 55) {
+                        badgeEl.style.background = 'var(--apple-blue-bg)';
+                        badgeEl.style.color = 'var(--apple-blue-text)';
+                        badgeEl.style.borderColor = 'var(--apple-blue-border)';
+                    } else {
+                        badgeEl.style.background = 'var(--apple-green-bg)';
+                        badgeEl.style.color = 'var(--apple-green-text)';
+                        badgeEl.style.borderColor = 'var(--apple-green-border)';
+                    }
+                }
+
+                const meterBar = document.getElementById('sentiment-meter-bar');
+                if (meterBar) {
+                    meterBar.style.width = `${s.score}%`;
+                    if (s.score < 25) meterBar.style.background = 'var(--apple-red)';
+                    else if (s.score < 45) meterBar.style.background = 'var(--apple-orange)';
+                    else if (s.score <= 55) meterBar.style.background = 'var(--apple-blue)';
+                    else meterBar.style.background = 'var(--apple-green)';
+                }
+            }
+        } catch (e) {
+            console.debug('Sentiment fetch error:', e);
         }
     }
 

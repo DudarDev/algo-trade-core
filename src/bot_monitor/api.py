@@ -341,10 +341,25 @@ async def run_backtest_endpoint(request, payload: BacktestRequest):
     finally:
         await exchange_mgr.close()
 
+
     if df is None or len(df) < 50:
         # Автоматична генерація надійного датасету для бектесту, якщо біржа обмежила рейтліміт
         dates = pd.date_range("2026-01-01", periods=payload.candles, freq="5min")
-        base_p = 65000.0 if "BTC" in payload.symbol else 2500.0
+        sym = payload.symbol.upper()
+        if "BTC" in sym:
+            base_p = 65000.0
+        elif "ETH" in sym:
+            base_p = 2500.0
+        elif "SOL" in sym:
+            base_p = 180.0
+        elif "BNB" in sym:
+            base_p = 600.0
+        elif "AVAX" in sym:
+            base_p = 28.0
+        elif "XRP" in sym:
+            base_p = 0.55
+        else:
+            base_p = 100.0
         trend = np.linspace(0, base_p * 0.05, payload.candles)
         noise = np.random.normal(0, base_p * 0.002, payload.candles)
         closes = base_p + trend + noise
@@ -378,4 +393,13 @@ async def get_portfolio_endpoint(request):
         return {"status": "success", "portfolio": summary}
     finally:
         await exchange_mgr.close()
+
+
+@router.get("/sentiment")
+async def get_sentiment_endpoint(request):
+    """Отримання макро-індексу Fear & Greed та адаптивних квантових рекомендацій."""
+    from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
+    analyzer = MarketSentimentAnalyzer()
+    sentiment = await analyzer.get_market_sentiment()
+    return {"status": "success", "sentiment": sentiment}
 

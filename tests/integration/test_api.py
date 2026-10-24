@@ -27,7 +27,7 @@ def test_bot_control_endpoint():
 def test_backtest_endpoint():
     client = Client()
     payload = {
-        "symbol": "BTC/USDT",
+        "symbol": "ETH/USDT",
         "timeframe": "5m",
         "candles": 100,
         "confidence_threshold": 0.20,
@@ -54,3 +54,12 @@ def test_portfolio_endpoint():
     assert "bnb_optimizer" in data["portfolio"]
 
 
+def test_sentiment_endpoint():
+    client = Client()
+    response = client.get('/api/monitor/sentiment')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "sentiment" in data
+    assert "score" in data["sentiment"]
+    assert "risk_mode" in data["sentiment"]

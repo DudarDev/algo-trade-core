@@ -52,6 +52,7 @@ from src.engine.application.paper_trader import PaperTrader
 from src.engine.application.live_trader import LiveBinanceTrader
 from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
 from src.engine.infrastructure.order_book_analyzer import OrderBookAnalyzer
+from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
 
 
 class CryptoBot:
@@ -71,6 +72,8 @@ class CryptoBot:
         self.btc_market_pulse = "HEALTHY"
         self.btc_pulse_time = 0.0
         self.order_book_analyzer = OrderBookAnalyzer(exchange_manager=self.exchange)
+        self.sentiment_analyzer = MarketSentimentAnalyzer()
+        self.current_sentiment = {}
         self.load_runtime_config()
 
     async def get_higher_timeframe_trend(self, symbol: str) -> str:
@@ -218,6 +221,7 @@ class CryptoBot:
     def is_bot_active(self) -> bool:
         """Безпечна перевірка статусу з автоматичним створенням рядка при потребі."""
         try:
+            self.db_session.rollback()
             # 1. Спроба прочитати статус
             query = text("SELECT status FROM bot_config WHERE id=1")
             result = self.db_session.execute(query).scalar()
@@ -379,8 +383,13 @@ class CryptoBot:
             await asyncio.sleep(10)
 
     async def run_cycle(self):
-        # 1. Оцінюємо пульс Біткоїна
+        # 1. Оцінюємо пульс Біткоїна та макро сентимент
         await self.check_btc_market_pulse()
+        try:
+            self.current_sentiment = await self.sentiment_analyzer.get_market_sentiment()
+            logger.info(f"🌐 [Macro Sentiment] F&G Score: {self.current_sentiment.get('score')} ({self.current_sentiment.get('classification')}) | Mode: {self.current_sentiment.get('risk_mode')}")
+        except Exception as e:
+            logger.debug(f"Sentiment check warning: {e}")
         logger.info(f"📡 Пошук волатильних пар (BTC Pulse: {self.btc_market_pulse})...")
         active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=2_000_000)
         open_positions = list(self.trader.positions.keys())

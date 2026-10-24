@@ -49,6 +49,7 @@ from src.infrastructure.ai.predictor import GlobalTradingAI
 from src.engine.application.strategy import HybridStrategy
 from src.engine.application.risk_management import RiskManager, RiskConfig
 from src.engine.application.paper_trader import PaperTrader
+from src.engine.application.live_trader import LiveBinanceTrader
 from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
 
 
@@ -416,11 +417,12 @@ async def main():
         ai=GlobalTradingAI(settings=settings),
         strategy=HybridStrategy(settings=settings, risk_controller=risk_controller),
         risk_manager=RiskManager(config=RiskConfig(max_risk_pct=2.0, min_risk_reward=settings.RISK_REWARD_RATIO)),
-        trader=PaperTrader(
+        trader=LiveBinanceTrader(
             settings=settings,
             repo=TradingRepository(session=db_session),
             notifier=TelegramNotifier() if settings.ENABLE_TELEGRAM else None,
-            risk_controller=risk_controller
+            risk_controller=risk_controller,
+            exchange_manager=exchange_mgr
         )
     )
     try:

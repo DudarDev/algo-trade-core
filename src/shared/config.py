@@ -2,8 +2,11 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+    TRADING_MODE: str = Field(default="PAPER", description="Execution mode: PAPER or LIVE")
     BINANCE_API_KEY: SecretStr = Field(default=SecretStr("dummy"), description="API Key")
     BINANCE_SECRET_KEY: SecretStr = Field(default=SecretStr("dummy"), description="Secret Key")
+    MAX_SLIPPAGE_PCT: float = Field(default=0.005, ge=0.0, description="Max allowed execution slippage (0.5%)")
+    MIN_NOTIONAL_USDT: float = Field(default=10.0, ge=0.0, description="Min notional trade size on Binance")
     ENABLE_TELEGRAM: bool = Field(default=False)
     TELEGRAM_BOT_TOKEN: SecretStr | None = Field(default=None)
     TELEGRAM_CHAT_ID: str | None = Field(default=None)

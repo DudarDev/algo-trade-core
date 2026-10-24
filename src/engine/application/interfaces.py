@@ -1,4 +1,4 @@
-from typing import Protocol, List
+from typing import Protocol, List, Dict, Any, Optional
 from datetime import datetime
 
 class DbPositionProtocol(Protocol):
@@ -57,3 +57,25 @@ class TradingRepositoryProtocol(Protocol):
         target_label: int = 0,
         features_json: str = "{}"
     ) -> None: ...
+
+
+class TraderProtocol(Protocol):
+    """Уніфікований інтерфейс виконання для Paper та Live торгівлі."""
+    positions: Dict[str, Any]
+    balance: float
+    
+    async def initialize(self) -> None: ...
+    async def open_position(
+        self,
+        symbol: str,
+        side: Any,
+        price: float,
+        sl: float,
+        tp: float,
+        regime: str = "CHOPPY_FLAT",
+        ai_confidence: float = 0.0,
+        features_snapshot: Optional[Dict[str, float]] = None
+    ) -> None: ...
+    async def update_position(self, symbol: str, current_price: float) -> None: ...
+    async def _close_position(self, symbol: str, close_price: float, reason: str) -> None: ...
+    async def _partial_close_position(self, symbol: str, close_price: float, reason: str) -> None: ...

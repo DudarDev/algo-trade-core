@@ -305,7 +305,7 @@ class CryptoBot:
                     funding_sentiment=fund_sentiment
                 )
 
-                                curr_row = df_features.iloc[-1]
+                curr_row = df_features.iloc[-1]
                 current_price = float(curr_row['close'])
                 adx_val = float(curr_row.get('ADX', 0.0)) * 100.0
                 rsi_val = float(curr_row.get('RSI', 0.5)) * 100.0

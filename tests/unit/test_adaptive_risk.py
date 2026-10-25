@@ -118,3 +118,28 @@ def test_circuit_breaker_daily_loss_limit():
     controller.reset_circuit_breaker()
     assert controller.is_circuit_breaker_triggered() is False
     assert controller.get_state().circuit_breaker_active is False
+
+
+def test_adaptive_risk_kelly_criterion():
+    controller = AdaptiveRiskController(
+        base_confidence=0.55,
+        base_min_adx=25.0,
+        base_risk_pct=0.02
+    )
+
+    # 1. Negative expectancy: win_rate 30%, R:R 1.5 -> returns min_fraction (0.01)
+    k_neg = controller.calculate_kelly_fraction(win_rate=0.30, win_loss_ratio=1.5)
+    assert k_neg == 0.01
+
+    # 2. Moderate expectancy: win_rate 45%, R:R 1.5
+    # (0.45 * 1.5 - 0.55) / 1.5 = 0.08333 * 0.35 = ~0.0292
+    k_mod = controller.calculate_kelly_fraction(win_rate=0.45, win_loss_ratio=1.5)
+    assert 0.025 <= k_mod <= 0.035
+
+    # 3. High expectancy: win_rate 65%, R:R 1.5 -> capped by max_fraction (0.06)
+    k_high = controller.calculate_kelly_fraction(win_rate=0.65, win_loss_ratio=1.5)
+    assert k_high == 0.06
+
+    # 4. State reflects kelly_fraction
+    state = controller.get_state()
+    assert 0.01 <= state.kelly_fraction <= 0.06

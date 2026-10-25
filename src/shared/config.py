@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     ENABLE_TELEGRAM: bool = Field(default=False)
     TELEGRAM_BOT_TOKEN: SecretStr | None = Field(default=None)
     TELEGRAM_CHAT_ID: str | None = Field(default=None)
+    GEMINI_API_KEY: SecretStr | None = Field(default=None)
     TIMEFRAME: str = Field(default="5m")
     CONFIDENCE_THRESHOLD: float = Field(default=0.30, ge=0.0, le=1.0)
     RISK_REWARD_RATIO: float = Field(default=1.5, gt=1.0)

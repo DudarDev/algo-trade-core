@@ -106,7 +106,7 @@ class InteractiveTelegramBot:
                 ],
                 [
                     {"text": "📜 Активні позиції", "callback_data": "cmd_positions"},
-                    {"text": "🗞️ Дайджест 24h", "callback_data": "cmd_digest"}
+                    {"text": "🧠 AI Sentinel", "callback_data": "cmd_ai"}
                 ],
                 [
                     toggle_btn,
@@ -374,6 +374,14 @@ class InteractiveTelegramBot:
                 await self.edit_message(session, chat_id, msg_id, text, self.get_inline_keyboard(is_active))
                 await self.answer_callback(session, cb_id, "▶️ Бот відновлено!")
 
+            elif action == "cmd_ai":
+                await self.answer_callback(session, cb_id, "🧠 Запит до AI Sentinel...")
+                ai_text = await self.get_ai_intel_message()
+                await self._send_request(session, "sendMessage", {
+                    "chat_id": chat_id,
+                    "text": ai_text
+                })
+
             elif action == "cmd_close_all":
                 res = self.trigger_panic_close_all()
                 await self.answer_callback(session, cb_id, "🚨 Ліквідація запущена!")
@@ -491,6 +499,13 @@ class InteractiveTelegramBot:
                     "parse_mode": "HTML"
                 })
 
+            elif text in ["/ai", "🧠 AI Sentinel", "AI"]:
+                ai_text = await self.get_ai_intel_message()
+                await self._send_request(session, "sendMessage", {
+                    "chat_id": chat_id,
+                    "text": ai_text
+                })
+
             elif text in ["/config", "⚙️ Конфіг"]:
                 cfg_text = (
                     f"⚙️ <b>Параметри квант-рушія:</b>\n"
@@ -510,44 +525,108 @@ class InteractiveTelegramBot:
                     "parse_mode": "HTML"
                 })
 
-    async def run_polling(self) -> None:
-        """Асинхронний цикл Long Polling для миттєвої реакції на команди."""
-        if not self.token:
-            logger.warning("⚠️ [TELEGRAM BOT] Токен не встановлено. Інтерактивний бот не запущено.")
-            return
+    async def get_ai_intel_message(self) -> str:
+        """Отримує актуальний звіт від Gemini Sentinel для Telegram."""
+        try:
+            from src.engine.application.gemini_sentinel import GeminiSentinel
+            wallet = Wallet.objects.first() if Wallet else None
+            bal = float(wallet.usdt_balance) if wallet else 1000.0
+            total_trades = Trade.objects.count() if Trade else 0
+            wins = Trade.objects.filter(pnl__gt=0).count() if Trade else 0
+            wr = (wins / total_trades * 100.0) if total_trades > 0 else 50.0
 
-        self._running = True
-        logger.info("🎧 [TELEGRAM BOT] Інтерактивний пульт керування запущено в режимі Long Polling...")
-        
-        async with aiohttp.ClientSession() as session:
-            while self._running:
+            key_override = None
+            cfg_file = self.data_dir / "runtime_config.json"
+            if cfg_file.exists():
                 try:
-                    payload = {
-                        "offset": self._last_update_id + 1,
-                        "timeout": 20,
-                        "allowed_updates": ["message", "callback_query"]
-                    }
-                    async with session.post(
-                        f"{self.base_url}/getUpdates",
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=25)
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            updates = data.get("result", [])
-                            for upd in updates:
-                                self._last_update_id = max(self._last_update_id, upd["update_id"])
-                                await self.handle_update(session, upd)
-                        elif resp.status == 409:
-                            logger.warning("⚠️ Конфлікт Telegram getUpdates (інший екземпляр активний). Очікування 10с...")
-                            await asyncio.sleep(10)
-                        else:
-                            await asyncio.sleep(2)
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.error(f"Помилка в циклі Telegram Polling: {e}")
-                    await asyncio.sleep(5)
+                    with open(cfg_file, "r", encoding="utf-8") as f:
+                        saved = json.load(f)
+                        key_override = saved.get("gemini_api_key")
+                except Exception:
+                    pass
+
+            class SettingsAdapter:
+                def __init__(self, key):
+                    self.GEMINI_API_KEY = key or getattr(settings, 'GEMINI_API_KEY', None)
+
+            sentinel = GeminiSentinel(settings=SettingsAdapter(key_override))
+            context = {
+                "balance": bal,
+                "free_cash": bal,
+                "total_pnl": 0.0,
+                "win_rate": wr,
+                "total_trades": total_trades,
+                "btc_pulse": "NORMAL",
+                "fg_score": 50,
+                "fg_mode": "BALANCED",
+                "active_positions": [],
+                "recent_trades": []
+            }
+            res = await sentinel.ask_copilot(query="Короткий звіт стану системи та ринку для Telegram", context=context, lang="ua")
+            reply = res.get("reply", "AI Copilot наразі недоступний.")
+            return f"🧠 <b>AI Quant Sentinel:</b>\n━━━━━━━━━━━━━━━━━━\n{reply}"
+        except Exception as e:
+            return f"⚠️ Помилка виклику AI Sentinel: {e}"
+
+    async def run_polling(self) -> None:
+        """Асинхронний цикл Long Polling із самовідновленням та idle-очікуванням."""
+        self._running = True
+
+        while self._running:
+            if not self.token:
+                cfg_file = self.data_dir / "runtime_config.json"
+                if cfg_file.exists():
+                    try:
+                        with open(cfg_file, "r", encoding="utf-8") as f:
+                            cfg = json.load(f)
+                            if cfg.get("telegram_bot_token"):
+                                self.token = str(cfg["telegram_bot_token"])
+                                self.base_url = f"https://api.telegram.org/bot{self.token}"
+                                if cfg.get("telegram_chat_id"):
+                                    self.chat_id = str(cfg["telegram_chat_id"])
+                                logger.info("🎉 [TELEGRAM BOT] Токен отримано з runtime_config! Запуск...")
+                    except Exception:
+                        pass
+
+            if not self.token:
+                await asyncio.sleep(15)
+                continue
+
+            logger.info("🎧 [TELEGRAM BOT] Інтерактивний пульт керування запущено в режимі Long Polling...")
+            async with aiohttp.ClientSession() as session:
+                while self._running and self.token:
+                    try:
+                        payload = {
+                            "offset": self._last_update_id + 1,
+                            "timeout": 20,
+                            "allowed_updates": ["message", "callback_query"]
+                        }
+                        async with session.post(
+                            f"{self.base_url}/getUpdates",
+                            json=payload,
+                            timeout=aiohttp.ClientTimeout(total=25)
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                updates = data.get("result", [])
+                                for upd in updates:
+                                    self._last_update_id = max(self._last_update_id, upd["update_id"])
+                                    await self.handle_update(session, upd)
+                            elif resp.status in (401, 404):
+                                logger.warning(f"⚠️ Недійсний токен Telegram (HTTP {resp.status}). Очікування правильного токена...")
+                                self.token = ""
+                                await asyncio.sleep(20)
+                                break
+                            elif resp.status == 409:
+                                logger.warning("⚠️ Конфлікт Telegram getUpdates. Очікування 10с...")
+                                await asyncio.sleep(10)
+                            else:
+                                await asyncio.sleep(2)
+                    except asyncio.CancelledError:
+                        return
+                    except Exception as e:
+                        logger.error(f"Помилка в циклі Telegram Polling: {e}")
+                        await asyncio.sleep(5)
 
     def stop(self) -> None:
         """Зупинка опитування."""

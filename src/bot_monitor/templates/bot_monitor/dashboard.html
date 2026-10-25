@@ -812,6 +812,39 @@
                 <input type="range" id="input-adx" min="15.0" max="40.0" step="1.0" value="25.0" class="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-neutral-300 dark:bg-neutral-800" style="accent-color: var(--apple-orange);">
             </div>
 
+            <!-- 5. Системні інтеграції & API Ключі -->
+            <div class="pt-2 border-t space-y-3" style="border-color: var(--apple-divider);">
+                <div class="flex items-center justify-between">
+                    <label class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--apple-text-secondary);">Інтеграції та Режим Виконання:</label>
+                    <span id="badge-trading-mode" class="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold" style="background: var(--apple-green-bg); color: var(--apple-green-text); border: 1px solid var(--apple-green-border);">PAPER TRADING</span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[11px] block mb-1 font-medium" style="color: var(--apple-text-secondary);">Режим торгівлі:</label>
+                        <select id="input-trading-mode" class="w-full border rounded-xl px-3 py-1.5 text-xs font-semibold focus:outline-none" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+                            <option value="PAPER">🟢 PAPER (Безпечний симулятор)</option>
+                            <option value="LIVE">🔴 LIVE (Реальний Binance)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[11px] block mb-1 font-medium" style="color: var(--apple-text-secondary);">Google Gemini API Key:</label>
+                        <input type="password" id="input-gemini-key" placeholder="AIzaSy... (опціонально)" class="w-full border rounded-xl px-3 py-1.5 text-xs font-mono focus:outline-none" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[11px] block mb-1 font-medium" style="color: var(--apple-text-secondary);">Telegram Bot Token:</label>
+                        <input type="password" id="input-tg-token" placeholder="123456:ABC-DEF... (опціонально)" class="w-full border rounded-xl px-3 py-1.5 text-xs font-mono focus:outline-none" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+                    </div>
+                    <div>
+                        <label class="text-[11px] block mb-1 font-medium" style="color: var(--apple-text-secondary);">Telegram Chat ID:</label>
+                        <input type="text" id="input-tg-chat" placeholder="Ваш ID (напр. 987654321)" class="w-full border rounded-xl px-3 py-1.5 text-xs font-mono focus:outline-none" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+                    </div>
+                </div>
+            </div>
+
             <div class="pt-4 border-t flex justify-end gap-2.5" style="border-color: var(--apple-divider);">
                 <button type="button" id="btn-cancel-settings" class="px-4 py-2 rounded-xl border font-semibold text-xs transition" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
                     Скасувати
@@ -906,6 +939,61 @@
                 Закрити
             </button>
         </div>
+    </div>
+</div>
+
+<!-- ✨ 11. FLOATING AI SENTINEL COPILOT BUTTON -->
+<div class="fixed bottom-6 right-6 z-[9000] flex flex-col items-end gap-2">
+    <button id="btn-toggle-ai-copilot" class="flex items-center gap-2.5 px-4 py-2.5 rounded-full shadow-2xl border font-semibold text-xs transition-all duration-300 hover:scale-105 active:scale-95 group" style="background: var(--apple-panel-bg); border-color: var(--apple-panel-border); color: var(--apple-text); backdrop-filter: blur(24px);">
+        <span class="relative flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background: var(--apple-blue);"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3" style="background: var(--apple-blue);"></span>
+        </span>
+        <i class="fa-solid fa-sparkles text-sm group-hover:rotate-12 transition-transform" style="color: var(--apple-blue);"></i>
+        <span id="ai-copilot-btn-text" data-i18n="ai_copilot_btn" class="tracking-tight">Gemini AI Copilot</span>
+    </button>
+</div>
+
+<!-- ✨ 12. GEMINI AI COPILOT CUPERTINO MODAL -->
+<div id="ai-copilot-modal" class="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 hidden backdrop-blur-xl transition-all">
+    <div class="glass-panel w-full max-w-2xl h-[85vh] max-h-[720px] flex flex-col p-6 border shadow-2xl rounded-3xl" style="background: var(--apple-modal-bg); border-color: var(--apple-modal-border); color: var(--apple-text);">
+        <!-- Header -->
+        <div class="flex justify-between items-center border-b pb-3 mb-3" style="border-color: var(--apple-divider);">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: var(--apple-blue-bg); border: 1px solid var(--apple-blue-border);">
+                    <i class="fa-solid fa-brain text-sm" style="color: var(--apple-blue);"></i>
+                </div>
+                <div>
+                    <h2 class="text-sm font-bold tracking-tight flex items-center gap-2">
+                        <span id="ai-modal-title" data-i18n="ai_copilot_title">Gemini 1.5 Flash Quant Sentinel</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full font-mono uppercase font-bold" style="background: var(--apple-green-bg); color: var(--apple-green-text); border: 1px solid var(--apple-green-border);">Live AI</span>
+                    </h2>
+                    <p class="text-[10px]" style="color: var(--apple-text-secondary);" id="ai-modal-subtitle" data-i18n="ai_copilot_sub">Кількісний аналіз, розбір ризиків та пояснення торгових сигналів</p>
+                </div>
+            </div>
+            <button id="btn-close-ai-copilot" class="text-lg font-bold w-7 h-7 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition" style="color: var(--apple-text-secondary);">&times;</button>
+        </div>
+
+        <!-- Quick Questions Chips -->
+        <div class="flex flex-wrap gap-1.5 pb-2 border-b" style="border-color: var(--apple-divider);">
+            <button type="button" onclick="window.dashboardApp.askAiPreset('status')" class="px-2.5 py-1 rounded-xl text-[11px] font-medium border transition active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">📊 Огляд і PnL</button>
+            <button type="button" onclick="window.dashboardApp.askAiPreset('btc')" class="px-2.5 py-1 rounded-xl text-[11px] font-medium border transition active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">🌐 Пульс BTC</button>
+            <button type="button" onclick="window.dashboardApp.askAiPreset('risk')" class="px-2.5 py-1 rounded-xl text-[11px] font-medium border transition active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">🛡️ Стопи і Ризики</button>
+            <button type="button" onclick="window.dashboardApp.askAiPreset('strategy')" class="px-2.5 py-1 rounded-xl text-[11px] font-medium border transition active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">🎯 Стратегія і Виходи</button>
+        </div>
+
+        <!-- Chat History -->
+        <div id="ai-chat-messages" class="flex-1 overflow-y-auto space-y-3 py-3 pr-1 text-xs">
+        </div>
+
+        <!-- Input Area -->
+        <form id="ai-chat-form" class="mt-2 pt-2 border-t flex gap-2" style="border-color: var(--apple-divider);">
+            <input type="text" id="ai-chat-input" placeholder="Запитайте щось про стан системи, відкриті угоди чи сентимент..." class="flex-1 px-4 py-2.5 rounded-2xl border text-xs focus:outline-none focus:ring-1" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);" />
+            <button type="submit" id="btn-send-ai-chat" class="px-5 py-2.5 rounded-2xl text-white font-bold text-xs shadow-md transition active:scale-95 flex items-center gap-1.5" style="background: var(--apple-blue);">
+                <i class="fa-solid fa-paper-plane"></i>
+                <span id="ai-btn-send-text" data-i18n="ai_send_btn">Надіслати</span>
+            </button>
+        </form>
     </div>
 </div>
 
@@ -1021,7 +1109,13 @@ const TERMINAL_I18N = {
         all_news_btn: "Всі (All)",
         logs_title: "macOS Термінал логів рушія",
         start_btn: "ЗАПУСТИТИ БОТА",
-        stop_btn: "ЗУПИНИТИ БОТА"
+        stop_btn: "ЗУПИНИТИ БОТА",
+        ai_copilot_btn: "Gemini AI Copilot",
+        ai_copilot_title: "Gemini 1.5 Flash Quant Sentinel",
+        ai_copilot_sub: "Кількісний аналіз, розбір ризиків та пояснення торгових сигналів",
+        ai_input_placeholder: "Запитайте щось про стан системи, відкриті угоди чи ризики...",
+        ai_send_btn: "Надіслати",
+        ai_welcome: "👋 Вітаю! Я ваш квантовий ШІ-асистент AlgoTrade PRO. Аналізую ринок на базі Google Gemini 1.5 Flash. Чим можу допомогти?"
     },
     en: {
         nav_overview: "Overview",
@@ -1062,7 +1156,13 @@ const TERMINAL_I18N = {
         all_news_btn: "All",
         logs_title: "macOS Engine Live Logs Terminal",
         start_btn: "START BOT",
-        stop_btn: "STOP BOT"
+        stop_btn: "STOP BOT",
+        ai_copilot_btn: "Gemini AI Copilot",
+        ai_copilot_title: "Gemini 1.5 Flash Quant Sentinel",
+        ai_copilot_sub: "Quantitative analysis, risk evaluation & trade explanations",
+        ai_input_placeholder: "Ask anything about system status, active trades, or risks...",
+        ai_send_btn: "Send",
+        ai_welcome: "👋 Hello! I am your AlgoTrade PRO Quant Sentinel AI Assistant powered by Google Gemini 1.5 Flash. How can I assist your trading today?"
     }
 };
 
@@ -1337,6 +1437,22 @@ class DashboardController {
         });
         document.getElementById('trade-inspector-modal')?.addEventListener('click', (e) => {
             if (e.target.id === 'trade-inspector-modal') this.closeTradeInspector();
+        });
+
+        // AI Copilot Listeners
+        document.getElementById('btn-toggle-ai-copilot')?.addEventListener('click', () => this.toggleAiCopilot());
+        document.getElementById('btn-close-ai-copilot')?.addEventListener('click', () => this.closeAiCopilot());
+        document.getElementById('ai-copilot-modal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'ai-copilot-modal') this.closeAiCopilot();
+        });
+        document.getElementById('ai-chat-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('ai-chat-input');
+            const q = input ? input.value.trim() : '';
+            if (q) {
+                input.value = '';
+                this.sendAiQuery(q);
+            }
         });
 
         // Global Escape Key to close modals
@@ -2300,6 +2416,26 @@ class DashboardController {
                 document.getElementById('input-adx').value = cfg.min_adx_trend;
                 document.getElementById('val-adx').innerText = cfg.min_adx_trend.toFixed(1);
             }
+            if (cfg.trading_mode !== undefined) {
+                const modeEl = document.getElementById('input-trading-mode');
+                if (modeEl) modeEl.value = cfg.trading_mode;
+                const badgeEl = document.getElementById('badge-trading-mode');
+                if (badgeEl) {
+                    badgeEl.innerText = cfg.trading_mode === 'LIVE' ? 'LIVE BINANCE' : 'PAPER TRADING';
+                    badgeEl.style.background = cfg.trading_mode === 'LIVE' ? 'var(--apple-red-bg)' : 'var(--apple-green-bg)';
+                    badgeEl.style.color = cfg.trading_mode === 'LIVE' ? 'var(--apple-red-text)' : 'var(--apple-green-text)';
+                    badgeEl.style.borderColor = cfg.trading_mode === 'LIVE' ? 'var(--apple-red-border)' : 'var(--apple-green-border)';
+                }
+            }
+            if (cfg.gemini_api_key && document.getElementById('input-gemini-key')) {
+                document.getElementById('input-gemini-key').value = cfg.gemini_api_key;
+            }
+            if (cfg.telegram_bot_token && document.getElementById('input-tg-token')) {
+                document.getElementById('input-tg-token').value = cfg.telegram_bot_token;
+            }
+            if (cfg.telegram_chat_id && document.getElementById('input-tg-chat')) {
+                document.getElementById('input-tg-chat').value = cfg.telegram_chat_id;
+            }
 
             document.getElementById('current-strategy-summary').innerText = 
                 `Conf: ${(cfg.confidence_threshold || 0.30).toFixed(2)} | RR: ${(cfg.risk_reward_ratio || 1.5).toFixed(1)} | MaxPos: ${cfg.max_positions || 3}`;
@@ -2315,7 +2451,11 @@ class DashboardController {
             risk_reward_ratio: parseFloat(document.getElementById('input-rr-ratio').value),
             max_positions: parseInt(document.getElementById('input-max-pos').value),
             trade_fraction: parseFloat(document.getElementById('input-trade-frac').value) / 100.0,
-            min_adx_trend: parseFloat(document.getElementById('input-adx').value)
+            min_adx_trend: parseFloat(document.getElementById('input-adx').value),
+            trading_mode: document.getElementById('input-trading-mode')?.value || 'PAPER',
+            gemini_api_key: document.getElementById('input-gemini-key')?.value.trim() || '',
+            telegram_bot_token: document.getElementById('input-tg-token')?.value.trim() || '',
+            telegram_chat_id: document.getElementById('input-tg-chat')?.value.trim() || ''
         };
 
         try {
@@ -2326,7 +2466,7 @@ class DashboardController {
             });
             const data = await res.json();
             if (res.ok && data.status === 'success') {
-                this.showToast("Налаштування ШІ збережено та застосовано!", 'success');
+                this.showToast("Налаштування квант-системи збережено та застосовано!", 'success');
                 this.closeSettingsModal();
                 this.fetchConfig();
             } else {
@@ -2334,6 +2474,131 @@ class DashboardController {
             }
         } catch (err) {
             this.showToast(`Помилка: ${err.message}`, 'error');
+        }
+    }
+
+    // --- AI COPILOT LOGIC ---
+    toggleAiCopilot() {
+        const modal = document.getElementById('ai-copilot-modal');
+        if (modal && modal.classList.contains('hidden')) {
+            this.openAiCopilot();
+        } else {
+            this.closeAiCopilot();
+        }
+    }
+
+    openAiCopilot() {
+        const modal = document.getElementById('ai-copilot-modal');
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        const container = document.getElementById('ai-chat-messages');
+        if (container && container.children.length === 0) {
+            const lang = this.currentLang || 'ua';
+            const welcomeText = (TERMINAL_I18N[lang] && TERMINAL_I18N[lang].ai_welcome) ? TERMINAL_I18N[lang].ai_welcome : TERMINAL_I18N.ua.ai_welcome;
+            this.appendAiMessage('bot', welcomeText);
+        }
+        document.getElementById('ai-chat-input')?.focus();
+    }
+
+    closeAiCopilot() {
+        document.getElementById('ai-copilot-modal')?.classList.add('hidden');
+    }
+
+    askAiPreset(type) {
+        const lang = this.currentLang || 'ua';
+        const presets = {
+            status: lang === 'ua' ? "Який поточний статус, PnL та баланс?" : "What is the current status, PnL and balance?",
+            btc: lang === 'ua' ? "Який стан та пульс ринку BTC?" : "What is the BTC market pulse and macro condition?",
+            risk: lang === 'ua' ? "Як працює контроль ризику та захисні стопи?" : "How does risk management and protective stops work?",
+            strategy: lang === 'ua' ? "Як алгоритм обирає точки виходу та безубитку?" : "How does the algorithm pick exit points and breakeven?"
+        };
+        const query = presets[type] || presets.status;
+        this.sendAiQuery(query);
+    }
+
+    appendAiMessage(sender, text, isHtml = false) {
+        const container = document.getElementById('ai-chat-messages');
+        if (!container) return null;
+
+        const row = document.createElement('div');
+        row.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
+
+        const bubble = document.createElement('div');
+        bubble.className = sender === 'user'
+            ? 'max-w-[80%] px-4 py-2.5 rounded-2xl text-white font-medium shadow-sm'
+            : 'max-w-[85%] px-4 py-3 rounded-2xl border shadow-sm space-y-1.5 leading-relaxed';
+
+        if (sender === 'user') {
+            bubble.style.background = 'var(--apple-blue)';
+            bubble.innerText = text;
+        } else {
+            bubble.style.background = 'var(--apple-subtle-bg)';
+            bubble.style.borderColor = 'var(--apple-panel-border)';
+            bubble.style.color = 'var(--apple-text)';
+
+            if (isHtml) {
+                bubble.innerHTML = text;
+            } else {
+                let formatted = text
+                    .replace(/### (.*?)\n/g, '<h4 class="font-bold text-xs mt-1 mb-0.5 text-blue-500">$1</h4>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded text-[10px] font-mono bg-black/10 dark:bg-white/10">$1</code>')
+                    .replace(/\n\n/g, '<br/><br/>')
+                    .replace(/\n\* /g, '<br/>• ')
+                    .replace(/\n/g, '<br/>');
+                bubble.innerHTML = formatted;
+            }
+        }
+
+        row.appendChild(bubble);
+        container.appendChild(row);
+        container.scrollTop = container.scrollHeight;
+        return row;
+    }
+
+    async sendAiQuery(query) {
+        this.appendAiMessage('user', query);
+
+        const typingIndicator = this.appendAiMessage('bot', `
+            <div class="flex items-center gap-1.5 py-1 text-xs" style="color: var(--apple-text-secondary);">
+                <i class="fa-solid fa-sparkles animate-spin text-[11px]" style="color: var(--apple-blue);"></i>
+                <span class="animate-pulse">ШІ аналізує ринок та портфель...</span>
+            </div>
+        `, true);
+
+        try {
+            const res = await fetch('/api/monitor/ai/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.getCsrfToken()
+                },
+                body: JSON.stringify({
+                    query: query,
+                    lang: this.currentLang || 'ua'
+                })
+            });
+
+            if (typingIndicator && typingIndicator.parentNode) {
+                typingIndicator.remove();
+            }
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            if (data.status === 'success' && data.reply) {
+                this.appendAiMessage('bot', data.reply);
+            } else {
+                this.appendAiMessage('bot', "⚠️ Не вдалося отримати відповідь від ШІ-асистента.");
+            }
+        } catch (err) {
+            if (typingIndicator && typingIndicator.parentNode) {
+                typingIndicator.remove();
+            }
+            this.appendAiMessage('bot', `⚠️ Помилка з'єднання з AI Sentinel: ${err.message}`);
         }
     }
 

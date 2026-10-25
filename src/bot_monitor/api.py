@@ -62,6 +62,14 @@ class ConfigUpdateRequest(BaseModel):
     max_positions: int = 3
     trade_fraction: float = 0.04
     min_adx_trend: float = 25.0
+    gemini_api_key: Optional[str] = None
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    trading_mode: Optional[str] = "PAPER"
+
+class AIChatRequest(BaseModel):
+    query: str
+    lang: Optional[str] = "ua"
 
 class BacktestRequest(BaseModel):
     symbol: str = "BTC/USDT"
@@ -245,13 +253,18 @@ def get_market_scanner(request):
 @router.get("/config")
 def get_config(request):
     """Отримання поточних налаштувань алгоритму."""
+    from src.shared.config import settings
     cfg_file = DATA_DIR / "runtime_config.json"
     default_cfg = {
         "confidence_threshold": 0.30,
         "risk_reward_ratio": 1.5,
         "max_positions": 3,
         "trade_fraction": 0.04,
-        "min_adx_trend": 25.0
+        "min_adx_trend": 25.0,
+        "trading_mode": getattr(settings, 'TRADING_MODE', 'PAPER'),
+        "gemini_api_key": "",
+        "telegram_bot_token": "",
+        "telegram_chat_id": str(getattr(settings, 'TELEGRAM_CHAT_ID', '') or '')
     }
     if cfg_file.exists():
         try:
@@ -267,13 +280,90 @@ def get_config(request):
 def update_config(request, payload: ConfigUpdateRequest):
     """Збереження оновлених налаштувань алгоритму на льоту."""
     cfg_file = DATA_DIR / "runtime_config.json"
-    cfg_dict = payload.model_dump()
+    cfg_dict = payload.model_dump(exclude_none=True)
     try:
+        current_cfg = {}
+        if cfg_file.exists():
+            try:
+                with open(cfg_file, "r", encoding="utf-8") as f:
+                    current_cfg = json.load(f)
+            except Exception:
+                pass
+        current_cfg.update(cfg_dict)
         with open(cfg_file, "w", encoding="utf-8") as f:
-            json.dump(cfg_dict, f, indent=2)
-        return {"status": "success", "message": "Налаштування успішно збережено та застосовано", "config": cfg_dict}
+            json.dump(current_cfg, f, indent=2)
+        return {"status": "success", "message": "Налаштування успішно збережено та застосовано", "config": current_cfg}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@router.post("/ai/chat")
+async def ai_chat_endpoint(request, payload: AIChatRequest):
+    """Інтерактивний квантовий AI-асистент на базі Google Gemini 1.5 Flash."""
+    from asgiref.sync import sync_to_async
+    from src.engine.application.gemini_sentinel import GeminiSentinel
+    from src.shared.config import settings
+
+    def _sync_collect_orm_data():
+        wallet = Wallet.objects.first()
+        bal = float(wallet.usdt_balance) if wallet else 1000.0
+        trades_list = list(Trade.objects.order_by("-timestamp")[:10])
+        cnt = Trade.objects.count()
+        w_cnt = Trade.objects.filter(pnl__gt=0).count()
+        wr = (w_cnt / cnt * 100.0) if cnt > 0 else 50.0
+        pnl = float(Trade.objects.aggregate(Sum('pnl'))['pnl__sum'] or 0.0)
+        positions = list(ActivePosition.objects.all())
+        pos_list = [f"{p.symbol} ({p.amount} @ ${float(p.entry_price):.4f})" for p in positions]
+        recent_list = [f"{t.symbol} {t.side} PnL: ${t.pnl:.2f}" for t in trades_list[:5]]
+        return bal, cnt, wr, pnl, pos_list, recent_list
+
+    balance, total_trades, win_rate, total_pnl, active_pos_list, recent_trades_summary = await sync_to_async(_sync_collect_orm_data)()
+
+    btc_pulse = "NORMAL"
+    radar_file = DATA_DIR / "market_radar.json"
+    if radar_file.exists():
+        try:
+            with open(radar_file, "r", encoding="utf-8") as f:
+                r_data = json.load(f)
+                if r_data and isinstance(r_data, list):
+                    btc_row = next((x for x in r_data if x.get("symbol") == "BTC/USDT"), None)
+                    if btc_row:
+                        btc_pulse = btc_row.get("market_regime", "NORMAL")
+        except Exception:
+            pass
+
+    key_override = None
+    cfg_file = DATA_DIR / "runtime_config.json"
+    if cfg_file.exists():
+        try:
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                saved_cfg = json.load(f)
+                if saved_cfg.get("gemini_api_key"):
+                    key_override = saved_cfg["gemini_api_key"]
+        except Exception:
+            pass
+
+    class DynamicSettings:
+        def __init__(self, key):
+            self.GEMINI_API_KEY = key or getattr(settings, 'GEMINI_API_KEY', None)
+
+    sentinel = GeminiSentinel(settings=DynamicSettings(key_override))
+
+    context = {
+        "balance": balance,
+        "free_cash": balance,
+        "total_pnl": total_pnl,
+        "win_rate": win_rate,
+        "total_trades": total_trades,
+        "btc_pulse": btc_pulse,
+        "fg_score": 50,
+        "fg_mode": "BALANCED",
+        "active_positions": active_pos_list,
+        "recent_trades": recent_trades_summary
+    }
+
+    result = await sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua")
+    return result
 
 
 @router.get("/engine_logs")

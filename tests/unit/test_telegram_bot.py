@@ -149,3 +149,24 @@ async def test_telegram_unauthorized_access(telegram_bot):
         assert mock_send.called
         call_args = mock_send.call_args[0]
         assert "Доступ заборонено" in call_args[2]["text"]
+
+
+@pytest.mark.asyncio
+async def test_telegram_ai_intel_command(telegram_bot):
+    """Тест команди /ai та інтерактивного виклику Gemini Sentinel."""
+    mock_session = MagicMock()
+
+    with patch.object(telegram_bot, "_send_request", new_callable=AsyncMock) as mock_send, \
+         patch.object(telegram_bot, "get_ai_intel_message", new_callable=AsyncMock, return_value="AI Intel Summary"):
+
+        ai_update = {
+            "update_id": 6,
+            "message": {
+                "chat": {"id": 123456789},
+                "text": "/ai"
+            }
+        }
+        await telegram_bot.handle_update(mock_session, ai_update)
+        assert mock_send.called
+        call_args = mock_send.call_args[0]
+        assert call_args[2]["text"] == "AI Intel Summary"

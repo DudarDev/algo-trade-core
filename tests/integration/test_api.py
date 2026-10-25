@@ -103,3 +103,44 @@ def test_stream_telemetry_endpoint():
     # Read the first event chunk
     content = next(response.streaming_content).decode('utf-8')
     assert "event: connected" in content
+
+
+def test_ai_chat_endpoint():
+    client = Client()
+    payload = {
+        "query": "Який поточний статус бота?",
+        "lang": "ua"
+    }
+    response = client.post('/api/monitor/ai/chat',
+                           data=json.dumps(payload),
+                           content_type='application/json')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "reply" in data
+    assert len(data["reply"]) > 10
+
+
+def test_config_get_and_update():
+    client = Client()
+    get_res = client.get('/api/monitor/config')
+    assert get_res.status_code == 200
+    data = json.loads(get_res.content)
+    assert "confidence_threshold" in data
+    assert "trading_mode" in data
+
+    update_payload = {
+        "confidence_threshold": 0.32,
+        "risk_reward_ratio": 1.6,
+        "max_positions": 4,
+        "trade_fraction": 0.05,
+        "min_adx_trend": 26.0,
+        "trading_mode": "PAPER"
+    }
+    post_res = client.post('/api/monitor/config',
+                           data=json.dumps(update_payload),
+                           content_type='application/json')
+    assert post_res.status_code == 200
+    res_data = json.loads(post_res.content)
+    assert res_data["status"] == "success"
+    assert res_data["config"]["confidence_threshold"] == 0.32

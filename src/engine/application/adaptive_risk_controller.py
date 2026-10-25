@@ -23,6 +23,7 @@ class AdaptiveRiskState(BaseModel):
     status_message: str = Field(default="NORMAL")
     circuit_breaker_active: bool = Field(default=False)
     daily_loss_usdt: float = Field(default=0.0)
+    kelly_fraction: float = Field(default=0.04, ge=0.005, le=0.20)
 
     model_config = ConfigDict(strict=True)
 
@@ -250,8 +251,34 @@ class AdaptiveRiskController:
             current_risk_multiplier=round(risk_mult, 4),
             status_message=status_msg,
             circuit_breaker_active=self.circuit_breaker_active,
-            daily_loss_usdt=round(self.daily_pnl, 2)
+            daily_loss_usdt=round(self.daily_pnl, 2),
+            kelly_fraction=self.calculate_kelly_fraction(win_rate)
         )
+
+    def calculate_kelly_fraction(
+        self,
+        win_rate: Optional[float] = None,
+        win_loss_ratio: float = 1.5,
+        fraction_multiplier: float = 0.35,
+        min_fraction: float = 0.01,
+        max_fraction: float = 0.06
+    ) -> float:
+        """
+        Критерій Келлі (Fractional Kelly Criterion) для математично оптимального
+        позиційного сайзингу без ризику руїни (Gambler's Ruin).
+        f* = (p * b - q) / b
+        """
+        p = float(win_rate) if win_rate is not None else self._compute_win_rate()
+        p = max(0.01, min(0.99, p))
+        b = max(0.5, float(win_loss_ratio))
+        q = 1.0 - p
+
+        kelly = (p * b - q) / b
+        if kelly <= 0:
+            return float(min_fraction)
+
+        fractional_kelly = kelly * fraction_multiplier
+        return round(max(float(min_fraction), min(float(max_fraction), fractional_kelly)), 4)
 
     def is_circuit_breaker_triggered(self) -> bool:
         """Повертає True, якщо активовано аварійний рубильник денного збитку (-3%)."""

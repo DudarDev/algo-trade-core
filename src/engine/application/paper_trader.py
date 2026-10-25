@@ -148,6 +148,12 @@ class PaperTrader:
             ideal_coins = risk_budget / risk_per_coin
             ideal_usdt = ideal_coins * price
 
+            # Hard Dollar Stop Cap: обмежуємо максимальний доларовий збиток за угоду ($3.50 max)
+            max_loss_cap = getattr(self.settings, 'MAX_TRADE_LOSS_USDT', None)
+            if max_loss_cap is not None and risk_per_coin > 0:
+                capped_coins = max_loss_cap / risk_per_coin
+                ideal_usdt = min(ideal_usdt, capped_coins * price)
+
             # Капаємо розмір позиції з урахуванням диверсифікації портфеля (не більше 1/max_positions на угоду)
             max_alloc_per_trade = (self.balance * 0.95) / max(max_positions, 1)
             actual_usdt = min(ideal_usdt, max_alloc_per_trade)

@@ -305,3 +305,22 @@ async def test_partial_take_profit_scale_out(paper_trader, repo):
     assert "Take Profit" in trade2["exit_reason"]
     assert trade2["target_label"] == 1
     assert trade2["pnl"] > 0
+
+
+@pytest.mark.asyncio
+async def test_hard_dollar_stop_loss_cap(repo):
+    class SettingsWithCap:
+        INITIAL_BALANCE = 1000.0
+        risk_per_trade_pct = 0.02
+        max_open_positions = 2
+        MAX_TRADE_LOSS_USDT = 3.50
+        exchange_fee_pct = 0.001
+
+    trader = PaperTrader(settings=SettingsWithCap(), repo=repo, notifier=MockNotifier())
+    await trader.initialize()
+    # Entry 50000, SL 40000 (20% distance = 10000/coin)
+    await trader.open_position("BTC/USDT", TradeSide.BUY, 50000.0, 40000.0, 60000.0)
+    pos = trader.positions["BTC/USDT"]
+    # With cap at $3.50, coins = 3.50 / 10000 = 0.00035, usdt = 0.00035 * 50000 = 17.50 USDT
+    assert pos.amount_usdt == 17.50
+    assert pos.amount_coins == 0.00035

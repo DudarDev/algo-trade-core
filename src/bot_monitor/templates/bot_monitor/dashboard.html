@@ -58,6 +58,12 @@
             <i class="fa-regular fa-clock" style="color: var(--apple-text-muted);"></i> UTC: <span id="clock-utc" class="font-bold" style="color: var(--apple-text);">--:--:--</span>
         </div>
 
+        <!-- 🌐 Apple Language Switcher (Українська / English) -->
+        <button id="btn-lang-toggle" title="Змінити мову / Switch language" class="px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+            <span id="lang-flag" class="text-sm">🇺🇦</span>
+            <span id="lang-code" class="font-bold font-mono">UA</span>
+        </button>
+
         <!-- 🌓 Apple Theme Switcher (Світла / Темна) -->
         <button id="btn-theme-toggle" title="Перемкнути Світлу / Темну тему" class="px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
             <i class="fa-solid fa-sun text-[#FF9500]" id="theme-toggle-icon"></i>
@@ -91,8 +97,36 @@
     </div>
 </header>
 
+<!-- 🧭 1.5 NAVIGATION TABS: OVERVIEW / AI NEWS / SCANNER / HISTORY / LOGS -->
+<nav class="glass-panel px-4 py-2.5 mb-5 flex flex-wrap items-center justify-between gap-3">
+    <div class="apple-seg-container">
+        <button type="button" class="apple-seg-item active flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('overview')" id="nav-btn-overview">
+            <i class="fa-solid fa-chart-pie"></i> <span data-i18n="nav_overview">Головна</span>
+        </button>
+        <button type="button" class="apple-seg-item flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('news')" id="nav-btn-news">
+            <i class="fa-solid fa-newspaper text-[#007AFF]"></i> <span data-i18n="nav_news">ШІ Новини</span>
+            <span id="nav-news-count" class="px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-[#007AFF] text-white">40</span>
+        </button>
+        <button type="button" class="apple-seg-item flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('scanner')" id="nav-btn-scanner">
+            <i class="fa-solid fa-satellite-dish text-[#34C759]"></i> <span data-i18n="nav_scanner">Радар Ринку</span>
+        </button>
+        <button type="button" class="apple-seg-item flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('history')" id="nav-btn-history">
+            <i class="fa-solid fa-clock-rotate-left"></i> <span data-i18n="nav_history">Історія Угод</span>
+        </button>
+        <button type="button" class="apple-seg-item flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('logs')" id="nav-btn-logs">
+            <i class="fa-solid fa-terminal"></i> <span data-i18n="nav_logs">Термінал Логів</span>
+        </button>
+    </div>
+    <div class="flex items-center gap-2">
+        <span class="text-[11px] font-mono px-3 py-1 rounded-xl border flex items-center gap-1.5" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text-secondary);">
+            <i class="fa-solid fa-earth-americas text-[#007AFF]"></i>
+            <span id="current-lang-text">Мова: 🇺🇦 Українська</span>
+        </span>
+    </div>
+</nav>
+
 <!-- 📊 2. EXECUTIVE KPI CARDS (APPLE METRICS) -->
-<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
+<section id="overview-section" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
     <!-- Картка 1: Загальний баланс / Equity -->
     <div class="glass-panel p-4 relative overflow-hidden group">
         <div class="flex justify-between items-start mb-2">
@@ -103,7 +137,7 @@
         </div>
         <div class="text-2xl font-bold mono-num skeleton tracking-tight" id="metric-balance" style="color: var(--apple-text);">$0.00</div>
         <div class="text-[11px] mt-2.5 flex items-center justify-between border-t pt-2" style="border-color: var(--apple-divider); color: var(--apple-text-secondary);">
-            <span>Вільна готівка:</span>
+            <span data-i18n="metric_free_cash">Вільна готівка:</span>
             <span id="metric-free-cash" class="mono-num font-semibold" style="color: var(--apple-text);">$0.00</span>
         </div>
     </div>
@@ -877,7 +911,7 @@
 
 
 <!-- 📰 7.8. AI CRYPTO NEWS RADAR & SENTIMENT INTEL (APPLE CUPERTINO HIG) -->
-<section class="glass-panel p-5 mb-6 overflow-hidden relative">
+<section id="ai-news-section" class="glass-panel p-5 mb-6 overflow-hidden relative scroll-mt-20">
     <div class="flex flex-wrap items-center justify-between gap-3 pb-3.5 mb-4 border-b" style="border-color: var(--apple-divider);">
         <div class="flex items-center gap-2.5">
             <div class="w-8 h-8 rounded-xl flex items-center justify-center border text-sm" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-blue);">
@@ -946,6 +980,92 @@
 <script src="https://s3.tradingview.com/tv.js"></script>
 
 <script>
+
+const TERMINAL_I18N = {
+    ua: {
+        nav_overview: "Головна",
+        nav_news: "ШІ Новини",
+        nav_scanner: "Радар Ринку",
+        nav_history: "Історія Угод",
+        nav_logs: "Термінал Логів",
+        current_lang: "Мова: 🇺🇦 Українська",
+        theme_btn: "Тема",
+        settings_btn: "Налаштування",
+        panic_btn: "Panic Sell All",
+        export_csv: "CSV",
+        reset_depo: "Скинути $1000",
+        sub_desc: "Автономна квантова система високочастотного скальпінгу (Binance Paper/Live)",
+        metric_balance_title: "ЗАГАЛЬНИЙ БАЛАНС / EQUITY",
+        metric_free_cash: "Вільна готівка:",
+        metric_pnl_title: "РЕАЛІЗОВАНИЙ PNL",
+        metric_closed_trades: "Закрито угод:",
+        metric_winrate_title: "ВІНРЕЙТ (WIN RATE)",
+        metric_winrate_target: "Ціль: 60%+",
+        metric_profit_factor: "ПРОФІТ-ФАКТОР",
+        metric_avg_wl: "Сер. Win/Loss:",
+        metric_ai_title: "СТАН ШІ ТА РИЗИКУ",
+        metric_ai_sub: "Режим контролю:",
+        redis_online: "Redis: Онлайн",
+        celery_active: "Celery: Активний",
+        ensemble_badge: "RF 55% + LGBM 45%",
+        telemetry_live: "Телеметрія Наживо",
+        active_positions_title: "Активні відкриті позиції",
+        no_positions_msg: "Немає відкритих позицій",
+        no_positions_sub: "Очікування сигналу від квантової моделі...",
+        trade_history_title: "Історія закритих угод",
+        scanner_title: "Живий радар ринку ШІ (Market Scanner)",
+        scanner_sub: "Сканування 20 ліквідних пар Binance за ATR та мікроструктурою",
+        news_title: "ШІ-Радар Світових Криптоновин (AI Crypto News & Intel)",
+        news_sub: "Аналіз тональності новин у реальному часі (CoinTelegraph, Decrypt) та захисний Black Swan мораторій",
+        refresh_btn: "Оновити",
+        all_news_btn: "Всі (All)",
+        logs_title: "<span data-i18n="logs_title">macOS Термінал логів рушія</span>",
+        start_btn: "ЗАПУСТИТИ БОТА",
+        stop_btn: "ЗУПИНИТИ БОТА"
+    },
+    en: {
+        nav_overview: "Overview",
+        nav_news: "AI News",
+        nav_scanner: "Market Radar",
+        nav_history: "Trade History",
+        nav_logs: "Terminal Logs",
+        current_lang: "Language: 🇬🇧 English",
+        theme_btn: "Theme",
+        settings_btn: "Settings",
+        panic_btn: "Panic Sell All",
+        export_csv: "CSV",
+        reset_depo: "Reset $1000",
+        sub_desc: "Autonomous High-Frequency Quant Scalping System (Binance Paper/Live)",
+        metric_balance_title: "TOTAL BALANCE / EQUITY",
+        metric_free_cash: "Free Cash:",
+        metric_pnl_title: "REALIZED PNL",
+        metric_closed_trades: "Closed Trades:",
+        metric_winrate_title: "WIN RATE",
+        metric_winrate_target: "Target: 60%+",
+        metric_profit_factor: "PROFIT FACTOR",
+        metric_avg_wl: "Avg Win/Loss:",
+        metric_ai_title: "AI & RISK REGIME",
+        metric_ai_sub: "Risk Mode:",
+        redis_online: "Redis: Online",
+        celery_active: "Celery: Active",
+        ensemble_badge: "RF 55% + LGBM 45%",
+        telemetry_live: "Live Telemetry",
+        active_positions_title: "Active Open Positions",
+        no_positions_msg: "No open positions",
+        no_positions_sub: "Waiting for quant model signal...",
+        trade_history_title: "Recent Closed Trades",
+        scanner_title: "AI Market Scanner Radar",
+        scanner_sub: "Real-time scanning of 20 liquid Binance pairs by ATR & microstructure",
+        news_title: "AI World Crypto News Radar & Intel",
+        news_sub: "Real-time sentiment intelligence (CoinTelegraph, Decrypt) & protective Black Swan guard",
+        refresh_btn: "Refresh",
+        all_news_btn: "All",
+        logs_title: "macOS Engine Live Logs Terminal",
+        start_btn: "START BOT",
+        stop_btn: "STOP BOT"
+    }
+};
+
 class DashboardController {
     constructor() {
         this.endpoints = {
@@ -1013,8 +1133,10 @@ class DashboardController {
     }
 
     init() {
+        this.currentLang = localStorage.getItem('terminal_lang') || 'ua';
         this.bindEvents();
         this.syncThemeUI();
+        this.initI18n();
         this.startClock();
         this.initTradingViewWidget('BINANCE:BTCUSDT');
         this.fetchMiniTickers();
@@ -1045,6 +1167,71 @@ class DashboardController {
 
         // Тікери кожні 15 сек
         setInterval(() => this.fetchMiniTickers(), 15000);
+    }
+
+
+    initI18n() {
+        this.applyLanguage(this.currentLang);
+    }
+
+    toggleLanguage() {
+        const next = this.currentLang === 'ua' ? 'en' : 'ua';
+        this.applyLanguage(next);
+        const msg = next === 'ua' ? 'Мову змінено на Українську 🇺🇦' : 'Language switched to English 🇬🇧';
+        this.showToast(msg, 'info');
+    }
+
+    applyLanguage(lang) {
+        this.currentLang = lang;
+        try {
+            localStorage.setItem('terminal_lang', lang);
+        } catch(e) {}
+
+        const dict = TERMINAL_I18N[lang] || TERMINAL_I18N.ua;
+
+        // Button state
+        const flagEl = document.getElementById('lang-flag');
+        const codeEl = document.getElementById('lang-code');
+        const hintEl = document.getElementById('current-lang-text');
+        if (flagEl) flagEl.textContent = lang === 'ua' ? '🇺🇦' : '🇬🇧';
+        if (codeEl) codeEl.textContent = lang.toUpperCase();
+        if (hintEl) hintEl.textContent = dict.current_lang;
+
+        // Dynamic element translation by data-i18n
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (dict[key]) {
+                el.textContent = dict[key];
+            }
+        });
+    }
+
+    switchView(viewName) {
+        const buttons = {
+            overview: document.getElementById('nav-btn-overview'),
+            news: document.getElementById('nav-btn-news'),
+            scanner: document.getElementById('nav-btn-scanner'),
+            history: document.getElementById('nav-btn-history'),
+            logs: document.getElementById('nav-btn-logs')
+        };
+
+        Object.values(buttons).forEach(btn => btn?.classList.remove('active'));
+        if (buttons[viewName]) {
+            buttons[viewName].classList.add('active');
+        }
+
+        const targets = {
+            overview: document.getElementById('overview-section'),
+            news: document.getElementById('ai-news-section'),
+            scanner: document.getElementById('market-radar-section'),
+            history: document.getElementById('recent-trades-container')?.parentElement?.parentElement,
+            logs: document.getElementById('engine-logs-section')
+        };
+
+        const targetEl = targets[viewName];
+        if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     }
 
     syncThemeUI() {
@@ -1084,6 +1271,9 @@ class DashboardController {
     }
 
     bindEvents() {
+        // Language toggle
+        document.getElementById('btn-lang-toggle')?.addEventListener('click', () => this.toggleLanguage());
+
         // Theme toggle
         this.elements.themeToggleBtn?.addEventListener('click', () => this.toggleTheme());
 

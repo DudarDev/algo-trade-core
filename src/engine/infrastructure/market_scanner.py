@@ -20,7 +20,7 @@ class MarketScanner:
             'LINK/USDT', 'NEAR/USDT', 'SUI/USDT'
         ]
 
-    async def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 2_000_000.0) -> List[str]:
+    async def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 5_000_000.0) -> List[str]:
         """Шукає пари з найбільшою волатильністю (через Public API), гарантовано додаючи топ-ліквідні активи."""
         for attempt in range(3):
             try:
@@ -40,6 +40,17 @@ class MarketScanner:
                     quote_vol = data.get('quoteVolume')
                     if quote_vol is None or float(quote_vol) < min_volume:
                         continue
+
+                    # Фільтр спреду: відсікаємо низьколіквідні пастки з широким спредом (>0.25%)
+                    bid = data.get('bid')
+                    ask = data.get('ask')
+                    if bid is not None and ask is not None:
+                        try:
+                            f_bid, f_ask = float(bid), float(ask)
+                            if f_bid > 0 and ((f_ask - f_bid) / f_bid) > 0.0025:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
                     
                     change_pct = abs(data.get('percentage') or 0.0)
                     pairs_data.append({'symbol': symbol, 'change': change_pct})

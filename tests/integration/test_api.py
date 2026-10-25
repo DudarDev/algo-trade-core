@@ -174,3 +174,13 @@ def test_ai_error_patterns_endpoint():
     data = json.loads(response.content)
     assert data["status"] == "success"
     assert "report" in data
+
+
+def test_ai_trigger_feedback_loop_endpoint():
+    client = Client()
+    response = client.post('/api/monitor/ai/trigger_feedback_loop',
+                           data=json.dumps({'min_real_trades': 100}),
+                           content_type='application/json')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert 'status' in data

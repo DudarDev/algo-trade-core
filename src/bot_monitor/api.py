@@ -76,8 +76,8 @@ class TelegramTestRequest(BaseModel):
     chat_id: Optional[str] = None
 
 class FeedbackRetrainRequest(BaseModel):
-    lookback_trades: int = 100
     min_real_trades: int = 15
+    force_deploy: bool = False
 
 class BacktestRequest(BaseModel):
     symbol: str = "BTC/USDT"
@@ -507,14 +507,16 @@ def get_ai_error_patterns(request):
 
 
 @router.post("/ai/trigger_feedback_loop")
-def trigger_feedback_retrain(request, payload: FeedbackRetrainRequest):
+def trigger_feedback_retrain(request, payload: Optional[FeedbackRetrainRequest] = None):
     """Ручний або плановий запуск самонавчання ШІ на бойовому досвіді угод."""
     try:
         from src.infrastructure.ai.feedback_loop import FeedbackLoopService
         svc = FeedbackLoopService()
+        min_trades = payload.min_real_trades if payload else 15
+        force = payload.force_deploy if payload else False
         result = svc.retrain_with_feedback(
-            lookback_trades=payload.lookback_trades,
-            min_real_trades=payload.min_real_trades
+            min_real_trades=min_trades,
+            force_deploy=force
         )
         return {
             "status": "success" if result.success else "info",

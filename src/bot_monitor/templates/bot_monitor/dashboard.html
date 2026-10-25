@@ -60,7 +60,7 @@
 
         <!-- 🌐 Apple Language Switcher (Українська / English) -->
         <button id="btn-lang-toggle" title="Змінити мову / Switch language" class="px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
-            <span id="lang-flag" class="text-sm">🇺🇦</span>
+            <i class="fa-solid fa-globe text-[#007AFF]"></i>
             <span id="lang-code" class="font-bold font-mono">UA</span>
         </button>
 
@@ -1019,7 +1019,7 @@ const TERMINAL_I18N = {
         news_sub: "Аналіз тональності новин у реальному часі (CoinTelegraph, Decrypt) та захисний Black Swan мораторій",
         refresh_btn: "Оновити",
         all_news_btn: "Всі (All)",
-        logs_title: "<span data-i18n="logs_title">macOS Термінал логів рушія</span>",
+        logs_title: "macOS Термінал логів рушія",
         start_btn: "ЗАПУСТИТИ БОТА",
         stop_btn: "ЗУПИНИТИ БОТА"
     },
@@ -1190,12 +1190,10 @@ class DashboardController {
         const dict = TERMINAL_I18N[lang] || TERMINAL_I18N.ua;
 
         // Button state
-        const flagEl = document.getElementById('lang-flag');
         const codeEl = document.getElementById('lang-code');
         const hintEl = document.getElementById('current-lang-text');
-        if (flagEl) flagEl.textContent = lang === 'ua' ? '🇺🇦' : '🇬🇧';
         if (codeEl) codeEl.textContent = lang.toUpperCase();
-        if (hintEl) hintEl.textContent = dict.current_lang;
+        if (hintEl) hintEl.textContent = lang === 'ua' ? 'Мова: 🇺🇦 Українська' : 'Language: 🇬🇧 English';
 
         // Dynamic element translation by data-i18n
         document.querySelectorAll('[data-i18n]').forEach(el => {

@@ -298,26 +298,22 @@ def update_config(request, payload: ConfigUpdateRequest):
 
 
 @router.post("/ai/chat")
-async def ai_chat_endpoint(request, payload: AIChatRequest):
+def ai_chat_endpoint(request, payload: AIChatRequest):
     """Інтерактивний квантовий AI-асистент на базі Google Gemini 1.5 Flash."""
-    from asgiref.sync import sync_to_async
+    import asyncio
     from src.engine.application.gemini_sentinel import GeminiSentinel
     from src.shared.config import settings
 
-    def _sync_collect_orm_data():
-        wallet = Wallet.objects.first()
-        bal = float(wallet.usdt_balance) if wallet else 1000.0
-        trades_list = list(Trade.objects.order_by("-timestamp")[:10])
-        cnt = Trade.objects.count()
-        w_cnt = Trade.objects.filter(pnl__gt=0).count()
-        wr = (w_cnt / cnt * 100.0) if cnt > 0 else 50.0
-        pnl = float(Trade.objects.aggregate(Sum('pnl'))['pnl__sum'] or 0.0)
-        positions = list(ActivePosition.objects.all())
-        pos_list = [f"{p.symbol} ({p.amount} @ ${float(p.entry_price):.4f})" for p in positions]
-        recent_list = [f"{t.symbol} {t.side} PnL: ${t.pnl:.2f}" for t in trades_list[:5]]
-        return bal, cnt, wr, pnl, pos_list, recent_list
-
-    balance, total_trades, win_rate, total_pnl, active_pos_list, recent_trades_summary = await sync_to_async(_sync_collect_orm_data)()
+    wallet = Wallet.objects.first()
+    balance = float(wallet.usdt_balance) if wallet else 1000.0
+    trades_list = list(Trade.objects.order_by("-timestamp")[:10])
+    total_trades = Trade.objects.count()
+    w_cnt = Trade.objects.filter(pnl__gt=0).count()
+    win_rate = (w_cnt / total_trades * 100.0) if total_trades > 0 else 50.0
+    total_pnl = float(Trade.objects.aggregate(Sum('pnl'))['pnl__sum'] or 0.0)
+    positions = list(ActivePosition.objects.all())
+    active_pos_list = [f"{p.symbol} ({p.amount} @ ${float(p.entry_price):.4f})" for p in positions]
+    recent_trades_summary = [f"{t.symbol} {t.side} PnL: ${t.pnl:.2f}" for t in trades_list[:5]]
 
     btc_pulse = "NORMAL"
     radar_file = DATA_DIR / "market_radar.json"
@@ -362,7 +358,13 @@ async def ai_chat_endpoint(request, payload: AIChatRequest):
         "recent_trades": recent_trades_summary
     }
 
-    result = await sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua")
+    try:
+        result = asyncio.run(sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua"))
+    except RuntimeError:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            result = pool.submit(asyncio.run, sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua")).result()
+
     return result
 
 

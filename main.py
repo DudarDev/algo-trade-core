@@ -305,15 +305,7 @@ class CryptoBot:
                     funding_sentiment=fund_sentiment
                 )
 
-                # Захисний мораторій від екстрених негативних новин (Black Swan Blackout)
-                is_news_blocked, news_block_reason = self.news_analyzer.is_symbol_blacklisted_by_news(symbol)
-                if is_news_blocked and is_buy:
-                    logger.warning(f"🚨 [NEWS BLACKOUT] Вхід у {symbol} заблоковано: {news_block_reason}")
-                    is_buy = False
-                    action_str = "BLOCKED_NEWS"
-                    reason_str = news_block_reason
-
-                curr_row = df_features.iloc[-1]
+                                curr_row = df_features.iloc[-1]
                 current_price = float(curr_row['close'])
                 adx_val = float(curr_row.get('ADX', 0.0)) * 100.0
                 rsi_val = float(curr_row.get('RSI', 0.5)) * 100.0
@@ -322,6 +314,14 @@ class CryptoBot:
                 is_buy = (signal_action == "BUY" or signal_action == SignalAction.BUY)
                 action_str = "BUY" if is_buy else "HOLD"
                 reason_str = meta.reason if hasattr(meta, 'reason') else "Evaluating"
+
+                # Захисний мораторій від екстрених негативних новин (Black Swan Blackout)
+                is_news_blocked, news_block_reason = self.news_analyzer.is_symbol_blacklisted_by_news(symbol)
+                if is_news_blocked and is_buy:
+                    logger.warning(f"🚨 [NEWS BLACKOUT] Вхід у {symbol} заблоковано: {news_block_reason}")
+                    is_buy = False
+                    action_str = "BLOCKED_NEWS"
+                    reason_str = news_block_reason
 
                 self.latest_scan_results[symbol] = {
                     "symbol": symbol,

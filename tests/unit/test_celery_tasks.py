@@ -4,7 +4,8 @@ from src.engine.application.tasks import (
     task_refresh_news_feed,
     task_sync_market_sentiment,
     task_deep_backtest,
-    task_retrain_ai_model
+    task_retrain_ai_model,
+    task_feedback_loop_retrain
 )
 from src.engine.infrastructure.cache_manager import cache_manager
 
@@ -70,3 +71,25 @@ def test_task_retrain_ai_model(mock_deploy, mock_train, mock_prepare):
     cached = cache_manager.get("task:retrain:latest")
     assert cached is not None
     assert cached["status"] == "deployed"
+
+
+@patch("src.infrastructure.ai.feedback_loop.FeedbackLoopService.retrain_with_feedback")
+def test_task_feedback_loop_retrain(mock_retrain):
+    from src.infrastructure.ai.feedback_loop import FeedbackRetrainResult
+    mock_retrain.return_value = FeedbackRetrainResult(
+        success=True,
+        deployed=True,
+        trained_samples=100,
+        real_trades_used=25,
+        metrics={"roc_auc": 0.88, "accuracy": 0.82},
+        message="Model updated successfully!"
+    )
+
+    res = task_feedback_loop_retrain(min_real_trades=10)
+    assert res["status"] == "deployed"
+    assert res["deployed"] is True
+    assert res["metrics"]["roc_auc"] == 0.88
+
+    cached = cache_manager.get("task:feedback_retrain:latest")
+    assert cached is not None
+    assert cached["deployed"] is True

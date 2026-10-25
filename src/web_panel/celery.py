@@ -25,6 +25,10 @@ app.conf.beat_schedule = {
         'task': 'engine.application.tasks.task_sync_market_sentiment',
         'schedule': 900.0,  # кожні 15 хвилин
     },
+    'scheduled-nightly-feedback-retrain': {
+        'task': 'engine.application.tasks.task_feedback_loop_retrain',
+        'schedule': 86400.0,  # кожні 24 години
+    },
 }
 
 @app.task(bind=True)

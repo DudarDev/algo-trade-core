@@ -151,3 +151,40 @@ def task_deep_backtest(
         "metrics": metrics
     })
     return {"status": "success", "task_id": task_id, "metrics": metrics}
+
+
+@shared_task(bind=True, name="engine.application.tasks.task_feedback_loop_retrain")
+def task_feedback_loop_retrain(self, min_real_trades: int = 10, force_deploy: bool = False) -> Dict[str, Any]:
+    """
+    Щоденне нічне самонавчання моделі ШІ на закритих угодах бота через Celery Beat.
+    """
+    from src.infrastructure.ai.feedback_loop import FeedbackLoopService
+    from src.engine.infrastructure.cache_manager import cache_manager
+
+    logger.info("🧠 [Celery] Запуск нічного контуру самонавчання моделі ШІ...")
+    try:
+        svc = FeedbackLoopService()
+        result = svc.retrain_with_feedback(min_real_trades=min_real_trades, force_deploy=force_deploy)
+
+        res_dict = {
+            "status": "deployed" if result.deployed else ("success" if result.success else "rejected"),
+            "deployed": result.deployed,
+            "metrics": result.metrics,
+            "trained_samples": result.trained_samples,
+            "real_trades_used": result.real_trades_used,
+            "message": result.message,
+            "task_id": self.request.id if self.request else "local"
+        }
+
+        cache_manager.set("task:feedback_retrain:latest", res_dict, ttl=86400)
+        cache_manager.publish("algo_updates", {
+            "type": "AI_FEEDBACK_RETRAIN_COMPLETED",
+            "deployed": result.deployed,
+            "metrics": result.metrics,
+            "message": result.message
+        })
+        logger.info(f"✅ [Celery Feedback Loop] {result.message}")
+        return res_dict
+    except Exception as e:
+        logger.error(f"❌ [Celery Feedback Loop] Помилка: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)}

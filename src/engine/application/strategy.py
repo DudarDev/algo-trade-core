@@ -181,11 +181,13 @@ class HybridStrategy:
             meta.reason = f"Ensemble Factor Divergence (Quant={quant_factor_score:.2f} < 0.30) (Blocked)"
             return SignalAction.HOLD, meta
 
-        # ШІ ПОРОГИ (Вимоги до дерев рішень із адаптивним зсувом)
-        if regime == MarketRegime.BULL:
-            threshold = effective_base_threshold
-        else: # BEAR (купуємо тільки при дуже сильному сигналі на розворот)
-            threshold = effective_base_threshold + 0.10
+        # Етап 3: Заборона спотових покупок у спадному тренді (BEAR_MARKET)
+        if regime == MarketRegime.BEAR:
+            meta.reason = "Spot BUY disallowed in BEAR_MARKET (Blocked)"
+            return SignalAction.HOLD, meta
+
+        # ШІ ПОРОГИ (Вимоги до дерев рішень для BULL ринку)
+        threshold = effective_base_threshold
             
         # Ухвалення рішення
         if ai_confidence >= threshold:

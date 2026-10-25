@@ -38,6 +38,12 @@ root_logger.setLevel(logging.INFO)
 root_logger.handlers = [console_handler, file_handler]
 logger = logging.getLogger("Main")
 
+# Токсичні пари та хронічні лузери за результатами аудиту угод
+HARD_BLACKLIST = {
+    'EPIC/USDT', 'LUMIA/USDT', 'ALT/USDT', 'INIT/USDT', 'TREE/USDT'
+}
+
+
 from src.shared.config import settings
 from src.shared.db.session import SessionLocal
 from src.shared.db.repositories import TradingRepository
@@ -76,6 +82,7 @@ class CryptoBot:
         self.sentiment_analyzer = MarketSentimentAnalyzer()
         self.current_sentiment = {}
         self.news_analyzer = NewsAnalyzer()
+        self.pair_cooldowns = {}
         self.load_runtime_config()
 
     async def get_higher_timeframe_trend(self, symbol: str) -> str:
@@ -392,6 +399,24 @@ class CryptoBot:
                 logger.debug(f"Помилка швидкого моніторингу: {e}")
             await asyncio.sleep(10)
 
+
+    def update_pair_cooldowns(self):
+        """Перевіряє історію закритих угод. Якщо монета отримала 2 збитки за останні 24г - кулдаун на 24г."""
+        try:
+            from bot_monitor.models import Trade
+            from datetime import timedelta
+            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            recent_losses = list(Trade.objects.filter(side='SELL', pnl__lt=0, timestamp__gte=since).values('symbol'))
+            from collections import Counter
+            counts = Counter(r['symbol'] for r in recent_losses)
+            now_ts = time.time()
+            for sym, cnt in counts.items():
+                if cnt >= 2 and sym not in self.pair_cooldowns:
+                    self.pair_cooldowns[sym] = now_ts + 86400  # 24г кулдаун
+                    logger.warning(f"🛡️ [COOLDOWN ACTIVE] {sym} заморожено на 24г (зафіксовано {cnt} збитків за добу).")
+        except Exception as e:
+            logger.debug(f"Cooldown update note: {e}")
+
     async def run_cycle(self):
         # 1. Оцінюємо пульс Біткоїна та макро сентимент
         await self.check_btc_market_pulse()
@@ -409,14 +434,29 @@ class CryptoBot:
         except Exception as e:
             logger.debug(f"News fetch warning: {e}")
 
+        self.update_pair_cooldowns()
         logger.info(f"📡 Пошук волатильних пар (BTC Pulse: {self.btc_market_pulse})...")
-        active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=2_000_000)
+        active_pairs = await self.scanner.get_top_volatile_pairs(min_volume=5_000_000)
         open_positions = list(self.trader.positions.keys())
         all_pairs = list(dict.fromkeys(open_positions + (active_pairs or [])))
-        if not all_pairs:
-            logger.info("ℹ️ Немає активних пар для сканування.")
+        
+        # Відсіюємо токсичні пари та пари на Cooldown (захист від серійних втрат)
+        filtered_pairs = []
+        now_ts = time.time()
+        for s in all_pairs:
+            if s in open_positions:
+                filtered_pairs.append(s)
+                continue
+            if s in HARD_BLACKLIST:
+                continue
+            if now_ts < self.pair_cooldowns.get(s, 0):
+                continue
+            filtered_pairs.append(s)
+
+        if not filtered_pairs:
+            logger.info("ℹ️ Немає активних пар для сканування після фільтрації.")
             return
-        tasks = [self.process_pair(symbol) for symbol in all_pairs]
+        tasks = [self.process_pair(symbol) for symbol in filtered_pairs]
         await asyncio.gather(*tasks)
         self.save_market_radar()
         logger.info(f"✅ Цикл завершено. Баланс: {self.trader.balance:.2f} USDT | Активних позицій: {len(self.trader.positions)}")

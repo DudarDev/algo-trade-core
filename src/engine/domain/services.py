@@ -18,12 +18,12 @@ class OrderExecutionService:
             if current_price > highest_price:
                 highest_price = current_price
 
-            # 1. Breakeven Stop Lock:
-            # Якщо вже зафіксовано Partial TP або ціна піднялася на >= be_trigger (+1.0%),
-            # автоматично фіксуємо безубиток (+0.25% для повного покриття roundtrip-комісій біржі)
-            be_trigger = getattr(settings, 'BREAK_EVEN_TRIGGER_PCT', 0.007)
+            # 1. Early Breakeven Stop Lock:
+            # Фіксація беззбитковості при підйомі ціни на >= be_trigger (+0.60%)
+            # або після Partial TP. Встановлюємо SL на +0.20% (повне покриття комісій + гарантований плюс)
+            be_trigger = getattr(settings, 'BREAK_EVEN_TRIGGER_PCT', 0.006)
             if getattr(pos, 'partial_tp_hit', False) or highest_price >= pos.entry_price * (1 + be_trigger):
-                be_sl = pos.entry_price * 1.0025
+                be_sl = pos.entry_price * 1.0020
                 if be_sl > sl:
                     sl = be_sl
 

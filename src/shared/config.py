@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     max_open_positions: int = Field(default=3, ge=1, le=10)
     TRADE_FRACTION: float = Field(default=0.04, gt=0, le=1)
     risk_per_trade_pct: float = Field(default=0.02, gt=0, le=0.10)
-    exchange_fee_pct: float = Field(default=0.001, ge=0.0)
+    exchange_fee_pct: float = Field(default=0.00075, ge=0.0, description='Binance VIP 0 fee with BNB 25% discount')
     slippage_pct: float = Field(default=0.0005, ge=0.0)
     MIN_TRADE_SIZE: float = Field(default=10.0, ge=0)
     MIN_BALANCE_USDT: float = Field(default=50.0, ge=0)

@@ -71,6 +71,14 @@ class AIChatRequest(BaseModel):
     query: str
     lang: Optional[str] = "ua"
 
+class TelegramTestRequest(BaseModel):
+    token: Optional[str] = None
+    chat_id: Optional[str] = None
+
+class FeedbackRetrainRequest(BaseModel):
+    lookback_trades: int = 100
+    min_real_trades: int = 15
+
 class BacktestRequest(BaseModel):
     symbol: str = "BTC/USDT"
     timeframe: str = "5m"
@@ -366,6 +374,158 @@ def ai_chat_endpoint(request, payload: AIChatRequest):
             result = pool.submit(asyncio.run, sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua")).result()
 
     return result
+
+
+@router.get("/equity_history")
+def get_equity_history(request):
+    """Історія динаміки капіталу (Equity Curve), просадки та денного PnL."""
+    trades = list(Trade.objects.order_by("id"))
+    wallet = Wallet.objects.first()
+    current_free = float(wallet.usdt_balance) if wallet else 1000.0
+
+    from src.shared.config import settings
+    initial_balance = getattr(settings, "INITIAL_BALANCE", 1000.0)
+
+    cumulative_pnl = 0.0
+    peak_equity = initial_balance
+    equity_points = []
+    daily_map = {}
+
+    for t in trades:
+        pnl = float(t.pnl or 0.0)
+        cumulative_pnl += pnl
+        equity = initial_balance + cumulative_pnl
+        if equity > peak_equity:
+            peak_equity = equity
+        dd_pct = ((peak_equity - equity) / peak_equity * 100.0) if peak_equity > 0 else 0.0
+
+        ts_str = t.timestamp.strftime("%d.%m %H:%M") if t.timestamp else f"#{t.id}"
+        date_str = t.timestamp.strftime("%Y-%m-%d") if t.timestamp else "2026-10-25"
+
+        equity_points.append({
+            "id": t.id,
+            "time": ts_str,
+            "symbol": t.symbol,
+            "pnl": round(pnl, 2),
+            "equity": round(equity, 2),
+            "drawdown_pct": round(dd_pct, 2)
+        })
+
+        if date_str not in daily_map:
+            daily_map[date_str] = {"date": date_str, "pnl": 0.0, "trades": 0}
+        daily_map[date_str]["pnl"] += pnl
+        daily_map[date_str]["trades"] += 1
+
+    daily_bars = [
+        {"date": d, "pnl": round(v["pnl"], 2), "trades": v["trades"]}
+        for d, v in sorted(daily_map.items())
+    ]
+
+    current_equity = initial_balance + cumulative_pnl
+    max_drawdown_pct = max([p["drawdown_pct"] for p in equity_points], default=0.0)
+
+    return {
+        "status": "success",
+        "initial_balance": initial_balance,
+        "current_equity": round(current_equity, 2),
+        "peak_equity": round(peak_equity, 2),
+        "max_drawdown_pct": round(max_drawdown_pct, 2),
+        "total_trades": len(trades),
+        "equity_curve": equity_points[-60:],
+        "daily_pnl": daily_bars
+    }
+
+
+@router.post("/telegram/test")
+def test_telegram_connection(request, payload: TelegramTestRequest):
+    """Перевірка валідності токена Telegram та відправка тестового повідомлення."""
+    import urllib.request
+    from src.shared.config import settings
+
+    token = payload.token
+    chat_id = payload.chat_id
+
+    cfg_file = DATA_DIR / "runtime_config.json"
+    if cfg_file.exists():
+        try:
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                token = token or saved.get("telegram_bot_token")
+                chat_id = chat_id or saved.get("telegram_chat_id")
+        except Exception:
+            pass
+
+    if not token:
+        raw = getattr(settings, 'TELEGRAM_BOT_TOKEN', None)
+        token = raw.get_secret_value() if hasattr(raw, 'get_secret_value') else str(raw or '')
+
+    if not chat_id:
+        chat_id = str(getattr(settings, 'TELEGRAM_CHAT_ID', '') or '')
+
+    token = (token or '').strip()
+    chat_id = (chat_id or '').strip()
+
+    if not token or not chat_id:
+        return {"status": "error", "message": "Будь ласка, вкажіть Telegram Bot Token та Chat ID."}
+
+    text = (
+        "🚀 <b>AlgoTrade PRO Web Terminal</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "✅ <b>Тестове з'єднання успішне!</b>\n"
+        "Ваш персональний Telegram-пульт підключено до квантового рушія.\n"
+        f"⏰ Час: <code>{datetime.now().strftime('%H:%M:%S')}</code>\n"
+        "━━━━━━━━━━━━━━━━━━"
+    )
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    post_data = json.dumps({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }).encode("utf-8")
+
+    req = urllib.request.Request(url, data=post_data, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            if resp.status == 200:
+                return {"status": "success", "message": "Тестове повідомлення успішно надіслано у ваш Telegram!"}
+            return {"status": "error", "message": f"Помилка Telegram API: HTTP {resp.status}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Не вдалося надіслати тестове повідомлення: {e}"}
+
+
+@router.get("/ai/error_patterns")
+def get_ai_error_patterns(request):
+    """Статистичний звіт діагностики патернів помилок на базі закритих угод."""
+    try:
+        from src.infrastructure.ai.feedback_loop import FeedbackLoopService
+        svc = FeedbackLoopService()
+        report = svc.analyze_error_patterns(lookback_trades=100)
+        return {"status": "success", "report": report.model_dump()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/ai/trigger_feedback_loop")
+def trigger_feedback_retrain(request, payload: FeedbackRetrainRequest):
+    """Ручний або плановий запуск самонавчання ШІ на бойовому досвіді угод."""
+    try:
+        from src.infrastructure.ai.feedback_loop import FeedbackLoopService
+        svc = FeedbackLoopService()
+        result = svc.retrain_with_feedback(
+            lookback_trades=payload.lookback_trades,
+            min_real_trades=payload.min_real_trades
+        )
+        return {
+            "status": "success" if result.success else "info",
+            "deployed": result.deployed,
+            "trained_samples": result.trained_samples,
+            "real_trades_used": result.real_trades_used,
+            "metrics": result.metrics,
+            "message": result.message
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @router.get("/engine_logs")

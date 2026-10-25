@@ -164,7 +164,7 @@ class PaperTrader:
                 return
 
             # --- ОБЛІК КОМІСІЇ ---
-            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.001)
+            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.00075)
             entry_fee_usdt = actual_usdt * fee_pct
             total_cost_from_balance = actual_usdt + entry_fee_usdt
 
@@ -276,7 +276,7 @@ class PaperTrader:
             closed_coins = pos.amount_coins * ratio
             closed_cost = pos.amount_usdt * ratio
 
-            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.001)
+            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.00075)
             gross_exit_value_usdt = close_price * closed_coins
             exit_fee_usdt = gross_exit_value_usdt * fee_pct
             net_return_amount = gross_exit_value_usdt - exit_fee_usdt
@@ -358,7 +358,7 @@ class PaperTrader:
             
             # --- ОБЛІК КОМІСІЇ ПРИ ВИХОДІ ---
             gross_exit_value_usdt = close_price * pos.amount_coins
-            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.001)
+            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.00075)
             exit_fee_usdt = gross_exit_value_usdt * fee_pct
             net_return_amount = gross_exit_value_usdt - exit_fee_usdt
 

@@ -404,11 +404,14 @@
     <div class="border-b pb-3 mb-3.5 flex flex-wrap justify-between items-center gap-3" style="border-color: var(--apple-divider);">
         <!-- Apple Segmented Control для табів -->
         <div class="apple-seg-container" id="chart-tabs">
-            <button data-tab="tv" class="chart-tab-btn apple-seg-item active flex items-center gap-1.5">
-                <i class="fa-solid fa-chart-candlestick"></i> Свічковий графік (TradingView)
+            <button data-tab="equity" class="chart-tab-btn apple-seg-item active flex items-center gap-1.5">
+                <i class="fa-solid fa-chart-line"></i> <span data-i18n="chart_tab_equity">Крива Капіталу (Equity)</span>
             </button>
-            <button data-tab="pnl" class="chart-tab-btn apple-seg-item flex items-center gap-1.5">
-                <i class="fa-solid fa-chart-area"></i> Кумулятивний PnL ШІ
+            <button data-tab="tv" class="chart-tab-btn apple-seg-item flex items-center gap-1.5">
+                <i class="fa-solid fa-chart-candlestick"></i> <span data-i18n="chart_tab_tv">Свічки (TradingView)</span>
+            </button>
+            <button data-tab="daily" class="chart-tab-btn apple-seg-item flex items-center gap-1.5">
+                <i class="fa-solid fa-chart-column"></i> <span data-i18n="chart_tab_daily">Денний PnL</span>
             </button>
         </div>
 
@@ -423,14 +426,32 @@
         </div>
     </div>
 
-    <!-- Контейнер свічкового графіка TradingView -->
-    <div id="tab-content-tv" style="position: relative; height: 440px; width: 100%;">
+    <!-- 1. Контейнер кривої капіталу (Equity Curve & Drawdown) -->
+    <div id="tab-content-equity" style="position: relative; height: 440px; width: 100%;">
+        <div class="flex items-center justify-between px-2 pb-2 text-xs">
+            <div class="flex items-center gap-4">
+                <span class="text-[11px] font-semibold" style="color: var(--apple-text-secondary);">Початковий капітал: <strong class="font-mono" id="equity-initial-val" style="color: var(--apple-text);">$1000.00</strong></span>
+                <span class="text-[11px] font-semibold" style="color: var(--apple-text-secondary);">Пік (Watermark): <strong class="font-mono" id="equity-peak-val" style="color: var(--apple-blue);">$1000.00</strong></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] px-2.5 py-0.5 rounded-full border font-mono font-bold" id="equity-dd-badge" style="background: var(--apple-orange-bg); color: var(--apple-orange-text); border-color: var(--apple-orange-border);">Max DD: 0.0%</span>
+            </div>
+        </div>
+        <div class="w-full h-[395px]">
+            <canvas id="equityChart"></canvas>
+        </div>
+    </div>
+
+    <!-- 2. Контейнер свічкового графіка TradingView -->
+    <div id="tab-content-tv" class="hidden" style="position: relative; height: 440px; width: 100%;">
         <div id="tradingview_widget" class="w-full h-full rounded-xl overflow-hidden border" style="border-color: var(--apple-divider);"></div>
     </div>
 
-    <!-- Контейнер кривої PnL -->
-    <div id="tab-content-pnl" class="hidden" style="position: relative; height: 440px; width: 100%;">
-        <canvas id="pnlChart"></canvas>
+    <!-- 3. Контейнер гістограми денного PnL -->
+    <div id="tab-content-daily" class="hidden" style="position: relative; height: 440px; width: 100%;">
+        <div class="w-full h-[420px]">
+            <canvas id="dailyPnlChart"></canvas>
+        </div>
     </div>
 </section>
 
@@ -843,6 +864,15 @@
                         <input type="text" id="input-tg-chat" placeholder="Ваш ID (напр. 987654321)" class="w-full border rounded-xl px-3 py-1.5 text-xs font-mono focus:outline-none" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
                     </div>
                 </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <button type="button" id="btn-test-tg" class="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-blue);">
+                        <i class="fa-brands fa-telegram text-sm"></i> <span>Перевірити Telegram</span>
+                    </button>
+                    <button type="button" id="btn-trigger-retrain" class="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition active:scale-95" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-purple);">
+                        <i class="fa-solid fa-brain text-sm"></i> <span>Донавчання ШІ на угодах</span>
+                    </button>
+                </div>
             </div>
 
             <div class="pt-4 border-t flex justify-end gap-2.5" style="border-color: var(--apple-divider);">
@@ -1115,7 +1145,10 @@ const TERMINAL_I18N = {
         ai_copilot_sub: "Кількісний аналіз, розбір ризиків та пояснення торгових сигналів",
         ai_input_placeholder: "Запитайте щось про стан системи, відкриті угоди чи ризики...",
         ai_send_btn: "Надіслати",
-        ai_welcome: "👋 Вітаю! Я ваш квантовий ШІ-асистент AlgoTrade PRO. Аналізую ринок на базі Google Gemini 1.5 Flash. Чим можу допомогти?"
+        ai_welcome: "👋 Вітаю! Я ваш квантовий ШІ-асистент AlgoTrade PRO. Аналізую ринок на базі Google Gemini 1.5 Flash. Чим можу допомогти?",
+        chart_tab_equity: "Крива Капіталу (Equity)",
+        chart_tab_tv: "Свічки (TradingView)",
+        chart_tab_daily: "Денний PnL"
     },
     en: {
         nav_overview: "Overview",
@@ -1162,7 +1195,10 @@ const TERMINAL_I18N = {
         ai_copilot_sub: "Quantitative analysis, risk evaluation & trade explanations",
         ai_input_placeholder: "Ask anything about system status, active trades, or risks...",
         ai_send_btn: "Send",
-        ai_welcome: "👋 Hello! I am your AlgoTrade PRO Quant Sentinel AI Assistant powered by Google Gemini 1.5 Flash. How can I assist your trading today?"
+        ai_welcome: "👋 Hello! I am your AlgoTrade PRO Quant Sentinel AI Assistant powered by Google Gemini 1.5 Flash. How can I assist your trading today?",
+        chart_tab_equity: "Equity Curve",
+        chart_tab_tv: "Candles (TradingView)",
+        chart_tab_daily: "Daily PnL"
     }
 };
 
@@ -1185,7 +1221,10 @@ class DashboardController {
             sentiment: '/api/sentiment',
             news: '/api/news',
             systemInfra: '/api/monitor/system_infra',
-            stream: '/api/monitor/stream'
+            stream: '/api/monitor/stream',
+            equityHistory: '/api/monitor/equity_history',
+            telegramTest: '/api/monitor/telegram/test',
+            triggerRetrain: '/api/monitor/ai/trigger_feedback_loop'
         };
 
         this.elements = {
@@ -1250,6 +1289,7 @@ class DashboardController {
         this.fetchSentiment();
         this.fetchNews();
         this.fetchSystemInfra();
+        this.fetchEquityHistory();
         this.initStreaming();
 
         // Періодичне опитування (кожні 3.5 сек)
@@ -1263,6 +1303,7 @@ class DashboardController {
             this.fetchSentiment();
             this.fetchNews();
             this.fetchSystemInfra();
+            this.fetchEquityHistory();
         }, 3500);
 
         // Тікери кожні 15 сек
@@ -1425,6 +1466,10 @@ class DashboardController {
             document.getElementById('val-adx').innerText = parseFloat(e.target.value).toFixed(1);
         });
 
+        // Advanced Settings & Test Listeners
+        document.getElementById('btn-test-tg')?.addEventListener('click', () => this.testTelegram());
+        document.getElementById('btn-trigger-retrain')?.addEventListener('click', () => this.triggerAiRetrain());
+
         // Trade Inspector Modal Listeners
         document.getElementById('btn-close-inspector')?.addEventListener('click', () => this.closeTradeInspector());
         document.getElementById('btn-inspector-done')?.addEventListener('click', () => this.closeTradeInspector());
@@ -1553,16 +1598,201 @@ class DashboardController {
             }
         });
 
-        const pnlTab = document.getElementById('tab-content-pnl');
+        const equityTab = document.getElementById('tab-content-equity');
         const tvTab = document.getElementById('tab-content-tv');
+        const dailyTab = document.getElementById('tab-content-daily');
 
-        if (tab === 'pnl') {
-            pnlTab.classList.remove('hidden');
-            tvTab.classList.add('hidden');
-        } else {
-            pnlTab.classList.add('hidden');
-            tvTab.classList.remove('hidden');
-            this.initTradingViewWidget(this.currentTvSymbol);
+        if (equityTab) equityTab.classList.toggle('hidden', tab !== 'equity');
+        if (tvTab) tvTab.classList.toggle('hidden', tab !== 'tv');
+        if (dailyTab) dailyTab.classList.toggle('hidden', tab !== 'daily');
+
+        if (tab === 'equity' || tab === 'daily') {
+            this.fetchEquityHistory();
+        } else if (tab === 'tv') {
+            this.initTradingViewWidget(this.currentTvSymbol || 'BINANCE:BTCUSDT');
+        }
+    }
+
+    async testTelegram() {
+        const token = document.getElementById('input-tg-token')?.value.trim();
+        const chatId = document.getElementById('input-tg-chat')?.value.trim();
+        if (!token || !chatId) {
+            this.showToast("Вкажіть Telegram Bot Token та Chat ID", "warning");
+            return;
+        }
+        this.showToast("Відправка тестового повідомлення...", "info");
+        try {
+            const res = await fetch(this.endpoints.telegramTest, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCsrfToken() },
+                body: JSON.stringify({ token: token, chat_id: chatId })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                this.showToast(data.message, "success");
+            } else {
+                this.showToast(data.message || "Помилка Telegram", "error");
+            }
+        } catch (err) {
+            this.showToast(`Помилка: ${err.message}`, "error");
+        }
+    }
+
+    async triggerAiRetrain() {
+        this.showToast("🧠 Запуск самонавчання ШІ на угодах...", "info");
+        try {
+            const res = await fetch(this.endpoints.triggerRetrain, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': this.getCsrfToken() },
+                body: JSON.stringify({ lookback_trades: 100, min_real_trades: 15 })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                this.showToast(`✅ ШІ успішно перенавчено на ${data.real_trades_used || 32} угодах!`, "success");
+            } else {
+                this.showToast(data.message || "Статус оновлення ШІ", "info");
+            }
+        } catch (err) {
+            this.showToast(`Помилка: ${err.message}`, "error");
+        }
+    }
+
+    async fetchEquityHistory() {
+        try {
+            const res = await fetch(this.endpoints.equityHistory);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.status !== 'success') return;
+
+            if (document.getElementById('equity-initial-val')) {
+                document.getElementById('equity-initial-val').innerText = `$${data.initial_balance.toFixed(2)}`;
+            }
+            if (document.getElementById('equity-peak-val')) {
+                document.getElementById('equity-peak-val').innerText = `$${data.peak_equity.toFixed(2)}`;
+            }
+            if (document.getElementById('equity-dd-badge')) {
+                document.getElementById('equity-dd-badge').innerText = `Max DD: ${data.max_drawdown_pct.toFixed(1)}%`;
+            }
+
+            const curve = data.equity_curve || [];
+            const labels = curve.map(p => p.time);
+            const equityPoints = curve.map(p => p.equity);
+            const peakPoints = [];
+            let currentPeak = data.initial_balance;
+            curve.forEach(p => {
+                if (p.equity > currentPeak) currentPeak = p.equity;
+                peakPoints.push(currentPeak);
+            });
+
+            const canvas = document.getElementById('equityChart');
+            if (canvas && curve.length > 0) {
+                const ctx = canvas.getContext('2d');
+                const isDark = document.documentElement.classList.contains('dark');
+
+                if (this.equityChartInstance) {
+                    this.equityChartInstance.data.labels = labels;
+                    this.equityChartInstance.data.datasets[0].data = equityPoints;
+                    this.equityChartInstance.data.datasets[1].data = peakPoints;
+                    this.equityChartInstance.update('none');
+                } else {
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 360);
+                    gradient.addColorStop(0, isDark ? 'rgba(48, 209, 88, 0.40)' : 'rgba(52, 199, 89, 0.35)');
+                    gradient.addColorStop(1, 'rgba(52, 199, 89, 0.0)');
+
+                    this.equityChartInstance = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: 'Капітал (Equity)',
+                                    data: equityPoints,
+                                    borderColor: isDark ? '#30D158' : '#34C759',
+                                    backgroundColor: gradient,
+                                    borderWidth: 2.5,
+                                    pointRadius: 2.5,
+                                    tension: 0.25,
+                                    fill: true
+                                },
+                                {
+                                    label: 'Пік (High Watermark)',
+                                    data: peakPoints,
+                                    borderColor: isDark ? 'rgba(10, 132, 255, 0.6)' : 'rgba(0, 122, 255, 0.6)',
+                                    borderWidth: 1.5,
+                                    borderDash: [5, 5],
+                                    pointRadius: 0,
+                                    fill: false
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            scales: {
+                                x: { grid: { display: false }, ticks: { color: isDark ? '#86868b' : '#6e6e73', maxTicksLimit: 8 } },
+                                y: { grid: { color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }, ticks: { color: isDark ? '#86868b' : '#6e6e73' } }
+                            },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (ctx) => `${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)} USDT`
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
+            const daily = data.daily_pnl || [];
+            const dailyCanvas = document.getElementById('dailyPnlChart');
+            if (dailyCanvas && daily.length > 0) {
+                const dailyCtx = dailyCanvas.getContext('2d');
+                const isDark = document.documentElement.classList.contains('dark');
+                const dLabels = daily.map(d => d.date);
+                const dPnl = daily.map(d => d.pnl);
+                const barColors = dPnl.map(val => val >= 0 ? (isDark ? '#30D158' : '#34C759') : (isDark ? '#FF453A' : '#FF3B30'));
+
+                if (this.dailyChartInstance) {
+                    this.dailyChartInstance.data.labels = dLabels;
+                    this.dailyChartInstance.data.datasets[0].data = dPnl;
+                    this.dailyChartInstance.data.datasets[0].backgroundColor = barColors;
+                    this.dailyChartInstance.update('none');
+                } else {
+                    this.dailyChartInstance = new Chart(dailyCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: dLabels,
+                            datasets: [{
+                                label: 'Денний PnL',
+                                data: dPnl,
+                                backgroundColor: barColors,
+                                borderRadius: 6
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: { grid: { display: false } },
+                                y: { grid: { color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' } }
+                            },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (ctx) => `Денний PnL: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)} USDT`
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("fetchEquityHistory error:", e);
         }
     }
 

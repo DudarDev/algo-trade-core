@@ -144,3 +144,33 @@ def test_config_get_and_update():
     res_data = json.loads(post_res.content)
     assert res_data["status"] == "success"
     assert res_data["config"]["confidence_threshold"] == 0.32
+
+
+def test_equity_history_endpoint():
+    client = Client()
+    response = client.get('/api/monitor/equity_history')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "current_equity" in data
+    assert "equity_curve" in data
+    assert "daily_pnl" in data
+
+
+def test_telegram_test_endpoint_missing_token():
+    client = Client()
+    response = client.post('/api/monitor/telegram/test',
+                           data=json.dumps({"token": "", "chat_id": ""}),
+                           content_type='application/json')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "error"
+
+
+def test_ai_error_patterns_endpoint():
+    client = Client()
+    response = client.get('/api/monitor/ai/error_patterns')
+    assert response.status_code == 200
+    data = json.loads(response.content)
+    assert data["status"] == "success"
+    assert "report" in data

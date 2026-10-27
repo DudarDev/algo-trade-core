@@ -9,9 +9,28 @@ from src.infrastructure.ai.feature_engineer import get_feature_columns
 
 
 def test_predictor_initialization_and_prediction(tmp_path):
+    from sklearn.ensemble import RandomForestClassifier
+    import lightgbm as lgb
+    import joblib
+
+    rf_file = tmp_path / "dummy_rf.pkl"
+    lgbm_file = tmp_path / "dummy_lgbm.pkl"
+    feature_cols = get_feature_columns()
+
+    X = pd.DataFrame(np.random.rand(10, len(feature_cols)), columns=feature_cols)
+    y = np.random.randint(0, 2, size=10)
+
+    rf = RandomForestClassifier(n_estimators=2, random_state=42)
+    rf.fit(X, y)
+    joblib.dump(rf, rf_file)
+
+    lgbm = lgb.LGBMClassifier(n_estimators=2, random_state=42, verbose=-1)
+    lgbm.fit(X, y)
+    joblib.dump(lgbm, lgbm_file)
+
     mock_settings = MagicMock()
-    mock_settings.MODEL_PATH = "data_storage/models/global_rf_v4.pkl"
-    mock_settings.LIGHTGBM_MODEL_PATH = "data_storage/models/global_lgbm_v1.pkl"
+    mock_settings.MODEL_PATH = str(rf_file)
+    mock_settings.LIGHTGBM_MODEL_PATH = str(lgbm_file)
     mock_settings.ENABLE_QUANT_DUAL_ENSEMBLE = True
     mock_settings.CONFIDENCE_THRESHOLD = 0.55
 
@@ -20,7 +39,6 @@ def test_predictor_initialization_and_prediction(tmp_path):
     assert isinstance(ai.feature_cols, list)
 
     # Synthetic features dataframe
-    feature_cols = get_feature_columns()
     df_feat = pd.DataFrame([
         {col: 0.2 for col in feature_cols}
     ])

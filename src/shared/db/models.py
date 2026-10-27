@@ -51,3 +51,12 @@ class ActivePosition(Base):
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+class BotConfig(Base):
+    __tablename__ = "bot_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

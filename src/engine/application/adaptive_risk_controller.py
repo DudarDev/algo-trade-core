@@ -80,13 +80,18 @@ class AdaptiveRiskController:
             logger.info("🛡️ [Adaptive Risk] Історія угод порожня. Встановлено базові параметри.")
             return
 
-        # Угоди відсортовані від найновішої до найстарішої
-        trades_chronological = list(reversed(closed_trades[-self.lookback_window:]))
+        # Угоди відсортовані від найновішої до найстарішої (беремо найновіші N угод)
+        newest_trades = closed_trades[:self.lookback_window]
+        trades_chronological = list(reversed(newest_trades))
         self.recent_results = []
         for t in trades_chronological:
             pnl = getattr(t, "pnl", 0.0)
-            target = getattr(t, "target_label", 1 if pnl > 0 else 0)
-            self.recent_results.append(1 if target == 1 else 0)
+            exit_reason = getattr(t, "exit_reason", "") or ""
+            is_breakeven = "breakeven" in exit_reason.lower() or "беззбиток" in exit_reason.lower()
+            # Breakeven Stop або позитивний PnL вважається успішним захистом капіталу (не штрафує)
+            target = getattr(t, "target_label", 1 if (pnl > 0 or is_breakeven) else 0)
+            is_win = (target == 1 or pnl > 0 or is_breakeven)
+            self.recent_results.append(1 if is_win else 0)
 
         # Рахуємо поточну серію (з кінця списку)
         streak_loss = 0
@@ -109,7 +114,13 @@ class AdaptiveRiskController:
             f"MinADX = {state.current_min_adx:.1f} | RiskMult = {state.current_risk_multiplier:.2f}"
         )
 
-    def record_trade_result(self, net_pnl: float, target_label: int, balance_after_trade: float) -> AdaptiveRiskState:
+    def record_trade_result(
+        self,
+        net_pnl: float,
+        target_label: int,
+        balance_after_trade: float,
+        exit_reason: Optional[str] = None
+    ) -> AdaptiveRiskState:
         """
         Реєстрація результату закритої угоди та миттєвий перерахунок адаптивних порогів.
         """
@@ -117,7 +128,10 @@ class AdaptiveRiskController:
         if self.current_balance > self.peak_balance:
             self.peak_balance = self.current_balance
 
-        is_win = (target_label == 1 or net_pnl > 0)
+        reason_str = (exit_reason or "").lower()
+        is_breakeven = "breakeven" in reason_str or "беззбиток" in reason_str
+        is_win = (target_label == 1 or net_pnl > 0 or is_breakeven)
+
         self.recent_results.append(1 if is_win else 0)
         if len(self.recent_results) > self.lookback_window:
             self.recent_results.pop(0)
@@ -125,7 +139,7 @@ class AdaptiveRiskController:
         if is_win:
             self.consecutive_wins += 1
             self.consecutive_losses = 0
-            logger.info(f"🟢 [Adaptive Risk] Фіксація прибутку (+{net_pnl:.2f} USDT). Серія перемог: {self.consecutive_wins}.")
+            logger.info(f"🟢 [Adaptive Risk] Захист/Прибуток (+{net_pnl:.2f} USDT). Серія перемог: {self.consecutive_wins}.")
         else:
             self.consecutive_losses += 1
             self.consecutive_wins = 0
@@ -178,7 +192,7 @@ class AdaptiveRiskController:
     def get_effective_min_adx(self, override_base: Optional[float] = None) -> float:
         """
         Розрахунок динамічного мінімального ADX для входу в угоду.
-        При просадці вимагає значно сильнішого тренду (наприклад 25.0 -> 29.0..31.0),
+        При просадці вимагає сильнішого тренду (наприклад 25.0 -> 27.0..31.0),
         щоб уникати розпилювання у флеті (CHOPPY_FLAT).
         """
         base = float(override_base) if override_base is not None else self.base_min_adx

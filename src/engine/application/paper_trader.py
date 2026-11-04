@@ -371,7 +371,8 @@ class PaperTrader:
 
         # 2. Зберігаємо історію в БД (Feature Store & Continuous Learning)
         try:
-            target_label = 1 if net_pnl > 0 else 0
+            is_breakeven = "breakeven" in reason.lower() or "беззбиток" in reason.lower()
+            target_label = 1 if (net_pnl > 0 or is_breakeven) else 0
             features_json_str = json.dumps(pos.features_snapshot) if pos.features_snapshot else "{}"
             
             # Оновлюємо стан адаптивного ризик-контролера (Етап 3)
@@ -380,7 +381,8 @@ class PaperTrader:
                     self.risk_controller.record_trade_result(
                         net_pnl=float(net_pnl),
                         target_label=target_label,
-                        balance_after_trade=float(current_balance)
+                        balance_after_trade=float(current_balance),
+                        exit_reason=reason
                     )
                 except Exception as rc_err:
                     logger.debug(f"Помилка оновлення AdaptiveRiskController: {rc_err}")

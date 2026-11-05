@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     ARBITRAGE_FEE_PCT: float = Field(default=0.001, ge=0.0)
     ARBITRAGE_MIN_SPREAD_PCT: float = Field(default=0.5, ge=0.0)
     SCANNER_TOP_N: int = Field(default=10, ge=1, le=50)
+    ENABLE_MEAN_REVERSION_SCALP: bool = Field(default=True, description="Enable oversold mean reversion scalp in bear/choppy regimes")
+    MEAN_REVERSION_MAX_RSI: float = Field(default=32.0, ge=10.0, le=45.0, description="Max RSI to qualify as oversold bounce")
 
     # Redis & Celery Institutional Infrastructure
     REDIS_URL: str = Field(default="redis://127.0.0.1:6379/0", description="Redis connection URL")

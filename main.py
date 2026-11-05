@@ -351,9 +351,11 @@ class CryptoBot:
 
                 if is_buy:
                     current_atr = float(curr_row.get('ATR_PCT', 0.002)) * current_price
+                    is_mean_rev = getattr(meta, 'is_mean_reversion', False)
                     trade_params = self.risk_manager.evaluate_trade(
                         entry_price=current_price, atr=current_atr,
-                        capital=self.trader.balance, trade_type='BUY'
+                        capital=self.trader.balance, trade_type='BUY',
+                        is_mean_reversion=is_mean_rev
                     )
                     if trade_params:
                         logger.info(f"🔥 ВХІД: {symbol} | Conf: {proba:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason_str}")
@@ -368,13 +370,14 @@ class CryptoBot:
                             except (ValueError, TypeError):
                                 continue
 
+                        pos_regime = "MEAN_REVERSION" if is_mean_rev else (meta.regime.value if hasattr(meta, 'regime') else "CHOPPY_FLAT")
                         await self.trader.open_position(
                             symbol=symbol,
                             side=TradeSide.BUY,
                             price=trade_params.entry_price,
                             sl=trade_params.stop_loss,
                             tp=trade_params.take_profit,
-                            regime=meta.regime.value if hasattr(meta, 'regime') else "CHOPPY_FLAT",
+                            regime=pos_regime,
                             ai_confidence=float(proba),
                             features_snapshot=features_dict
                         )

@@ -34,9 +34,22 @@ class SignalMetadata(BaseModel):
     ensemble_conf: Optional[float] = 0.0
     order_book_status: Optional[str] = "NEUTRAL"
     funding_sentiment: Optional[str] = "HEALTHY_BALANCED"
+    is_mean_reversion: Optional[bool] = False
     reason: str = "No signal"
     
     model_config = ConfigDict(strict=True)
+
+def _get_bool_setting(settings, keys: list, default: bool) -> bool:
+    for k in keys:
+        try:
+            val = getattr(settings, k, None)
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, (int, str)):
+                return str(val).lower() in ('true', '1', 'yes')
+        except Exception:
+            pass
+    return default
 
 def _get_float_setting(settings, keys: list, default: float) -> float:
     for k in keys:
@@ -55,6 +68,8 @@ class HybridStrategy:
         self.min_adx = _get_float_setting(settings, ['MIN_ADX_TREND', 'min_adx_trend'], 25.0)
         self.min_atr_pct = _get_float_setting(settings, ['MIN_ATR_PCT', 'min_atr_pct'], 0.0010)
         self.base_threshold = _get_float_setting(settings, ['CONFIDENCE_THRESHOLD', 'min_ai_confidence'], 0.55)
+        self.enable_mean_reversion = _get_bool_setting(settings, ['ENABLE_MEAN_REVERSION_SCALP', 'enable_mean_reversion'], True)
+        self.mean_reversion_max_rsi = _get_float_setting(settings, ['MEAN_REVERSION_MAX_RSI', 'mean_reversion_max_rsi'], 32.0)
 
     def _detect_regime(self, curr_row: pd.Series, effective_min_adx: Optional[float] = None) -> MarketRegime:
         ema_dist = float(curr_row.get('EMA_DIST_50', 0))
@@ -114,12 +129,37 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-        # БАЗОВІ ТЕХНІЧНІ ФІЛЬТРИ (Забороняємо торгівлю проти логіки)
+        # --- ОЦІНКА СЕТАПУ ДЛЯ MEAN REVERSION SCALP (МІКРО-ВІДСКОКИ НА ПЕРЕПРОДАНОСТІ) ---
+        prev_row = df.iloc[-2] if len(df) >= 2 else curr
+        curr_macd_hist = float(curr.get('MACD_HIST', 0))
+        prev_macd_hist = float(prev_row.get('MACD_HIST', 0))
+        macd_improving = curr_macd_hist >= prev_macd_hist
+        rsi_val = float(meta.rsi)
+        bb_pos = float(curr.get('BB_POS', 0.5))
+        rsi_slope = float(curr.get('RSI_SLOPE', 0.0))
+        buy_press = float(curr.get('BUY_PRESSURE', 0.5))
+
+        is_oversold = (rsi_val <= self.mean_reversion_max_rsi) or (bb_pos <= 0.08)
+        momentum_recovering = macd_improving or (rsi_slope >= 0.0) or (buy_press >= 0.40)
+
+        is_mean_rev = (
+            self.enable_mean_reversion
+            and is_oversold
+            and momentum_recovering
+            and btc_pulse != "BEARISH_DUMP"
+            and order_book_status != "HEAVY_ASK_RESISTANCE"
+            and funding_sentiment != "OVERHEATED_LONGS"
+            and vol_spike_val >= 0.20
+        )
+        meta.is_mean_reversion = is_mean_rev
+
+        # БАЗОВІ ТЕХНІЧНІ ФІЛЬТРИ
         
-        # 1. Жодних угод у мертвому ринку (з урахуванням адаптивного ADX)
+        # 1. Фільтр мертвого ринку (CHOPPY_FLAT)
         if regime == MarketRegime.CHOP:
-            meta.reason = f"Market is CHOPPY (ADX < {effective_min_adx:.1f})"
-            return SignalAction.HOLD, meta
+            if not (is_mean_rev and ai_confidence >= 0.40):
+                meta.reason = f"Market is CHOPPY (ADX < {effective_min_adx:.1f})"
+                return SignalAction.HOLD, meta
 
         # 2. Фільтр перегрітості (RSI > 70)
         if meta.rsi >= 70:
@@ -127,14 +167,16 @@ class HybridStrategy:
             return SignalAction.HOLD, meta
             
         # 3. Фільтр лову ножів (не купуємо падаючий ніж у ведмежому тренді, якщо MACD падає)
-        if regime == MarketRegime.BEAR and float(curr['MACD_HIST']) <= 0:
-            meta.reason = "Bearish MACD in Bear Market"
-            return SignalAction.HOLD, meta
+        if regime == MarketRegime.BEAR and curr_macd_hist <= 0:
+            if not is_mean_rev:
+                meta.reason = "Bearish MACD in Bear Market"
+                return SignalAction.HOLD, meta
 
-        # 4. МУЛЬТИ-ТАЙМФРЕЙМ ФІЛЬТР (MTF): Заборона покупок, якщо старший 1h тренд спадний
+        # 4. МУЛЬТИ-ТАЙМФРЕЙМ ФІЛЬТР (MTF): Заборона покупок, якщо старший 1h тренд спадний (крім Mean Reversion)
         if htf_trend == "BEARISH":
-            meta.reason = "Higher TF (1h) Downtrend (Blocked)"
-            return SignalAction.HOLD, meta
+            if not is_mean_rev:
+                meta.reason = "Higher TF (1h) Downtrend (Blocked)"
+                return SignalAction.HOLD, meta
 
         # 5. BTC MARKET PULSE ФІЛЬТР: Заборона покупок, якщо Bitcoin під тиском скидання
         if btc_pulse == "BEARISH_DUMP":
@@ -142,19 +184,20 @@ class HybridStrategy:
             return SignalAction.HOLD, meta
 
         # 6. VSA VOLUME CONFIRMATION: Фільтр аномально низького об'єму або слабкого тиску покупців
-        if 'VOL_SPIKE' in curr:
-            vol_spike = float(curr['VOL_SPIKE'])
-            if vol_spike < 0.85:
-                meta.reason = f"Low Volume Breakout ({vol_spike:.2f}x SMA) (Blocked)"
-                return SignalAction.HOLD, meta
+        if not is_mean_rev:
+            if 'VOL_SPIKE' in curr:
+                vol_spike = float(curr['VOL_SPIKE'])
+                if vol_spike < 0.85:
+                    meta.reason = f"Low Volume Breakout ({vol_spike:.2f}x SMA) (Blocked)"
+                    return SignalAction.HOLD, meta
 
-        if 'BUY_PRESSURE' in curr:
-            buy_press = float(curr['BUY_PRESSURE'])
-            if buy_press < 0.35:
-                meta.reason = f"Weak Buyer Pressure ({buy_press:.2f}) (Blocked)"
-                return SignalAction.HOLD, meta
+            if 'BUY_PRESSURE' in curr:
+                buy_press = float(curr['BUY_PRESSURE'])
+                if buy_press < 0.35:
+                    meta.reason = f"Weak Buyer Pressure ({buy_press:.2f}) (Blocked)"
+                    return SignalAction.HOLD, meta
 
-        # 7. L2 ORDER BOOK DEPTH & FUNDING RATE GUARDS (Етап 1: Підвищення вінрейту до 70%+)
+        # 7. L2 ORDER BOOK DEPTH & FUNDING RATE GUARDS
         if order_book_status == "HEAVY_ASK_RESISTANCE":
             meta.reason = "Order Book Ask Wall Resistance (Blocked)"
             return SignalAction.HOLD, meta
@@ -163,33 +206,42 @@ class HybridStrategy:
             meta.reason = "Funding Rate Overheated Longs (>0.05%) (Blocked)"
             return SignalAction.HOLD, meta
 
-        # 7. ENSEMBLE AI CONSENSUS (Дворівневе підтвердження: ML ймовірність + Квант-фактори)
-        trend_score = 1.0 if float(curr.get('EMA_DIST_50', 0)) > 0 else 0.0
-        mom_score = 1.0 if float(curr.get('MACD_HIST', 0)) > 0 else 0.0
-        vol_score = 1.0 if vol_spike_val >= 1.0 and float(curr.get('BUY_PRESSURE', 0.5)) >= 0.45 else 0.5
-        rsi_val = float(meta.rsi)
-        rsi_score = 1.0 if (35.0 <= rsi_val <= 65.0) else 0.5
-
-        quant_factor_score = round(0.30 * trend_score + 0.25 * mom_score + 0.25 * vol_score + 0.20 * rsi_score, 2)
-        ensemble_conf = round(0.65 * float(ai_confidence) + 0.35 * quant_factor_score, 2)
+        # 8. ENSEMBLE AI CONSENSUS (Дворівневе підтвердження: ML ймовірність + Квант-фактори)
+        if is_mean_rev:
+            rsi_score = 1.0  # Екстремальна перепроданість є перевагою для відскоку
+            quant_factor_score = round(0.30 * (1.0 if macd_improving else 0.5) + 0.25 * (1.0 if buy_press >= 0.40 else 0.5) + 0.25 * (1.0 if vol_spike_val >= 0.50 else 0.5) + 0.20 * rsi_score, 2)
+            ensemble_conf = round(0.65 * float(ai_confidence) + 0.35 * quant_factor_score, 2)
+        else:
+            trend_score = 1.0 if float(curr.get('EMA_DIST_50', 0)) > 0 else 0.0
+            mom_score = 1.0 if float(curr.get('MACD_HIST', 0)) > 0 else 0.0
+            vol_score = 1.0 if vol_spike_val >= 1.0 and float(curr.get('BUY_PRESSURE', 0.5)) >= 0.45 else 0.5
+            rsi_score = 1.0 if (35.0 <= rsi_val <= 65.0) else 0.5
+            quant_factor_score = round(0.30 * trend_score + 0.25 * mom_score + 0.25 * vol_score + 0.20 * rsi_score, 2)
+            ensemble_conf = round(0.65 * float(ai_confidence) + 0.35 * quant_factor_score, 2)
 
         meta.quant_score = quant_factor_score
         meta.ensemble_conf = ensemble_conf
 
-        # Фільтр дивергенції ансамблю (якщо квантові фактори різко суперечать сигналу)
-        if quant_factor_score < 0.30:
+        if not is_mean_rev and quant_factor_score < 0.30:
             meta.reason = f"Ensemble Factor Divergence (Quant={quant_factor_score:.2f} < 0.30) (Blocked)"
             return SignalAction.HOLD, meta
 
-        # Етап 3: Заборона спотових покупок у спадному тренді (BEAR_MARKET)
+        # Етап 3: Обробка ведмежого режиму (BEAR_MARKET)
         if regime == MarketRegime.BEAR:
+            if is_mean_rev and ai_confidence >= 0.40:
+                meta.reason = f"Mean_Reversion_Bounce_BEAR(RSI={rsi_val:.1f}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
+                return SignalAction.BUY, meta
             meta.reason = "Spot BUY disallowed in BEAR_MARKET (Blocked)"
             return SignalAction.HOLD, meta
 
-        # ШІ ПОРОГИ (Вимоги до дерев рішень для BULL ринку)
+        # Обробка бокового режиму (CHOPPY_FLAT) для Mean Reversion
+        if regime == MarketRegime.CHOP and is_mean_rev and ai_confidence >= 0.40:
+            meta.reason = f"Mean_Reversion_Bounce_CHOP(RSI={rsi_val:.1f}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
+            return SignalAction.BUY, meta
+
+        # ШІ ПОРОГИ ДЛЯ BULL РИНКУ
         threshold = effective_base_threshold
             
-        # Ухвалення рішення
         if ai_confidence >= threshold:
             meta.reason = f"AI_Smart_Signal_{regime.value}(Conf={ai_confidence:.2f}>={threshold:.2f}, Ens={ensemble_conf:.2f})"
             return SignalAction.BUY, meta

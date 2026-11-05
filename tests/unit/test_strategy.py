@@ -222,3 +222,42 @@ def test_funding_rate_overheated_blocks_entry(base_settings):
     assert sig == SignalAction.HOLD
     assert "Funding Rate Overheated" in meta.reason
 
+
+
+def test_mean_reversion_scalp_triggers_on_oversold(base_settings):
+    """Тест: Екстремальна перепроданість з відскоком моментуму активує Mean Reversion Scalp навіть у ведмежому ринку."""
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.22, 0.25],
+        'EMA_DIST_50': [-0.02, -0.02],
+        'MACD_HIST': [-0.15, -0.10],
+        'close': [10.0, 10.2],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.0, 1.0],
+        'BUY_PRESSURE': [0.55, 0.55],
+        'BB_POS': [0.05, 0.05]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="BEARISH")
+    assert signal == SignalAction.BUY
+    assert meta.is_mean_reversion is True
+    assert "Mean_Reversion" in meta.reason
+
+
+def test_mean_reversion_scalp_disabled(base_settings):
+    """Тест: Якщо Mean Reversion Scalp вимкнено, ведмежий ринок блокує покупки."""
+    base_settings.ENABLE_MEAN_REVERSION_SCALP = False
+    strategy = HybridStrategy(base_settings)
+    df = pd.DataFrame({
+        'RSI': [0.22, 0.25],
+        'EMA_DIST_50': [-0.02, -0.02],
+        'MACD_HIST': [-0.15, -0.10],
+        'close': [10.0, 10.2],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.0, 1.0],
+        'BUY_PRESSURE': [0.55, 0.55],
+        'BB_POS': [0.05, 0.05]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="BEARISH")
+    assert signal == SignalAction.HOLD

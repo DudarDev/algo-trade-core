@@ -330,6 +330,20 @@ class CryptoBot:
                     action_str = "BLOCKED_NEWS"
                     reason_str = news_block_reason
 
+                # Перевірка кулдауну після збитку (Рівень 1: Pair Cooldown)
+                cooldown_info = None
+                try:
+                    from src.engine.infrastructure.cache_manager import cache_manager
+                    cooldown_info = cache_manager.get(f"cooldown:{symbol}")
+                except Exception:
+                    pass
+
+                if cooldown_info and is_buy:
+                    logger.info(f"⏳ [COOLDOWN] Пропуск входу {symbol}: пара в кулдауні після збитку ({cooldown_info.get('loss_pnl', 0):+.2f} USDT).")
+                    is_buy = False
+                    action_str = "COOLDOWN"
+                    reason_str = f"Pair in Cooldown (Loss: {cooldown_info.get('loss_pnl', 0):+.2f}$)" 
+
                 self.latest_scan_results[symbol] = {
                     "symbol": symbol,
                     "price": current_price,
@@ -379,7 +393,8 @@ class CryptoBot:
                             tp=trade_params.take_profit,
                             regime=pos_regime,
                             ai_confidence=float(proba),
-                            features_snapshot=features_dict
+                            features_snapshot=features_dict,
+                            position_size_usdt=trade_params.position_size_usdt
                         )
                 else:
                     logger.info(f"📊 {symbol}: Conf={proba:.2f} | {meta.regime.value} | {reason_str}")

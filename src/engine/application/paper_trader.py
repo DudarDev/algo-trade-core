@@ -86,7 +86,8 @@ class PaperTrader:
         tp: float,
         regime: str = "CHOPPY_FLAT",
         ai_confidence: float = 0.0,
-        features_snapshot: Optional[Dict[str, float]] = None
+        features_snapshot: Optional[Dict[str, float]] = None,
+        position_size_usdt: Optional[float] = None
     ) -> None:
         """Відкриває позицію із динамічним ризик-менеджментом, збором зрізу фіч та обліком комісій."""
         if not self._is_initialized:
@@ -145,14 +146,18 @@ class PaperTrader:
                 logger.error(f"❌ Помилка розрахунку ризику для {symbol}: ціна входу дорівнює SL.")
                 return
 
-            ideal_coins = risk_budget / risk_per_coin
-            ideal_usdt = ideal_coins * price
+            # Якщо передано рекомендований розмір позиції (напр. від RiskManager для Mean Reversion)
+            if position_size_usdt is not None and position_size_usdt > 0:
+                ideal_usdt = float(position_size_usdt)
+            else:
+                ideal_coins = risk_budget / risk_per_coin
+                ideal_usdt = ideal_coins * price
 
-            # Hard Dollar Stop Cap: обмежуємо максимальний доларовий збиток за угоду ($3.50 max)
-            max_loss_cap = getattr(self.settings, 'MAX_TRADE_LOSS_USDT', None)
-            if max_loss_cap is not None and risk_per_coin > 0:
-                capped_coins = max_loss_cap / risk_per_coin
-                ideal_usdt = min(ideal_usdt, capped_coins * price)
+                # Hard Dollar Stop Cap: обмежуємо максимальний доларовий збиток за угоду ($3.50 max)
+                max_loss_cap = getattr(self.settings, 'MAX_TRADE_LOSS_USDT', None)
+                if max_loss_cap is not None and risk_per_coin > 0:
+                    capped_coins = max_loss_cap / risk_per_coin
+                    ideal_usdt = min(ideal_usdt, capped_coins * price)
 
             # Капаємо розмір позиції з урахуванням диверсифікації портфеля (не більше 1/max_positions на угоду)
             max_alloc_per_trade = (self.balance * 0.95) / max(max_positions, 1)
@@ -386,6 +391,22 @@ class PaperTrader:
                     )
                 except Exception as rc_err:
                     logger.debug(f"Помилка оновлення AdaptiveRiskController: {rc_err}")
+
+            # Кулдаун на пару після збитку (Рівень 1)
+            if target_label == 0:
+                try:
+                    from src.engine.infrastructure.cache_manager import cache_manager
+                    cd_ttl = int(getattr(self.settings, 'PAIR_COOLDOWN_SECONDS', getattr(self.settings, 'pair_cooldown_seconds', 1800)))
+                    cd_data = {
+                        "symbol": symbol,
+                        "loss_pnl": round(float(net_pnl), 2),
+                        "exit_reason": str(reason),
+                        "timestamp": time.time()
+                    }
+                    cache_manager.set(f"cooldown:{symbol}", cd_data, ttl=cd_ttl)
+                    logger.info(f"⏳ [COOLDOWN] {symbol} закрито в мінус ({net_pnl:+.2f} USDT). Активовано кулдаун на {cd_ttl//60} хв.")
+                except Exception as cd_err:
+                    logger.debug(f"Помилка встановлення кулдауну для {symbol}: {cd_err}")
 
             await asyncio.to_thread(self.repo.delete_position, symbol)
             await asyncio.to_thread(

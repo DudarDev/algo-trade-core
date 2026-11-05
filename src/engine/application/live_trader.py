@@ -127,7 +127,8 @@ class LiveBinanceTrader(PaperTrader):
         tp: float,
         regime: str = "CHOPPY_FLAT",
         ai_confidence: float = 0.0,
-        features_snapshot: Optional[Dict[str, float]] = None
+        features_snapshot: Optional[Dict[str, float]] = None,
+        position_size_usdt: Optional[float] = None
     ) -> None:
         """
         Відкриття позиції з Slippage Guard та відправкою реального ринкового ордера на біржу.
@@ -158,7 +159,8 @@ class LiveBinanceTrader(PaperTrader):
                 tp=tp,
                 regime=regime,
                 ai_confidence=ai_confidence,
-                features_snapshot=features_snapshot
+                features_snapshot=features_snapshot,
+                position_size_usdt=position_size_usdt
             )
             return
 

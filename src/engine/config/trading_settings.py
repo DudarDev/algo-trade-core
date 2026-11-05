@@ -10,6 +10,7 @@ class TradingSettings(BaseSettings):
     min_adx_trend: float = Field(25.0, ge=0.0, description="Minimum ADX value (25+ means strong trend)")
     enable_mean_reversion: bool = Field(True, description="Enable oversold mean reversion scalp in bear/choppy regimes")
     mean_reversion_max_rsi: float = Field(32.0, ge=10.0, le=45.0, description="Max RSI to qualify as oversold bounce")
+    pair_cooldown_seconds: int = Field(1800, ge=60, description="Cooldown time in seconds for a pair after a loss")
 
     # --- POSITION SIZING & CAPITAL MANAGEMENT (КРИТИЧНО) ---
     risk_per_trade_pct: float = Field(0.02, ge=0.01, le=0.10, description="Risk exactly 2% of total capital per trade")

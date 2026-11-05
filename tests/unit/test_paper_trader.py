@@ -324,3 +324,49 @@ async def test_hard_dollar_stop_loss_cap(repo):
     # With cap at $3.50, coins = 3.50 / 10000 = 0.00035, usdt = 0.00035 * 50000 = 17.50 USDT
     assert pos.amount_usdt == 17.50
     assert pos.amount_coins == 0.00035
+
+
+@pytest.mark.asyncio
+async def test_explicit_position_size_from_risk_manager(paper_trader):
+    """Тест 12: Перевірка використання явного розміру позиції (position_size_usdt) від RiskManager"""
+    await paper_trader.initialize()
+    # Передаємо рекомендований компактний об'єм 40.0 USDT
+    await paper_trader.open_position(
+        symbol="SUI/USDT",
+        side=TradeSide.BUY,
+        price=1.0,
+        sl=0.98,
+        tp=1.05,
+        position_size_usdt=40.0
+    )
+    pos = paper_trader.positions["SUI/USDT"]
+    assert pos.amount_usdt == 40.0
+    assert pos.amount_coins == 40.0
+
+
+@pytest.mark.asyncio
+async def test_pair_cooldown_activated_on_loss(paper_trader):
+    """Тест 13: Перевірка активації кулдауну в cache_manager при закритті угоди в збиток"""
+    from src.engine.infrastructure.cache_manager import cache_manager
+    await paper_trader.initialize()
+
+    # Відкриваємо позицію по $100.0 з SL $98.0
+    await paper_trader.open_position(
+        symbol="XRP/USDT",
+        side=TradeSide.BUY,
+        price=100.0,
+        sl=98.0,
+        tp=105.0,
+        position_size_usdt=50.0
+    )
+    # Ціна падає нижче стопу -> закриття в збиток
+    await paper_trader.update_position("XRP/USDT", 97.5)
+    assert "XRP/USDT" not in paper_trader.positions
+
+    # Перевіряємо наявність запису кулдауну
+    cd = cache_manager.get("cooldown:XRP/USDT")
+    assert cd is not None
+    assert cd["symbol"] == "XRP/USDT"
+    assert cd["loss_pnl"] < 0
+    # Очищуємо за собою
+    cache_manager.delete("cooldown:XRP/USDT")

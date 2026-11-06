@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     ENABLE_MEAN_REVERSION_SCALP: bool = Field(default=True, description="Enable oversold mean reversion scalp in bear/choppy regimes")
     MEAN_REVERSION_MAX_RSI: float = Field(default=32.0, ge=10.0, le=45.0, description="Max RSI to qualify as oversold bounce")
     PAIR_COOLDOWN_SECONDS: int = Field(default=1800, ge=60, description="Cooldown time in seconds for a pair after a loss")
+    MIN_DYNAMIC_TP_PCT: float = Field(default=0.008, ge=0.004, le=0.02, description="Min dynamic TP % to EMA 20 (0.8%)")
+    MAX_DYNAMIC_TP_PCT: float = Field(default=0.030, ge=0.015, le=0.08, description="Max dynamic TP % to EMA 20 (3.0%)")
 
     # Redis & Celery Institutional Infrastructure
     REDIS_URL: str = Field(default="redis://127.0.0.1:6379/0", description="Redis connection URL")

@@ -43,7 +43,8 @@ class RiskManager:
         atr: float,
         capital: float, 
         trade_type: Literal['BUY', 'SELL'] = 'BUY',
-        is_mean_reversion: bool = False
+        is_mean_reversion: bool = False,
+        target_tp_pct: Optional[float] = None
     ) -> Optional[TradeParameters]:
         
         if atr <= 0 or capital <= 0:
@@ -60,8 +61,11 @@ class RiskManager:
             min_dist = entry_price * (self.config.min_stop_loss_pct / 100.0)
             stop_loss_dist = max(min_dist, stop_loss_dist)
 
-            # Швидкий тейк-профіт: цільовий імпульс 1.2x ATR або мін 1.0% + покриття комісій
-            profit_dist = max(atr * 1.2, entry_price * 0.010) + fee_impact
+            # Динамічний тейк-профіт до EMA 20 / BB Mid або цільовий імпульс
+            if target_tp_pct is not None and target_tp_pct > 0:
+                profit_dist = entry_price * float(target_tp_pct)
+            else:
+                profit_dist = max(atr * 1.2, entry_price * 0.010) + fee_impact
 
             stop_loss = entry_price - (stop_loss_dist * direction)
             take_profit = entry_price + (profit_dist * direction)

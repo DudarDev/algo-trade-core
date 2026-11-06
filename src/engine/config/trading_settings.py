@@ -11,6 +11,8 @@ class TradingSettings(BaseSettings):
     enable_mean_reversion: bool = Field(True, description="Enable oversold mean reversion scalp in bear/choppy regimes")
     mean_reversion_max_rsi: float = Field(32.0, ge=10.0, le=45.0, description="Max RSI to qualify as oversold bounce")
     pair_cooldown_seconds: int = Field(1800, ge=60, description="Cooldown time in seconds for a pair after a loss")
+    min_dynamic_tp_pct: float = Field(0.008, ge=0.004, le=0.02, description="Min dynamic TP % to EMA 20 (0.8%)")
+    max_dynamic_tp_pct: float = Field(0.030, ge=0.015, le=0.08, description="Max dynamic TP % to EMA 20 (3.0%)")
 
     # --- POSITION SIZING & CAPITAL MANAGEMENT (КРИТИЧНО) ---
     risk_per_trade_pct: float = Field(0.02, ge=0.01, le=0.10, description="Risk exactly 2% of total capital per trade")

@@ -119,7 +119,7 @@ class TradingRepository:
 
     def get_closed_trades(self, limit: Optional[int] = None) -> List[Trade]:
         with SessionLocal() as session:
-            query = session.query(Trade).filter(Trade.side == "SELL").order_by(Trade.timestamp.desc())
+            query = session.query(Trade).filter(Trade.side == "SELL").order_by(Trade.timestamp.desc(), Trade.id.desc())
             if limit:
                 query = query.limit(limit)
             return query.all()

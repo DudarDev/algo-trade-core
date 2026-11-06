@@ -12,6 +12,8 @@ def base_settings():
     settings.TREND_FILTER = True
     settings.min_adx_trend = 25.0
     settings.min_atr_pct = 0.001
+    settings.MIN_DYNAMIC_TP_PCT = 0.008
+    settings.MAX_DYNAMIC_TP_PCT = 0.030
     return settings
 
 def test_hold_on_low_confidence(base_settings):
@@ -261,3 +263,66 @@ def test_mean_reversion_scalp_disabled(base_settings):
     })
     signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="BEARISH")
     assert signal == SignalAction.HOLD
+
+
+def test_strategy_dynamic_tp_calculation_to_ema20(base_settings):
+    """Тест: Розрахунок дистанції до EMA 20 і встановлення meta.dynamic_tp_pct"""
+    strategy = HybridStrategy(base_settings)
+    # Price is 100.0, EMA_DIST_20 = -0.02 (-2.0% нижче EMA 20)
+    # Дистанція до EMA 20 = 0.02 / 0.98 ≈ 0.0204 (2.04%)
+    df = pd.DataFrame({
+        'RSI': [0.22, 0.25],
+        'EMA_DIST_50': [-0.02, -0.02],
+        'EMA_DIST_20': [-0.02, -0.02],
+        'MACD_HIST': [-0.15, -0.10],
+        'close': [100.0, 100.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.0, 1.0],
+        'BUY_PRESSURE': [0.55, 0.55],
+        'BB_POS': [0.05, 0.05]
+    })
+    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="BEARISH")
+    assert signal == SignalAction.BUY
+    assert meta.is_mean_reversion is True
+    assert meta.dynamic_tp_pct is not None
+    assert 0.019 <= meta.dynamic_tp_pct <= 0.022
+    assert meta.dynamic_tp_price is not None
+    assert 101.9 <= meta.dynamic_tp_price <= 102.2
+    assert "TP=" in meta.reason
+
+
+def test_strategy_dynamic_tp_clamped_to_min_and_max(base_settings):
+    """Тест: Запобіжники обмежують тейк між MIN (0.8%) та MAX (3.0%)"""
+    strategy = HybridStrategy(base_settings)
+    # Випадок 1: Дуже близько до EMA 20 (-0.003 -> ~0.3%) -> обмежується мінімумом 0.8%
+    df_close = pd.DataFrame({
+        'RSI': [0.22, 0.25],
+        'EMA_DIST_50': [-0.02, -0.02],
+        'EMA_DIST_20': [-0.003, -0.003],
+        'MACD_HIST': [-0.15, -0.10],
+        'close': [100.0, 100.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.0, 1.0],
+        'BUY_PRESSURE': [0.55, 0.55],
+        'BB_POS': [0.05, 0.05]
+    })
+    _, meta_close = strategy.get_signal(df_close, ai_confidence=0.65, htf_trend="BEARISH")
+    assert meta_close.dynamic_tp_pct == 0.008
+
+    # Випадок 2: Екстремально далеко (-0.08 -> ~8%) -> обмежується максимумом 3.0%
+    df_far = pd.DataFrame({
+        'RSI': [0.22, 0.25],
+        'EMA_DIST_50': [-0.02, -0.02],
+        'EMA_DIST_20': [-0.08, -0.08],
+        'MACD_HIST': [-0.15, -0.10],
+        'close': [100.0, 100.0],
+        'ATR_PCT': [0.02, 0.02],
+        'ADX': [0.35, 0.35],
+        'VOL_SPIKE': [1.0, 1.0],
+        'BUY_PRESSURE': [0.55, 0.55],
+        'BB_POS': [0.05, 0.05]
+    })
+    _, meta_far = strategy.get_signal(df_far, ai_confidence=0.65, htf_trend="BEARISH")
+    assert meta_far.dynamic_tp_pct == 0.030

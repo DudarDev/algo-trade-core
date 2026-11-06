@@ -35,9 +35,21 @@ class SignalMetadata(BaseModel):
     order_book_status: Optional[str] = "NEUTRAL"
     funding_sentiment: Optional[str] = "HEALTHY_BALANCED"
     is_mean_reversion: Optional[bool] = False
+    dynamic_tp_pct: Optional[float] = None
+    dynamic_tp_price: Optional[float] = None
     reason: str = "No signal"
     
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=False, extra="allow")
+
+def _safe_float_setting(settings, keys: list, default: float) -> float:
+    for k in keys:
+        try:
+            val = getattr(settings, k, None)
+            if val is not None and not hasattr(val, "_mock_return_value"):
+                return float(val)
+        except Exception:
+            pass
+    return default
 
 def _get_bool_setting(settings, keys: list, default: bool) -> bool:
     for k in keys:
@@ -153,6 +165,20 @@ class HybridStrategy:
         )
         meta.is_mean_reversion = is_mean_rev
 
+        # Рівень 2: Розрахунок Динамічного Take Profit до середньої лінії (EMA 20 / BB Mid)
+        if is_mean_rev:
+            ema_dist_20 = float(curr.get('EMA_DIST_20', 0.0))
+            if ema_dist_20 < -0.002 and (1.0 + ema_dist_20) > 0:
+                dist_to_ema = -ema_dist_20 / (1.0 + ema_dist_20)
+            else:
+                dist_to_ema = 0.012
+
+            min_tp = _safe_float_setting(self.settings, ['MIN_DYNAMIC_TP_PCT', 'min_dynamic_tp_pct'], 0.008)
+            max_tp = _safe_float_setting(self.settings, ['MAX_DYNAMIC_TP_PCT', 'max_dynamic_tp_pct'], 0.030)
+            calc_tp_pct = round(max(min_tp, min(dist_to_ema, max_tp)), 4)
+            meta.dynamic_tp_pct = calc_tp_pct
+            meta.dynamic_tp_price = round(current_price * (1.0 + calc_tp_pct), 4)
+
         # БАЗОВІ ТЕХНІЧНІ ФІЛЬТРИ
         
         # 1. Фільтр мертвого ринку (CHOPPY_FLAT)
@@ -229,14 +255,16 @@ class HybridStrategy:
         # Етап 3: Обробка ведмежого режиму (BEAR_MARKET)
         if regime == MarketRegime.BEAR:
             if is_mean_rev and ai_confidence >= 0.40:
-                meta.reason = f"Mean_Reversion_Bounce_BEAR(RSI={rsi_val:.1f}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
+                tp_info = f", TP={meta.dynamic_tp_pct*100:.1f}%" if meta.dynamic_tp_pct else ""
+                meta.reason = f"Mean_Reversion_Bounce_BEAR(RSI={rsi_val:.1f}{tp_info}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
                 return SignalAction.BUY, meta
             meta.reason = "Spot BUY disallowed in BEAR_MARKET (Blocked)"
             return SignalAction.HOLD, meta
 
         # Обробка бокового режиму (CHOPPY_FLAT) для Mean Reversion
         if regime == MarketRegime.CHOP and is_mean_rev and ai_confidence >= 0.40:
-            meta.reason = f"Mean_Reversion_Bounce_CHOP(RSI={rsi_val:.1f}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
+            tp_info = f", TP={meta.dynamic_tp_pct*100:.1f}%" if meta.dynamic_tp_pct else ""
+            meta.reason = f"Mean_Reversion_Bounce_CHOP(RSI={rsi_val:.1f}{tp_info}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
             return SignalAction.BUY, meta
 
         # ШІ ПОРОГИ ДЛЯ BULL РИНКУ

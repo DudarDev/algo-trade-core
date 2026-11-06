@@ -351,6 +351,7 @@ class CryptoBot:
                     "quant_score": getattr(meta, 'quant_score', 0.0),
                     "ensemble_conf": getattr(meta, 'ensemble_conf', round(proba, 2)),
                     "regime": meta.regime.value if hasattr(meta, 'regime') else "CHOPPY_FLAT",
+                    "dynamic_tp_pct": getattr(meta, 'dynamic_tp_pct', None),
                     "action": action_str,
                     "reason": reason_str,
                     "htf_trend": htf_trend,
@@ -366,13 +367,16 @@ class CryptoBot:
                 if is_buy:
                     current_atr = float(curr_row.get('ATR_PCT', 0.002)) * current_price
                     is_mean_rev = getattr(meta, 'is_mean_reversion', False)
+                    target_tp_pct = getattr(meta, 'dynamic_tp_pct', None)
                     trade_params = self.risk_manager.evaluate_trade(
                         entry_price=current_price, atr=current_atr,
                         capital=self.trader.balance, trade_type='BUY',
-                        is_mean_reversion=is_mean_rev
+                        is_mean_reversion=is_mean_rev,
+                        target_tp_pct=target_tp_pct
                     )
                     if trade_params:
-                        logger.info(f"🔥 ВХІД: {symbol} | Conf: {proba:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason_str}")
+                        tp_str = f" | DynTP: {meta.dynamic_tp_pct*100:.2f}% (Ціль: {trade_params.take_profit})" if getattr(meta, 'dynamic_tp_pct', None) else ''
+                        logger.info(f"🔥 ВХІД: {symbol}{tp_str} | Conf: {proba:.2f} | R:R: {trade_params.risk_reward_ratio:.2f} | Причина: {reason_str}")
                         
                         # Збираємо числовий зріз ринку для Feature Store
                         features_dict = {}

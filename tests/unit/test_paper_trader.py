@@ -245,7 +245,7 @@ async def test_breakeven_stop_loss_lock(paper_trader, repo):
     await paper_trader.update_position("AVAX/USDT", 102.5)
     
     # Стоп-лосс повинен бути підтягнутий у беззбитковість ($100.25)
-    assert pos.sl == 100.25
+    assert round(pos.sl, 2) == 100.30
 
     # Ціна відкочується назад до рівня безубитку ($100.25)
     await paper_trader.update_position("AVAX/USDT", 100.25)

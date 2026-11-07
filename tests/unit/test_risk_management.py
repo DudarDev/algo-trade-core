@@ -24,7 +24,7 @@ def test_evaluate_trade_mean_reversion():
     trade = risk_mgr.evaluate_trade(entry_price=100.0, atr=1.0, capital=1000.0, is_mean_reversion=True)
     assert trade is not None
     # For mean reversion, stop loss is tighter (min(atr*1.0, entry*0.012) -> 1.0)
-    assert trade.stop_loss == 99.0
+    assert trade.stop_loss == 98.8
     # Take profit is fast target (1.2x ATR or 1.0% + fee)
     assert trade.take_profit >= 101.2
     # Position size is capped safely for counter-trend protection
@@ -49,5 +49,5 @@ def test_evaluate_trade_dynamic_take_profit_target():
     )
     assert trade is not None
     assert trade.take_profit == 102.5
-    assert trade.stop_loss == 99.0
-    assert trade.risk_reward_ratio == 2.5
+    assert trade.stop_loss == 98.8
+    assert trade.risk_reward_ratio == 2.08

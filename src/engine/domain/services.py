@@ -19,15 +19,13 @@ class OrderExecutionService:
                 highest_price = current_price
 
             # 1. Early Breakeven Stop Lock:
-            # Фіксація беззбитковості при підйомі ціни на >= be_trigger (+0.60%)
-            # або після Partial TP. Встановлюємо SL на +0.20% (повне покриття комісій + гарантований плюс)
-            # 1. Early Breakeven Stop Lock:
-            # Для Mean Reversion (швидких контртрендових відскоків) беззбитковість переноситься швидше (+0.40% замість +0.60%)
+            # Фіксація беззбитковості при досягненні впевненого руху (+0.85%)
+            # Встановлюємо SL на +0.30%, що гарантовано перекриває 0.15%-0.20% комісії біржі і забезпечує чистий плюс.
             is_mean_rev = getattr(pos, 'regime', '') in ['MEAN_REVERSION', 'BEAR_MARKET']
-            default_be = 0.004 if is_mean_rev else 0.006
+            default_be = 0.0085 if is_mean_rev else 0.0100
             be_trigger = getattr(settings, 'BREAK_EVEN_TRIGGER_PCT', default_be)
             if getattr(pos, 'partial_tp_hit', False) or highest_price >= pos.entry_price * (1 + be_trigger):
-                be_sl = pos.entry_price * 1.0015 if is_mean_rev else pos.entry_price * 1.0020
+                be_sl = pos.entry_price * 1.0030
                 if be_sl > sl:
                     sl = be_sl
 

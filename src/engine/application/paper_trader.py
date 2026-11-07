@@ -298,7 +298,7 @@ class PaperTrader:
             pos.amount_coins -= closed_coins
             pos.amount_usdt -= closed_cost
             pos.partial_tp_hit = True
-            be_sl = pos.entry_price * 1.0025
+            be_sl = pos.entry_price * 1.0030
             if be_sl > pos.sl:
                 pos.sl = be_sl
 

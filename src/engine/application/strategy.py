@@ -141,27 +141,41 @@ class HybridStrategy:
             meta.reason = "Already in position"
             return None, meta
 
-        # --- ОЦІНКА СЕТАПУ ДЛЯ MEAN REVERSION SCALP (МІКРО-ВІДСКОКИ НА ПЕРЕПРОДАНОСТІ) ---
+        # --- ОЦІНКА СЕТАПУ ДЛЯ MEAN REVERSION SCALP (ВІДСКОКИ НА ПЕРЕПРОДАНОСТІ З ПІДТВЕРДЖЕННЯМ) ---
         prev_row = df.iloc[-2] if len(df) >= 2 else curr
+        curr_close = float(curr.get('close', 0.0))
+        prev_close = float(prev_row.get('close', 0.0))
+        curr_open = float(curr.get('open', curr_close))
+
         curr_macd_hist = float(curr.get('MACD_HIST', 0))
         prev_macd_hist = float(prev_row.get('MACD_HIST', 0))
-        macd_improving = curr_macd_hist >= prev_macd_hist
+        macd_improving = curr_macd_hist > prev_macd_hist
         rsi_val = float(meta.rsi)
         bb_pos = float(curr.get('BB_POS', 0.5))
         rsi_slope = float(curr.get('RSI_SLOPE', 0.0))
         buy_press = float(curr.get('BUY_PRESSURE', 0.5))
 
+        # 1. Справжня перепроданість: RSI <= поріг або дотик нижньої смуги Боллінджера
         is_oversold = (rsi_val <= self.mean_reversion_max_rsi) or (bb_pos <= 0.08)
-        momentum_recovering = macd_improving or (rsi_slope >= 0.0) or (buy_press >= 0.40)
+
+        # 2. Обов'язкове підтвердження розвороту (Reversal Confirmation):
+        # Відсікаємо падаючі червоні свічки: ціна повинна показати відскок (зелена свічка або close >= prev_close)
+        is_green_reversal = (curr_close >= curr_open) or (curr_close >= prev_close)
+        is_momentum_recovering = macd_improving or (rsi_slope >= 0.0)
+        has_buyer_support = (buy_press >= 0.45) and (vol_spike_val >= 0.50)
+
+        # 3. Старший таймфрейм 1h: заборонено купувати контртренд, якщо 1h або BTC у вільному падінні
+        is_htf_safe = (htf_trend != "BEARISH") and (btc_pulse != "BEARISH_DUMP")
 
         is_mean_rev = (
             self.enable_mean_reversion
             and is_oversold
-            and momentum_recovering
-            and btc_pulse != "BEARISH_DUMP"
+            and is_green_reversal
+            and is_momentum_recovering
+            and has_buyer_support
+            and is_htf_safe
             and order_book_status != "HEAVY_ASK_RESISTANCE"
             and funding_sentiment != "OVERHEATED_LONGS"
-            and vol_spike_val >= 0.20
         )
         meta.is_mean_reversion = is_mean_rev
 
@@ -171,9 +185,9 @@ class HybridStrategy:
             if ema_dist_20 < -0.002 and (1.0 + ema_dist_20) > 0:
                 dist_to_ema = -ema_dist_20 / (1.0 + ema_dist_20)
             else:
-                dist_to_ema = 0.012
+                dist_to_ema = 0.015
 
-            min_tp = _safe_float_setting(self.settings, ['MIN_DYNAMIC_TP_PCT', 'min_dynamic_tp_pct'], 0.008)
+            min_tp = _safe_float_setting(self.settings, ['MIN_DYNAMIC_TP_PCT', 'min_dynamic_tp_pct'], 0.012)
             max_tp = _safe_float_setting(self.settings, ['MAX_DYNAMIC_TP_PCT', 'max_dynamic_tp_pct'], 0.030)
             calc_tp_pct = round(max(min_tp, min(dist_to_ema, max_tp)), 4)
             meta.dynamic_tp_pct = calc_tp_pct
@@ -183,7 +197,7 @@ class HybridStrategy:
         
         # 1. Фільтр мертвого ринку (CHOPPY_FLAT)
         if regime == MarketRegime.CHOP:
-            if not (is_mean_rev and ai_confidence >= 0.40):
+            if not (is_mean_rev and ai_confidence >= 0.60):
                 meta.reason = f"Market is CHOPPY (ADX < {effective_min_adx:.1f})"
                 return SignalAction.HOLD, meta
 
@@ -198,11 +212,10 @@ class HybridStrategy:
                 meta.reason = "Bearish MACD in Bear Market"
                 return SignalAction.HOLD, meta
 
-        # 4. МУЛЬТИ-ТАЙМФРЕЙМ ФІЛЬТР (MTF): Заборона покупок, якщо старший 1h тренд спадний (крім Mean Reversion)
+        # 4. МУЛЬТИ-ТАЙМФРЕЙМ ФІЛЬТР (MTF): Заборона покупок, якщо старший 1h тренд спадний
         if htf_trend == "BEARISH":
-            if not is_mean_rev:
-                meta.reason = "Higher TF (1h) Downtrend (Blocked)"
-                return SignalAction.HOLD, meta
+            meta.reason = "Higher TF (1h) Downtrend (Blocked)"
+            return SignalAction.HOLD, meta
 
         # 5. BTC MARKET PULSE ФІЛЬТР: Заборона покупок, якщо Bitcoin під тиском скидання
         if btc_pulse == "BEARISH_DUMP":
@@ -254,7 +267,7 @@ class HybridStrategy:
 
         # Етап 3: Обробка ведмежого режиму (BEAR_MARKET)
         if regime == MarketRegime.BEAR:
-            if is_mean_rev and ai_confidence >= 0.40:
+            if is_mean_rev and ai_confidence >= 0.60:
                 tp_info = f", TP={meta.dynamic_tp_pct*100:.1f}%" if meta.dynamic_tp_pct else ""
                 meta.reason = f"Mean_Reversion_Bounce_BEAR(RSI={rsi_val:.1f}{tp_info}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
                 return SignalAction.BUY, meta
@@ -262,7 +275,7 @@ class HybridStrategy:
             return SignalAction.HOLD, meta
 
         # Обробка бокового режиму (CHOPPY_FLAT) для Mean Reversion
-        if regime == MarketRegime.CHOP and is_mean_rev and ai_confidence >= 0.40:
+        if regime == MarketRegime.CHOP and is_mean_rev and ai_confidence >= 0.60:
             tp_info = f", TP={meta.dynamic_tp_pct*100:.1f}%" if meta.dynamic_tp_pct else ""
             meta.reason = f"Mean_Reversion_Bounce_CHOP(RSI={rsi_val:.1f}{tp_info}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
             return SignalAction.BUY, meta

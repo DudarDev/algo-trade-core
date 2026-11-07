@@ -12,7 +12,7 @@ def base_settings():
     settings.TREND_FILTER = True
     settings.min_adx_trend = 25.0
     settings.min_atr_pct = 0.001
-    settings.MIN_DYNAMIC_TP_PCT = 0.008
+    settings.MIN_DYNAMIC_TP_PCT = 0.012
     settings.MAX_DYNAMIC_TP_PCT = 0.030
     return settings
 
@@ -240,7 +240,7 @@ def test_mean_reversion_scalp_triggers_on_oversold(base_settings):
         'BUY_PRESSURE': [0.55, 0.55],
         'BB_POS': [0.05, 0.05]
     })
-    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="BEARISH")
+    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="NEUTRAL")
     assert signal == SignalAction.BUY
     assert meta.is_mean_reversion is True
     assert "Mean_Reversion" in meta.reason
@@ -261,7 +261,7 @@ def test_mean_reversion_scalp_disabled(base_settings):
         'BUY_PRESSURE': [0.55, 0.55],
         'BB_POS': [0.05, 0.05]
     })
-    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="BEARISH")
+    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="NEUTRAL")
     assert signal == SignalAction.HOLD
 
 
@@ -282,7 +282,7 @@ def test_strategy_dynamic_tp_calculation_to_ema20(base_settings):
         'BUY_PRESSURE': [0.55, 0.55],
         'BB_POS': [0.05, 0.05]
     })
-    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="BEARISH")
+    signal, meta = strategy.get_signal(df, ai_confidence=0.65, htf_trend="NEUTRAL")
     assert signal == SignalAction.BUY
     assert meta.is_mean_reversion is True
     assert meta.dynamic_tp_pct is not None
@@ -308,8 +308,8 @@ def test_strategy_dynamic_tp_clamped_to_min_and_max(base_settings):
         'BUY_PRESSURE': [0.55, 0.55],
         'BB_POS': [0.05, 0.05]
     })
-    _, meta_close = strategy.get_signal(df_close, ai_confidence=0.65, htf_trend="BEARISH")
-    assert meta_close.dynamic_tp_pct == 0.008
+    _, meta_close = strategy.get_signal(df_close, ai_confidence=0.65, htf_trend="NEUTRAL")
+    assert meta_close.dynamic_tp_pct == 0.012
 
     # Випадок 2: Екстремально далеко (-0.08 -> ~8%) -> обмежується максимумом 3.0%
     df_far = pd.DataFrame({
@@ -324,5 +324,5 @@ def test_strategy_dynamic_tp_clamped_to_min_and_max(base_settings):
         'BUY_PRESSURE': [0.55, 0.55],
         'BB_POS': [0.05, 0.05]
     })
-    _, meta_far = strategy.get_signal(df_far, ai_confidence=0.65, htf_trend="BEARISH")
+    _, meta_far = strategy.get_signal(df_far, ai_confidence=0.65, htf_trend="NEUTRAL")
     assert meta_far.dynamic_tp_pct == 0.030

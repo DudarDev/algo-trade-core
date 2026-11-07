@@ -16,7 +16,7 @@ class RiskConfig(BaseModel):
     # ЗНИЖЕНО з 1.5 до 1.2. Стоп-лос стає коротшим і безпечнішим.
     atr_multiplier: float = Field(1.2, gt=0.0) 
     
-    min_stop_loss_pct: float = Field(0.4, gt=0.0)
+    min_stop_loss_pct: float = Field(0.8, gt=0.0)
     max_stop_loss_pct: float = Field(3.0, gt=0.0)
     
     model_config = ConfigDict(strict=True)
@@ -56,16 +56,15 @@ class RiskManager:
 
         if is_mean_reversion:
             # Спеціальний режим для відскоків перепроданості (Mean Reversion Scalp):
-            # Короткий стоп (1.0x ATR або макс 1.2% від ціни входу)
-            stop_loss_dist = min(atr * 1.0, entry_price * 0.012)
+            # Захист від вибивання шумом: стоп від 0.8% до 1.8%
             min_dist = entry_price * (self.config.min_stop_loss_pct / 100.0)
-            stop_loss_dist = max(min_dist, stop_loss_dist)
+            stop_loss_dist = min(max(atr * 1.2, min_dist), entry_price * 0.018)
 
-            # Динамічний тейк-профіт до EMA 20 / BB Mid або цільовий імпульс
+            # Динамічний тейк-профіт до EMA 20 / BB Mid (мінімум 1.2% + комісії)
             if target_tp_pct is not None and target_tp_pct > 0:
-                profit_dist = entry_price * float(target_tp_pct)
+                profit_dist = max(entry_price * float(target_tp_pct), entry_price * 0.012)
             else:
-                profit_dist = max(atr * 1.2, entry_price * 0.010) + fee_impact
+                profit_dist = max(atr * 1.8, entry_price * 0.014) + fee_impact
 
             stop_loss = entry_price - (stop_loss_dist * direction)
             take_profit = entry_price + (profit_dist * direction)

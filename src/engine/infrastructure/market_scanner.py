@@ -17,24 +17,54 @@ class MarketScanner:
         self.priority_pairs = [
             'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT',
             'XRP/USDT', 'DOGE/USDT', 'ADA/USDT', 'AVAX/USDT',
-            'LINK/USDT', 'NEAR/USDT', 'SUI/USDT'
+            'LINK/USDT', 'NEAR/USDT', 'SUI/USDT', 'APT/USDT',
+            'DOT/USDT', 'ARB/USDT', 'OP/USDT', 'TIA/USDT',
+            'INJ/USDT', 'BCH/USDT', 'LTC/USDT', 'UNI/USDT'
         ]
+        
+        # Токенізовані акції та синтетичні ETF, які заборонено торгувати
+        self.synthetic_stocks = {
+            'SOXLB', 'SOXSB', 'KORUB', 'TQQQB', 'SPCXB', 'TSLAB', 'INTCB', 'SNDKB', 'MUB',
+            'NVDB', 'AAPLB', 'AMZNB', 'MSFTB', 'GOOGB', 'METAB', 'COINB', 'PLTRB'
+        }
 
-    async def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 5_000_000.0) -> List[str]:
+    def is_valid_crypto_symbol(self, symbol: str) -> bool:
+        """Відсікає плечові токени (UP/DOWN/BULL/BEAR/3X), токенізовані акції та невалідні символи."""
+        if not symbol.endswith('/USDT'):
+            return False
+        base = symbol.split('/')[0].upper()
+        
+        # 1. Тільки валідні латинські символи (відсікає ієрогліфи та кракозябри на зразок '牛来')
+        if not base.isascii() or not base.isalnum():
+            return False
+            
+        # 2. Не стейблкоїн
+        if base in self.stablecoins:
+            return False
+            
+        # 3. Відсікаємо плечові токени (Leveraged Tokens)
+        leveraged_suffixes = ('UP', 'DOWN', 'BULL', 'BEAR', '2L', '2S', '3L', '3S')
+        for suf in leveraged_suffixes:
+            if base.endswith(suf) and len(base) > len(suf):
+                return False
+                
+        # 4. Токенізовані акції та синтетичні біржові ETF
+        if base in self.synthetic_stocks:
+            return False
+
+        return True
+
+    async def get_top_volatile_pairs(self, limit: int = 20, min_volume: float = 10_000_000.0) -> List[str]:
         """Шукає пари з найбільшою волатильністю (через Public API), гарантовано додаючи топ-ліквідні активи."""
         for attempt in range(3):
             try:
                 logger.info("🔍 [Scanner] Сканування ринку та відбір ліквідних пар (Public API)...")
                 
-                # Використовуємо публічний клієнт для отримання тікерів
                 tickers = await self.public_exchange.fetch_tickers()
                 pairs_data = []
                 
                 for symbol, data in tickers.items():
-                    if not symbol.endswith('/USDT'):
-                        continue
-                    base_coin = symbol.split('/')[0]
-                    if base_coin in self.stablecoins:
+                    if not self.is_valid_crypto_symbol(symbol):
                         continue
                     
                     quote_vol = data.get('quoteVolume')
@@ -79,7 +109,7 @@ class MarketScanner:
             except Exception as e:
                 logger.error(f"❌ Помилка сканера (спроба {attempt+1}/3): {e}")
                 if attempt < 2:
-                    await asyncio.sleep(5)  # Зачекати перед повторною спробою
+                    await asyncio.sleep(5)
                 else:
                     logger.error("🛑 Вичерпано спроби сканування.")
                     return []

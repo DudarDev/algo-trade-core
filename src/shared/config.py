@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: str | None = Field(default=None)
     GEMINI_API_KEY: SecretStr | None = Field(default=None)
     TIMEFRAME: str = Field(default="5m")
-    CONFIDENCE_THRESHOLD: float = Field(default=0.30, ge=0.0, le=1.0)
+    CONFIDENCE_THRESHOLD: float = Field(default=0.60, ge=0.0, le=1.0)
     RISK_REWARD_RATIO: float = Field(default=1.5, gt=1.0)
     
     # --- КРИТИЧНІ ПАРАМЕТРИ, ЯКІ ШУКАВ РУШІЙ ---
@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     MIN_BALANCE_USDT: float = Field(default=50.0, ge=0)
     TRAILING_STOP_ACTIVATION_PCT: float = Field(default=0.015, ge=0)
     TRAILING_OFFSET_PCT: float = Field(default=0.008, ge=0)
-    BREAK_EVEN_TRIGGER_PCT: float = Field(default=0.006, ge=0)
+    BREAK_EVEN_TRIGGER_PCT: float = Field(default=0.0085, ge=0)
     MAX_TRADE_LOSS_USDT: float = Field(default=3.00, ge=0.5, description="Max dollar loss allowed per trade")
-    MIN_24H_VOLUME: float = Field(default=5_000_000.0, ge=0.0, description="Min 24h quote volume in USDT")
+    MIN_24H_VOLUME: float = Field(default=10_000_000.0, ge=0.0, description="Min 24h quote volume in USDT")
     MAX_SPREAD_PCT: float = Field(default=0.002, ge=0.0, description="Max allowed bid/ask spread (0.20%)")
     PARTIAL_TP_PCT: float = Field(default=0.015, ge=0)
     PARTIAL_TP_RATIO: float = Field(default=0.50, gt=0.0, le=1.0)
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     ENABLE_MEAN_REVERSION_SCALP: bool = Field(default=True, description="Enable oversold mean reversion scalp in bear/choppy regimes")
     MEAN_REVERSION_MAX_RSI: float = Field(default=32.0, ge=10.0, le=45.0, description="Max RSI to qualify as oversold bounce")
     PAIR_COOLDOWN_SECONDS: int = Field(default=1800, ge=60, description="Cooldown time in seconds for a pair after a loss")
-    MIN_DYNAMIC_TP_PCT: float = Field(default=0.008, ge=0.004, le=0.02, description="Min dynamic TP % to EMA 20 (0.8%)")
+    MIN_DYNAMIC_TP_PCT: float = Field(default=0.012, ge=0.004, le=0.02, description="Min dynamic TP % to EMA 20 (1.2%)")
     MAX_DYNAMIC_TP_PCT: float = Field(default=0.030, ge=0.015, le=0.08, description="Max dynamic TP % to EMA 20 (3.0%)")
 
     # Redis & Celery Institutional Infrastructure

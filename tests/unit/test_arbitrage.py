@@ -83,3 +83,28 @@ async def test_scan_radar_multi_symbols(mock_settings, mock_exchanges, tmp_path)
     assert radar_data["opportunities"][0]["symbol"] == "ETH/USDT"
     assert radar_data["opportunities"][0]["route"] == "Binance ➔ Bybit"
     assert (tmp_path / "arbitrage_radar.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_scan_funding_rates(mock_settings, mock_exchanges, tmp_path):
+    engine = ArbitrageEngine(settings=mock_settings, exchanges=mock_exchanges, data_dir=str(tmp_path))
+    
+    # Mock futures clients
+    f_bin = MagicMock()
+    f_bin.fetch_funding_rates = AsyncMock(return_value={
+        "BTC/USDT:USDT": {"fundingRate": 0.0001},  # 0.01% -> 10.95% APY
+        "ETH/USDT:USDT": {"fundingRate": 0.00015}  # 0.015% -> 16.42% APY
+    })
+    f_byb = MagicMock()
+    f_byb.fetch_funding_rates = AsyncMock(return_value={
+        "BTC/USDT:USDT": {"fundingRate": 0.00005},  # 0.005% -> 5.48% APY
+        "ETH/USDT:USDT": {"fundingRate": 0.0001}   # 0.01% -> 10.95% APY
+    })
+    engine._futures_binance = f_bin
+    engine._futures_bybit = f_byb
+
+    res = await engine.scan_funding_rates(["BTC/USDT", "ETH/USDT"])
+    assert res["status"] == "active"
+    assert res["pairs_scanned"] == 2
+    assert res["max_funding_apy"] > 10.0
+    assert (tmp_path / "funding_radar.json").exists()

@@ -1,261 +1,519 @@
-import os
-import json
-import csv
-import io
-from pathlib import Path
-from ninja import Router
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
-from pydantic import BaseModel, ConfigDict
-from django.db.models import Sum, Avg
-from django.http import HttpResponse
-
-from .models import Trade, Wallet, ActivePosition
-from .services import BotControlService
-
-router = Router()
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data_storage"
-
-# --- СХЕМИ PYDANTIC ---
-
-class TradeSchema(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    symbol: str
-    side: str
-    price: float
-    amount: float
-    pnl: float
-    timestamp: datetime
-
-class StatsSchema(BaseModel):
-    total_pnl: float
-    total_trades: int
-    profit_factor: float
-    win_rate: float
-    balance: float
-    free_cash: float = 0.0
-    locked_cash: float = 0.0
-    winning_trades: int = 0
-    losing_trades: int = 0
-    error: Optional[str] = None
-
-class BotControlRequest(BaseModel):
-    command: str
-
-class ActivePositionSchema(BaseModel):
-    symbol: str
-    amount: float
-    entry_price: float
-    highest_price: float
-    cost: float
-    current_price: float
-    unrealized_pnl: float
-    unrealized_pnl_pct: float
-    opened_at: Optional[str] = None
-
-class ClosePositionRequest(BaseModel):
-    symbol: str
-
-class ConfigUpdateRequest(BaseModel):
-    confidence_threshold: float = 0.60
-    risk_reward_ratio: float = 1.5
-    max_positions: int = 2
-    trade_fraction: float = 0.04
-    min_adx_trend: float = 25.0
-    gemini_api_key: Optional[str] = None
-    telegram_bot_token: Optional[str] = None
-    telegram_chat_id: Optional[str] = None
-    trading_mode: Optional[str] = "PAPER"
-
-class AIChatRequest(BaseModel):
-    query: str
-    lang: Optional[str] = "ua"
-
-class TelegramTestRequest(BaseModel):
-    token: Optional[str] = None
-    chat_id: Optional[str] = None
-
-class FeedbackRetrainRequest(BaseModel):
-    min_real_trades: int = 15
-    force_deploy: bool = False
-
-class BacktestRequest(BaseModel):
-    symbol: str = "BTC/USDT"
-    timeframe: str = "5m"
-    candles: int = 300
-    confidence_threshold: float = 0.22
-    risk_reward_ratio: float = 1.5
-    trade_fraction: float = 0.04
-
-# --- ЕНДПОІНТИ API ---
-
-@router.get("/ping")
-def ping(request):
-    return {"status": "ok"}
-
-
-@router.get("/status")
-def bot_status(request):
-    status = BotControlService.get_current_status()
-    return {"status": status, "bot_status": status}
-
-
-@router.post("/bot_control")
-@router.post("/control")
-def bot_control(request, payload: BotControlRequest):
-    if payload.command not in ['start', 'stop']:
-        return {"status": "error", "message": "Invalid command"}
-    new_status = BotControlService.change_status(payload.command)
-    return {"status": "success", "bot_status": new_status}
-
-
-@router.get("/stats", response=StatsSchema)
-def get_stats(request):
-    wallet = Wallet.objects.first()
-    free_balance = wallet.usdt_balance if wallet else 1000.0
-    active_positions = ActivePosition.objects.all()
-    locked_balance = sum((pos.amount * pos.entry_price) for pos in active_positions)
-    total_equity = free_balance + locked_balance
-
-    all_trades = Trade.objects.all()
-    total_trades = all_trades.count()
-    
-    if total_trades == 0:
-        return {
-            "total_pnl": 0.0,
-            "total_trades": 0,
-            "profit_factor": 0.0, 
-            "win_rate": 0.0,
-            "balance": round(total_equity, 2),
-            "free_cash": round(free_balance, 2),
-            "locked_cash": round(locked_balance, 2),
-            "winning_trades": 0,
-            "losing_trades": 0,
-            "error": "No trades found yet."
-        }
-        
-    winning_trades = all_trades.filter(pnl__gt=0).count()
-    losing_trades = all_trades.filter(pnl__lt=0).count()
-    
-    total_pnl = all_trades.aggregate(total=Sum('pnl'))['total'] or 0.0
-    win_rate = (winning_trades / total_trades * 100)
-    
-    avg_win = all_trades.filter(pnl__gt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
-    avg_loss = all_trades.filter(pnl__lt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
-    
-    profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else (999.0 if avg_win > 0 else 0.0)
-    
-    return {
-        "total_pnl": round(total_pnl, 2),
-        "total_trades": total_trades,
-        "profit_factor": round(profit_factor, 2),
-        "win_rate": round(win_rate, 1),
-        "balance": round(total_equity, 2),
-        "free_cash": round(free_balance, 2),
-        "locked_cash": round(locked_balance, 2),
-        "winning_trades": winning_trades,
-        "losing_trades": losing_trades,
-        "error": None
-    }
-
-
-@router.get("/recent_trades", response=List[TradeSchema])
-def get_recent_trades(request):
-    """Отримання останніх 50 угод для таблиці історії (залізобетонний метод)"""
-    trades_qs = Trade.objects.order_by('-timestamp')[:50]
-    
-    trades_list = []
-    for t in trades_qs:
-        trades_list.append({
-            "symbol": t.symbol,
-            "side": t.side,
-            "price": float(t.price),
-            "amount": float(t.amount),
-            "pnl": float(t.pnl) if t.pnl else 0.0,
-            "timestamp": t.timestamp
-        })
-        
-    return trades_list
-
-
-@router.get("/active_positions", response=List[ActivePositionSchema])
-def get_active_positions(request):
-    """Отримання списку відкритих позицій з розрахунком плаваючого PnL у реальному часі."""
-    positions_qs = ActivePosition.objects.all()
-    
-    # Спробуємо підтягнути актуальні ціни з market_radar.json
-    radar_prices = {}
-    radar_file = DATA_DIR / "market_radar.json"
-    if radar_file.exists():
-        try:
-            with open(radar_file, "r", encoding="utf-8") as f:
-                radar_list = json.load(f)
-                for item in radar_list:
-                    radar_prices[item.get("symbol")] = float(item.get("price", 0.0))
-        except Exception:
-            pass
-
-    result = []
-    for pos in positions_qs:
-        curr_price = radar_prices.get(pos.symbol, float(pos.highest_price or pos.entry_price))
-        entry_price = float(pos.entry_price)
-        amount = float(pos.amount)
-        cost = float(pos.cost)
-        
-        unrealized_pnl = (curr_price - entry_price) * amount if entry_price > 0 else 0.0
-        unrealized_pnl_pct = ((curr_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
-
-        opened_str = pos.opened_at.strftime("%d.%m %H:%M") if pos.opened_at else ""
-
-        result.append({
-            "symbol": pos.symbol,
-            "amount": amount,
-            "entry_price": round(entry_price, 4),
-            "highest_price": round(float(pos.highest_price), 4),
-            "cost": round(cost, 2),
-            "current_price": round(curr_price, 4),
-            "unrealized_pnl": round(unrealized_pnl, 2),
-            "unrealized_pnl_pct": round(unrealized_pnl_pct, 2),
-            "opened_at": opened_str
-        })
-    return result
-
-
-@router.post("/close_position")
-def close_position(request, payload: ClosePositionRequest):
-    """Ручне закриття обраної відкритої позиції з дашборду."""
-    cmd_file = DATA_DIR / "command_queue.json"
-    try:
-        with open(cmd_file, "w", encoding="utf-8") as f:
-            json.dump({"action": "close_position", "symbol": payload.symbol}, f)
-        return {"status": "success", "message": f"Команду закриття {payload.symbol} надіслано рушію"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@router.post("/close_all")
-def close_all_positions(request):
-    """Екстрене закриття ВСІХ відкритих позицій (Panic Exit)."""
-    cmd_file = DATA_DIR / "command_queue.json"
-    try:
-        with open(cmd_file, "w", encoding="utf-8") as f:
-            json.dump({"action": "close_all"}, f)
-        return {"status": "success", "message": "Команду екстреного закриття всіх позицій надіслано рушію"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@router.get("/market_scanner")
-def get_market_scanner(request):
-    """Отримання живих результатів сканування 20 пар, рішень ШІ та режимів ринку."""
-    radar_file = DATA_DIR / "market_radar.json"
-    if radar_file.exists():
-        try:
-            with open(radar_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
+import os
+
+import json
+
+import csv
+
+import io
+
+from pathlib import Path
+
+from ninja import Router
+
+from typing import List, Optional, Dict, Any
+
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, ConfigDict
+
+from django.db.models import Sum, Avg
+
+from django.http import HttpResponse
+
+
+
+from .models import Trade, Wallet, ActivePosition
+
+from .services import BotControlService
+
+
+
+router = Router()
+
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data_storage"
+
+
+
+# --- СХЕМИ PYDANTIC ---
+
+
+
+class TradeSchema(BaseModel):
+
+    model_config = ConfigDict(from_attributes=True)
+
+    symbol: str
+
+    side: str
+
+    price: float
+
+    amount: float
+
+    pnl: float
+
+    timestamp: datetime
+
+
+
+class StatsSchema(BaseModel):
+
+    total_pnl: float
+
+    total_trades: int
+
+    profit_factor: float
+
+    win_rate: float
+
+    balance: float
+
+    free_cash: float = 0.0
+
+    locked_cash: float = 0.0
+
+    winning_trades: int = 0
+
+    losing_trades: int = 0
+
+    error: Optional[str] = None
+
+
+
+class BotControlRequest(BaseModel):
+
+    command: str
+
+
+
+class ActivePositionSchema(BaseModel):
+
+    symbol: str
+
+    amount: float
+
+    entry_price: float
+
+    highest_price: float
+
+    cost: float
+
+    current_price: float
+
+    unrealized_pnl: float
+
+    unrealized_pnl_pct: float
+
+    opened_at: Optional[str] = None
+
+
+
+class ClosePositionRequest(BaseModel):
+
+    symbol: str
+
+
+
+class ConfigUpdateRequest(BaseModel):
+
+    confidence_threshold: float = 0.60
+
+    risk_reward_ratio: float = 1.5
+
+    max_positions: int = 2
+
+    trade_fraction: float = 0.04
+
+    min_adx_trend: float = 25.0
+
+    gemini_api_key: Optional[str] = None
+
+    telegram_bot_token: Optional[str] = None
+
+    telegram_chat_id: Optional[str] = None
+
+    trading_mode: Optional[str] = "PAPER"
+
+
+
+class AIChatRequest(BaseModel):
+
+    query: str
+
+    lang: Optional[str] = "ua"
+
+
+
+class TelegramTestRequest(BaseModel):
+
+    token: Optional[str] = None
+
+    chat_id: Optional[str] = None
+
+
+
+class FeedbackRetrainRequest(BaseModel):
+
+    min_real_trades: int = 15
+
+    force_deploy: bool = False
+
+
+
+class BacktestRequest(BaseModel):
+
+    symbol: str = "BTC/USDT"
+
+    timeframe: str = "5m"
+
+    candles: int = 300
+
+    confidence_threshold: float = 0.22
+
+    risk_reward_ratio: float = 1.5
+
+    trade_fraction: float = 0.04
+
+
+
+# --- ЕНДПОІНТИ API ---
+
+
+
+@router.get("/ping")
+
+def ping(request):
+
+    return {"status": "ok"}
+
+
+
+
+
+@router.get("/status")
+
+def bot_status(request):
+
+    status = BotControlService.get_current_status()
+
+    return {"status": status, "bot_status": status}
+
+
+
+
+
+@router.post("/bot_control")
+
+@router.post("/control")
+
+def bot_control(request, payload: BotControlRequest):
+
+    if payload.command not in ['start', 'stop']:
+
+        return {"status": "error", "message": "Invalid command"}
+
+    new_status = BotControlService.change_status(payload.command)
+
+    return {"status": "success", "bot_status": new_status}
+
+
+
+
+
+@router.get("/stats", response=StatsSchema)
+
+def get_stats(request):
+
+    wallet = Wallet.objects.first()
+
+    free_balance = wallet.usdt_balance if wallet else 1000.0
+
+    active_positions = ActivePosition.objects.all()
+
+    locked_balance = sum((pos.amount * pos.entry_price) for pos in active_positions)
+
+    total_equity = free_balance + locked_balance
+
+
+
+    all_trades = Trade.objects.all()
+
+    total_trades = all_trades.count()
+
+    
+
+    if total_trades == 0:
+
+        return {
+
+            "total_pnl": 0.0,
+
+            "total_trades": 0,
+
+            "profit_factor": 0.0, 
+
+            "win_rate": 0.0,
+
+            "balance": round(total_equity, 2),
+
+            "free_cash": round(free_balance, 2),
+
+            "locked_cash": round(locked_balance, 2),
+
+            "winning_trades": 0,
+
+            "losing_trades": 0,
+
+            "error": "No trades found yet."
+
+        }
+
+        
+
+    winning_trades = all_trades.filter(pnl__gt=0).count()
+
+    losing_trades = all_trades.filter(pnl__lt=0).count()
+
+    
+
+    total_pnl = all_trades.aggregate(total=Sum('pnl'))['total'] or 0.0
+
+    win_rate = (winning_trades / total_trades * 100)
+
+    
+
+    avg_win = all_trades.filter(pnl__gt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
+
+    avg_loss = all_trades.filter(pnl__lt=0).aggregate(avg=Avg('pnl'))['avg'] or 0.0
+
+    
+
+    profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else (999.0 if avg_win > 0 else 0.0)
+
+    
+
+    return {
+
+        "total_pnl": round(total_pnl, 2),
+
+        "total_trades": total_trades,
+
+        "profit_factor": round(profit_factor, 2),
+
+        "win_rate": round(win_rate, 1),
+
+        "balance": round(total_equity, 2),
+
+        "free_cash": round(free_balance, 2),
+
+        "locked_cash": round(locked_balance, 2),
+
+        "winning_trades": winning_trades,
+
+        "losing_trades": losing_trades,
+
+        "error": None
+
+    }
+
+
+
+
+
+@router.get("/recent_trades", response=List[TradeSchema])
+
+def get_recent_trades(request):
+
+    """Отримання останніх 50 угод для таблиці історії (залізобетонний метод)"""
+
+    trades_qs = Trade.objects.order_by('-timestamp')[:50]
+
+    
+
+    trades_list = []
+
+    for t in trades_qs:
+
+        trades_list.append({
+
+            "symbol": t.symbol,
+
+            "side": t.side,
+
+            "price": float(t.price),
+
+            "amount": float(t.amount),
+
+            "pnl": float(t.pnl) if t.pnl else 0.0,
+
+            "timestamp": t.timestamp
+
+        })
+
+        
+
+    return trades_list
+
+
+
+
+
+@router.get("/active_positions", response=List[ActivePositionSchema])
+
+def get_active_positions(request):
+
+    """Отримання списку відкритих позицій з розрахунком плаваючого PnL у реальному часі."""
+
+    positions_qs = ActivePosition.objects.all()
+
+    
+
+    # Спробуємо підтягнути актуальні ціни з market_radar.json
+
+    radar_prices = {}
+
+    radar_file = DATA_DIR / "market_radar.json"
+
+    if radar_file.exists():
+
+        try:
+
+            with open(radar_file, "r", encoding="utf-8") as f:
+
+                radar_list = json.load(f)
+
+                for item in radar_list:
+
+                    radar_prices[item.get("symbol")] = float(item.get("price", 0.0))
+
+        except Exception:
+
+            pass
+
+
+
+    result = []
+
+    for pos in positions_qs:
+
+        curr_price = radar_prices.get(pos.symbol, float(pos.highest_price or pos.entry_price))
+
+        entry_price = float(pos.entry_price)
+
+        amount = float(pos.amount)
+
+        cost = float(pos.cost)
+
+        
+
+        unrealized_pnl = (curr_price - entry_price) * amount if entry_price > 0 else 0.0
+
+        unrealized_pnl_pct = ((curr_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
+
+
+
+        opened_str = pos.opened_at.strftime("%d.%m %H:%M") if pos.opened_at else ""
+
+
+
+        result.append({
+
+            "symbol": pos.symbol,
+
+            "amount": amount,
+
+            "entry_price": round(entry_price, 4),
+
+            "highest_price": round(float(pos.highest_price), 4),
+
+            "cost": round(cost, 2),
+
+            "current_price": round(curr_price, 4),
+
+            "unrealized_pnl": round(unrealized_pnl, 2),
+
+            "unrealized_pnl_pct": round(unrealized_pnl_pct, 2),
+
+            "opened_at": opened_str
+
+        })
+
+    return result
+
+
+
+
+
+@router.post("/close_position")
+
+def close_position(request, payload: ClosePositionRequest):
+
+    """Ручне закриття обраної відкритої позиції з дашборду."""
+
+    cmd_file = DATA_DIR / "command_queue.json"
+
+    try:
+
+        with open(cmd_file, "w", encoding="utf-8") as f:
+
+            json.dump({"action": "close_position", "symbol": payload.symbol}, f)
+
+        return {"status": "success", "message": f"Команду закриття {payload.symbol} надіслано рушію"}
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+@router.post("/close_all")
+
+def close_all_positions(request):
+
+    """Екстрене закриття ВСІХ відкритих позицій (Panic Exit)."""
+
+    cmd_file = DATA_DIR / "command_queue.json"
+
+    try:
+
+        with open(cmd_file, "w", encoding="utf-8") as f:
+
+            json.dump({"action": "close_all"}, f)
+
+        return {"status": "success", "message": "Команду екстреного закриття всіх позицій надіслано рушію"}
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+@router.get("/market_scanner")
+
+def get_market_scanner(request):
+
+    """Отримання живих результатів сканування 20 пар, рішень ШІ та режимів ринку."""
+
+    radar_file = DATA_DIR / "market_radar.json"
+
+    if radar_file.exists():
+
+        try:
+
+            with open(radar_file, "r", encoding="utf-8") as f:
+
+                return json.load(f)
+
+        except Exception:
+
+            return []
+
+    return []
+
 
 @router.get("/arbitrage/radar")
 @router.get("/v1/arbitrage/radar")
@@ -295,516 +553,1061 @@ def get_arbitrage_radar(request):
         "recent_alerts": []
     }
 
+@router.get("/arbitrage/funding")
+@router.get("/v1/arbitrage/funding")
+def get_arbitrage_funding(request):
+    """Дельта-нейтральний радар ставок фінансування (Funding Rates) Binance & Bybit."""
+    try:
+        import redis
+        from src.shared.config import settings
+        r = redis.Redis.from_url(getattr(settings, 'REDIS_URL', 'redis://127.0.0.1:6379/0'))
+        cached = r.get("arbitrage:funding")
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
 
-@router.get("/config")
-def get_config(request):
-    """Отримання поточних налаштувань алгоритму."""
-    from src.shared.config import settings
-    cfg_file = DATA_DIR / "runtime_config.json"
-    default_cfg = {
-        "confidence_threshold": 0.60,
-        "risk_reward_ratio": 1.5,
-        "max_positions": 2,
-        "trade_fraction": 0.04,
-        "min_adx_trend": 25.0,
-        "trading_mode": getattr(settings, 'TRADING_MODE', 'PAPER'),
-        "gemini_api_key": "",
-        "telegram_bot_token": "",
-        "telegram_chat_id": str(getattr(settings, 'TELEGRAM_CHAT_ID', '') or '')
-    }
-    if cfg_file.exists():
-        try:
-            with open(cfg_file, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-                default_cfg.update(saved)
-        except Exception:
-            pass
-    return default_cfg
-
-
-@router.post("/config")
-def update_config(request, payload: ConfigUpdateRequest):
-    """Збереження оновлених налаштувань алгоритму на льоту."""
-    cfg_file = DATA_DIR / "runtime_config.json"
-    cfg_dict = payload.model_dump(exclude_none=True)
-    try:
-        current_cfg = {}
-        if cfg_file.exists():
-            try:
-                with open(cfg_file, "r", encoding="utf-8") as f:
-                    current_cfg = json.load(f)
-            except Exception:
-                pass
-        current_cfg.update(cfg_dict)
-        with open(cfg_file, "w", encoding="utf-8") as f:
-            json.dump(current_cfg, f, indent=2)
-        return {"status": "success", "message": "Налаштування успішно збережено та застосовано", "config": current_cfg}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@router.post("/ai/chat")
-def ai_chat_endpoint(request, payload: AIChatRequest):
-    """Інтерактивний квантовий AI-асистент на базі Google Gemini 1.5 Flash."""
-    import asyncio
-    from src.engine.application.gemini_sentinel import GeminiSentinel
-    from src.shared.config import settings
-
-    wallet = Wallet.objects.first()
-    balance = float(wallet.usdt_balance) if wallet else 1000.0
-    trades_list = list(Trade.objects.order_by("-timestamp")[:10])
-    total_trades = Trade.objects.count()
-    w_cnt = Trade.objects.filter(pnl__gt=0).count()
-    win_rate = (w_cnt / total_trades * 100.0) if total_trades > 0 else 50.0
-    total_pnl = float(Trade.objects.aggregate(Sum('pnl'))['pnl__sum'] or 0.0)
-    positions = list(ActivePosition.objects.all())
-    active_pos_list = [f"{p.symbol} ({p.amount} @ ${float(p.entry_price):.4f})" for p in positions]
-    recent_trades_summary = [f"{t.symbol} {t.side} PnL: ${t.pnl:.2f}" for t in trades_list[:5]]
-
-    btc_pulse = "NORMAL"
-    radar_file = DATA_DIR / "market_radar.json"
-    if radar_file.exists():
-        try:
-            with open(radar_file, "r", encoding="utf-8") as f:
-                r_data = json.load(f)
-                if r_data and isinstance(r_data, list):
-                    btc_row = next((x for x in r_data if x.get("symbol") == "BTC/USDT"), None)
-                    if btc_row:
-                        btc_pulse = btc_row.get("market_regime", "NORMAL")
-        except Exception:
-            pass
-
-    key_override = None
-    cfg_file = DATA_DIR / "runtime_config.json"
-    if cfg_file.exists():
-        try:
-            with open(cfg_file, "r", encoding="utf-8") as f:
-                saved_cfg = json.load(f)
-                if saved_cfg.get("gemini_api_key"):
-                    key_override = saved_cfg["gemini_api_key"]
-        except Exception:
-            pass
-
-    class DynamicSettings:
-        def __init__(self, key):
-            self.GEMINI_API_KEY = key or getattr(settings, 'GEMINI_API_KEY', None)
-
-    sentinel = GeminiSentinel(settings=DynamicSettings(key_override))
-
-    context = {
-        "balance": balance,
-        "free_cash": balance,
-        "total_pnl": total_pnl,
-        "win_rate": win_rate,
-        "total_trades": total_trades,
-        "btc_pulse": btc_pulse,
-        "fg_score": 50,
-        "fg_mode": "BALANCED",
-        "active_positions": active_pos_list,
-        "recent_trades": recent_trades_summary
-    }
-
-    try:
-        result = asyncio.run(sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua"))
-    except RuntimeError:
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            result = pool.submit(asyncio.run, sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua")).result()
-
-    return result
-
-
-@router.get("/equity_history")
-def get_equity_history(request):
-    """Історія динаміки капіталу (Equity Curve), просадки та денного PnL."""
-    trades = list(Trade.objects.order_by("id"))
-    wallet = Wallet.objects.first()
-    current_free = float(wallet.usdt_balance) if wallet else 1000.0
-
-    from src.shared.config import settings
-    initial_balance = getattr(settings, "INITIAL_BALANCE", 1000.0)
-
-    cumulative_pnl = 0.0
-    peak_equity = initial_balance
-    equity_points = []
-    daily_map = {}
-
-    for t in trades:
-        pnl = float(t.pnl or 0.0)
-        cumulative_pnl += pnl
-        equity = initial_balance + cumulative_pnl
-        if equity > peak_equity:
-            peak_equity = equity
-        dd_pct = ((peak_equity - equity) / peak_equity * 100.0) if peak_equity > 0 else 0.0
-
-        ts_str = t.timestamp.strftime("%d.%m %H:%M") if t.timestamp else f"#{t.id}"
-        date_str = t.timestamp.strftime("%Y-%m-%d") if t.timestamp else "2026-10-25"
-
-        equity_points.append({
-            "id": t.id,
-            "time": ts_str,
-            "symbol": t.symbol,
-            "pnl": round(pnl, 2),
-            "equity": round(equity, 2),
-            "drawdown_pct": round(dd_pct, 2)
-        })
-
-        if date_str not in daily_map:
-            daily_map[date_str] = {"date": date_str, "pnl": 0.0, "trades": 0}
-        daily_map[date_str]["pnl"] += pnl
-        daily_map[date_str]["trades"] += 1
-
-    daily_bars = [
-        {"date": d, "pnl": round(v["pnl"], 2), "trades": v["trades"]}
-        for d, v in sorted(daily_map.items())
-    ]
-
-    current_equity = initial_balance + cumulative_pnl
-    max_drawdown_pct = max([p["drawdown_pct"] for p in equity_points], default=0.0)
-
-    return {
-        "status": "success",
-        "initial_balance": initial_balance,
-        "current_equity": round(current_equity, 2),
-        "peak_equity": round(peak_equity, 2),
-        "max_drawdown_pct": round(max_drawdown_pct, 2),
-        "total_trades": len(trades),
-        "equity_curve": equity_points[-60:],
-        "daily_pnl": daily_bars
-    }
-
-
-@router.post("/telegram/test")
-def test_telegram_connection(request, payload: TelegramTestRequest):
-    """Перевірка валідності токена Telegram та відправка тестового повідомлення."""
-    import urllib.request
-    from src.shared.config import settings
-
-    token = payload.token
-    chat_id = payload.chat_id
-
-    cfg_file = DATA_DIR / "runtime_config.json"
-    if cfg_file.exists():
-        try:
-            with open(cfg_file, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-                token = token or saved.get("telegram_bot_token")
-                chat_id = chat_id or saved.get("telegram_chat_id")
-        except Exception:
-            pass
-
-    if not token:
-        raw = getattr(settings, 'TELEGRAM_BOT_TOKEN', None)
-        token = raw.get_secret_value() if hasattr(raw, 'get_secret_value') else str(raw or '')
-
-    if not chat_id:
-        chat_id = str(getattr(settings, 'TELEGRAM_CHAT_ID', '') or '')
-
-    token = (token or '').strip()
-    chat_id = (chat_id or '').strip()
-
-    if not token or not chat_id:
-        return {"status": "error", "message": "Будь ласка, вкажіть Telegram Bot Token та Chat ID."}
-
-    text = (
-        "🚀 <b>AlgoTrade PRO Web Terminal</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "✅ <b>Тестове з'єднання успішне!</b>\n"
-        "Ваш персональний Telegram-пульт підключено до квантового рушія.\n"
-        f"⏰ Час: <code>{datetime.now().strftime('%H:%M:%S')}</code>\n"
-        "━━━━━━━━━━━━━━━━━━"
-    )
-
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    post_data = json.dumps({
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }).encode("utf-8")
-
-    req = urllib.request.Request(url, data=post_data, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            if resp.status == 200:
-                return {"status": "success", "message": "Тестове повідомлення успішно надіслано у ваш Telegram!"}
-            return {"status": "error", "message": f"Помилка Telegram API: HTTP {resp.status}"}
-    except Exception as e:
-        return {"status": "error", "message": f"Не вдалося надіслати тестове повідомлення: {e}"}
-
-
-@router.get("/ai/error_patterns")
-def get_ai_error_patterns(request):
-    """Статистичний звіт діагностики патернів помилок на базі закритих угод."""
-    try:
-        from src.infrastructure.ai.feedback_loop import FeedbackLoopService
-        svc = FeedbackLoopService()
-        report = svc.analyze_error_patterns(lookback_trades=100)
-        return {"status": "success", "report": report.model_dump()}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@router.post("/ai/trigger_feedback_loop")
-def trigger_feedback_retrain(request, payload: Optional[FeedbackRetrainRequest] = None):
-    """Ручний або плановий запуск самонавчання ШІ на бойовому досвіді угод."""
-    try:
-        from src.infrastructure.ai.feedback_loop import FeedbackLoopService
-        svc = FeedbackLoopService()
-        min_trades = payload.min_real_trades if payload else 15
-        force = payload.force_deploy if payload else False
-        result = svc.retrain_with_feedback(
-            min_real_trades=min_trades,
-            force_deploy=force
-        )
-        return {
-            "status": "success" if result.success else "info",
-            "deployed": result.deployed,
-            "trained_samples": result.trained_samples,
-            "real_trades_used": result.real_trades_used,
-            "metrics": result.metrics,
-            "message": result.message
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@router.get("/engine_logs")
-def get_engine_logs(request):
-    """Отримання останніх 80 рядків реальних логів рушія."""
-    log_file = DATA_DIR / "engine.log"
-    if not log_file.exists():
-        return {"logs": ["Лог-файл ініціалізується..."]}
-    try:
-        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-            tail = [line.strip() for line in lines[-80:] if line.strip()]
-            return {"logs": tail}
-    except Exception as e:
-        return {"logs": [f"Помилка читання логів: {e}"]}
-
-
-@router.post("/reset_account")
-def reset_account(request):
-    """Скидання демо-депозиту до $1,000 та очищення історії для нового тестування."""
-    try:
-        Trade.objects.all().delete()
-        ActivePosition.objects.all().delete()
-        Wallet.objects.update_or_create(id=1, defaults={"usdt_balance": 1000.0})
-        return {"status": "success", "message": "Баланс успішно скинуто до 1,000 USDT"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@router.get("/export_trades_csv")
-def export_trades_csv(request):
-    """Експорт історії виконаних угод у CSV-файл."""
-    trades = Trade.objects.order_by("-timestamp")
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "Timestamp", "Symbol", "Side", "Price", "Amount", "Cost_USDT", "PnL_USDT"])
-    for t in trades:
-        writer.writerow([t.id, t.timestamp, t.symbol, t.side, t.price, t.amount, t.cost, t.pnl])
-    
-    response = HttpResponse(output.getvalue(), content_type="text/csv")
-    response["Content-Disposition"] = 'attachment; filename="trades_history.csv"'
-    return response
-
-
-@router.post("/backtest")
-async def run_backtest_endpoint(request, payload: BacktestRequest):
-    """Виконання квантового бектесту на історичних даних."""
-    from src.analytics.backtester import BacktestEngine
-    from src.engine.infrastructure.exchange_manager import ExchangeManager
-    from src.shared.config import settings
-    import numpy as np
-    import pandas as pd
-
-    engine = BacktestEngine(settings=settings)
-    exchange_mgr = ExchangeManager(settings=settings)
-    df = None
-    try:
-        df = await exchange_mgr.fetch_data(
-            symbol=payload.symbol,
-            timeframe=payload.timeframe,
-            limit=payload.candles
-        )
-    except Exception as e:
-        logger.warning(f"Backtest exchange fetch warning: {e}")
-    finally:
-        await exchange_mgr.close()
-
-
-    if df is None or len(df) < 50:
-        # Автоматична генерація надійного датасету для бектесту, якщо біржа обмежила рейтліміт
-        dates = pd.date_range("2026-01-01", periods=payload.candles, freq="5min")
-        sym = payload.symbol.upper()
-        if "BTC" in sym:
-            base_p = 65000.0
-        elif "ETH" in sym:
-            base_p = 2500.0
-        elif "SOL" in sym:
-            base_p = 180.0
-        elif "BNB" in sym:
-            base_p = 600.0
-        elif "AVAX" in sym:
-            base_p = 28.0
-        elif "XRP" in sym:
-            base_p = 0.55
-        else:
-            base_p = 100.0
-        trend = np.linspace(0, base_p * 0.05, payload.candles)
-        noise = np.random.normal(0, base_p * 0.002, payload.candles)
-        closes = base_p + trend + noise
-        highs = closes * 1.002
-        lows = closes * 0.998
-        opens = (highs + lows) / 2
-        vols = np.random.uniform(50, 200, payload.candles)
-        df = pd.DataFrame({"timestamp": dates, "open": opens, "high": highs, "low": lows, "close": closes, "volume": vols})
-
-    results = engine.run(
-        df=df,
-        symbol=payload.symbol,
-        confidence_threshold=payload.confidence_threshold,
-        risk_reward_ratio=payload.risk_reward_ratio,
-        trade_fraction=payload.trade_fraction
-    )
-    return {"status": "success", "results": results}
-
-
-@router.get("/portfolio")
-async def get_portfolio_endpoint(request):
-    """Отримання розподілу активів та статусу BNB Fee Optimizer."""
-    from src.engine.application.portfolio_manager import PortfolioManager
-    from src.engine.infrastructure.exchange_manager import ExchangeManager
-    from src.shared.config import settings
-
-    exchange_mgr = ExchangeManager(settings=settings)
-    pm = PortfolioManager(settings=settings, exchange_manager=exchange_mgr)
-    try:
-        summary = await pm.get_portfolio_summary()
-        return {"status": "success", "portfolio": summary}
-    finally:
-        await exchange_mgr.close()
-
-
-@router.get("/sentiment")
-async def get_sentiment_endpoint(request):
-    """Отримання макро-індексу Fear & Greed та адаптивних квантових рекомендацій."""
-    from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
-    analyzer = MarketSentimentAnalyzer()
-    sentiment = await analyzer.get_market_sentiment()
-    return {"status": "success", "sentiment": sentiment}
-
-
-
-@router.get("/news")
-async def get_news_endpoint(request):
-    """Отримання стрічки свіжих криптоновин з AI сентиментом та активних блекаутів."""
-    from src.engine.infrastructure.news_analyzer import NewsAnalyzer
-    analyzer = NewsAnalyzer()
-    news = await analyzer.fetch_latest_news()
-    blackouts = analyzer.get_active_blackouts()
-    return {
-        "status": "success",
-        "count": len(news),
-        "blackouts": blackouts,
-        "news": news[:25]
-    }
-
-
-@router.get("/system_infra")
-def get_system_infra(request):
-    """Статус інституційних технологій: Redis Cache, Celery Distributed Tasks, LightGBM Dual Ensemble."""
-    from src.engine.infrastructure.cache_manager import cache_manager
-    from src.shared.config import settings
-
-    stats = cache_manager.get_stats()
-    project_root = Path(__file__).resolve().parent.parent.parent
-
-    lgbm_path = Path(settings.LIGHTGBM_MODEL_PATH)
-    if not lgbm_path.is_absolute():
-        lgbm_path = project_root / lgbm_path
-
-    rf_path = Path(settings.MODEL_PATH)
-    if not rf_path.is_absolute():
-        rf_path = project_root / rf_path
-
-    return {
-        "status": "success",
-        "redis": {
-            "backend": stats.get("backend", "in_memory"),
-            "connected": stats.get("redis_connected", False),
-            "keys_count": stats.get("memory_keys_count", 0),
-            "url": stats.get("redis_url", "")
-        },
-        "celery": {
-            "broker": settings.CELERY_BROKER_URL,
-            "tasks": ["task_refresh_news_feed", "task_sync_market_sentiment", "task_retrain_ai_model", "task_deep_backtest"],
-            "beat_active": True
-        },
-        "ai_ensemble": {
-            "rf_loaded": rf_path.exists(),
-            "lgbm_loaded": lgbm_path.exists(),
-            "ensemble_enabled": settings.ENABLE_QUANT_DUAL_ENSEMBLE,
-            "weights": {"rf": 0.55, "lightgbm": 0.45}
-        }
-    }
-
-
-def sse_event_stream():
-    """Генератор Server-Sent Events (SSE) для Cupertino Web Terminal (Non-blocking)."""
-    import time
-    from src.engine.infrastructure.cache_manager import cache_manager
-
-    telemetry = {
-        "connected": True,
-        "timestamp": time.time(),
-        "redis_active": cache_manager.is_redis_available,
-        "time_str": datetime.now().strftime("%H:%M:%S")
-    }
-    yield f"event: connected\ndata: {json.dumps(telemetry)}\n\n"
-    yield f"event: heartbeat\ndata: {json.dumps(telemetry)}\n\n"
-
-
-@router.get("/stream")
-def stream_telemetry_endpoint(request):
-    from django.http import StreamingHttpResponse
-    response = StreamingHttpResponse(sse_event_stream(), content_type="text/event-stream")
-    response['Cache-Control'] = 'no-cache'
-    response['X-Accel-Buffering'] = 'no'
-    return response
-
-
-@router.post("/celery/trigger_news")
-def trigger_news_task(request):
-    """Ручний запуск Celery таски оновлення новин."""
-    try:
-        from src.engine.application.tasks import task_refresh_news_feed
-        try:
-            res = task_refresh_news_feed.delay()
-            task_id = str(res.id)
-        except Exception:
-            res = task_refresh_news_feed()
-            task_id = "sync_executed"
-        return {"status": "success", "task_id": task_id}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-@router.post("/celery/trigger_retrain")
-def trigger_retrain_task(request):
-    """Ручний запуск Celery таски перенавчання ансамблю ШІ."""
-    try:
-        from src.engine.application.tasks import task_retrain_ai_model
-        try:
-            res = task_retrain_ai_model.delay(pairs=["BTC/USDT", "ETH/USDT"], history_days=14)
-            task_id = str(res.id)
-        except Exception:
-            res = task_retrain_ai_model(pairs=["BTC/USDT"], history_days=7)
-            task_id = "sync_executed"
-        return {"status": "success", "task_id": task_id}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-
+    funding_file = DATA_DIR / "funding_radar.json"
+    if funding_file.exists():
+        try:
+            with open(funding_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    return {
+        "status": "initializing",
+        "updated_at": 0,
+        "updated_time": "Синхронізація...",
+        "pairs_scanned": 0,
+        "max_funding_apy": 0.0,
+        "top_opportunity": None,
+        "funding_rates": []
+    }
+
+
+
+@router.get("/config")
+
+def get_config(request):
+
+    """Отримання поточних налаштувань алгоритму."""
+
+    from src.shared.config import settings
+
+    cfg_file = DATA_DIR / "runtime_config.json"
+
+    default_cfg = {
+
+        "confidence_threshold": 0.60,
+
+        "risk_reward_ratio": 1.5,
+
+        "max_positions": 2,
+
+        "trade_fraction": 0.04,
+
+        "min_adx_trend": 25.0,
+
+        "trading_mode": getattr(settings, 'TRADING_MODE', 'PAPER'),
+
+        "gemini_api_key": "",
+
+        "telegram_bot_token": "",
+
+        "telegram_chat_id": str(getattr(settings, 'TELEGRAM_CHAT_ID', '') or '')
+
+    }
+
+    if cfg_file.exists():
+
+        try:
+
+            with open(cfg_file, "r", encoding="utf-8") as f:
+
+                saved = json.load(f)
+
+                default_cfg.update(saved)
+
+        except Exception:
+
+            pass
+
+    return default_cfg
+
+
+
+
+
+@router.post("/config")
+
+def update_config(request, payload: ConfigUpdateRequest):
+
+    """Збереження оновлених налаштувань алгоритму на льоту."""
+
+    cfg_file = DATA_DIR / "runtime_config.json"
+
+    cfg_dict = payload.model_dump(exclude_none=True)
+
+    try:
+
+        current_cfg = {}
+
+        if cfg_file.exists():
+
+            try:
+
+                with open(cfg_file, "r", encoding="utf-8") as f:
+
+                    current_cfg = json.load(f)
+
+            except Exception:
+
+                pass
+
+        current_cfg.update(cfg_dict)
+
+        with open(cfg_file, "w", encoding="utf-8") as f:
+
+            json.dump(current_cfg, f, indent=2)
+
+        return {"status": "success", "message": "Налаштування успішно збережено та застосовано", "config": current_cfg}
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+@router.post("/ai/chat")
+
+def ai_chat_endpoint(request, payload: AIChatRequest):
+
+    """Інтерактивний квантовий AI-асистент на базі Google Gemini 1.5 Flash."""
+
+    import asyncio
+
+    from src.engine.application.gemini_sentinel import GeminiSentinel
+
+    from src.shared.config import settings
+
+
+
+    wallet = Wallet.objects.first()
+
+    balance = float(wallet.usdt_balance) if wallet else 1000.0
+
+    trades_list = list(Trade.objects.order_by("-timestamp")[:10])
+
+    total_trades = Trade.objects.count()
+
+    w_cnt = Trade.objects.filter(pnl__gt=0).count()
+
+    win_rate = (w_cnt / total_trades * 100.0) if total_trades > 0 else 50.0
+
+    total_pnl = float(Trade.objects.aggregate(Sum('pnl'))['pnl__sum'] or 0.0)
+
+    positions = list(ActivePosition.objects.all())
+
+    active_pos_list = [f"{p.symbol} ({p.amount} @ ${float(p.entry_price):.4f})" for p in positions]
+
+    recent_trades_summary = [f"{t.symbol} {t.side} PnL: ${t.pnl:.2f}" for t in trades_list[:5]]
+
+
+
+    btc_pulse = "NORMAL"
+
+    radar_file = DATA_DIR / "market_radar.json"
+
+    if radar_file.exists():
+
+        try:
+
+            with open(radar_file, "r", encoding="utf-8") as f:
+
+                r_data = json.load(f)
+
+                if r_data and isinstance(r_data, list):
+
+                    btc_row = next((x for x in r_data if x.get("symbol") == "BTC/USDT"), None)
+
+                    if btc_row:
+
+                        btc_pulse = btc_row.get("market_regime", "NORMAL")
+
+        except Exception:
+
+            pass
+
+
+
+    key_override = None
+
+    cfg_file = DATA_DIR / "runtime_config.json"
+
+    if cfg_file.exists():
+
+        try:
+
+            with open(cfg_file, "r", encoding="utf-8") as f:
+
+                saved_cfg = json.load(f)
+
+                if saved_cfg.get("gemini_api_key"):
+
+                    key_override = saved_cfg["gemini_api_key"]
+
+        except Exception:
+
+            pass
+
+
+
+    class DynamicSettings:
+
+        def __init__(self, key):
+
+            self.GEMINI_API_KEY = key or getattr(settings, 'GEMINI_API_KEY', None)
+
+
+
+    sentinel = GeminiSentinel(settings=DynamicSettings(key_override))
+
+
+
+    context = {
+
+        "balance": balance,
+
+        "free_cash": balance,
+
+        "total_pnl": total_pnl,
+
+        "win_rate": win_rate,
+
+        "total_trades": total_trades,
+
+        "btc_pulse": btc_pulse,
+
+        "fg_score": 50,
+
+        "fg_mode": "BALANCED",
+
+        "active_positions": active_pos_list,
+
+        "recent_trades": recent_trades_summary
+
+    }
+
+
+
+    try:
+
+        result = asyncio.run(sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua"))
+
+    except RuntimeError:
+
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+
+            result = pool.submit(asyncio.run, sentinel.ask_copilot(query=payload.query, context=context, lang=payload.lang or "ua")).result()
+
+
+
+    return result
+
+
+
+
+
+@router.get("/equity_history")
+
+def get_equity_history(request):
+
+    """Історія динаміки капіталу (Equity Curve), просадки та денного PnL."""
+
+    trades = list(Trade.objects.order_by("id"))
+
+    wallet = Wallet.objects.first()
+
+    current_free = float(wallet.usdt_balance) if wallet else 1000.0
+
+
+
+    from src.shared.config import settings
+
+    initial_balance = getattr(settings, "INITIAL_BALANCE", 1000.0)
+
+
+
+    cumulative_pnl = 0.0
+
+    peak_equity = initial_balance
+
+    equity_points = []
+
+    daily_map = {}
+
+
+
+    for t in trades:
+
+        pnl = float(t.pnl or 0.0)
+
+        cumulative_pnl += pnl
+
+        equity = initial_balance + cumulative_pnl
+
+        if equity > peak_equity:
+
+            peak_equity = equity
+
+        dd_pct = ((peak_equity - equity) / peak_equity * 100.0) if peak_equity > 0 else 0.0
+
+
+
+        ts_str = t.timestamp.strftime("%d.%m %H:%M") if t.timestamp else f"#{t.id}"
+
+        date_str = t.timestamp.strftime("%Y-%m-%d") if t.timestamp else "2026-10-25"
+
+
+
+        equity_points.append({
+
+            "id": t.id,
+
+            "time": ts_str,
+
+            "symbol": t.symbol,
+
+            "pnl": round(pnl, 2),
+
+            "equity": round(equity, 2),
+
+            "drawdown_pct": round(dd_pct, 2)
+
+        })
+
+
+
+        if date_str not in daily_map:
+
+            daily_map[date_str] = {"date": date_str, "pnl": 0.0, "trades": 0}
+
+        daily_map[date_str]["pnl"] += pnl
+
+        daily_map[date_str]["trades"] += 1
+
+
+
+    daily_bars = [
+
+        {"date": d, "pnl": round(v["pnl"], 2), "trades": v["trades"]}
+
+        for d, v in sorted(daily_map.items())
+
+    ]
+
+
+
+    current_equity = initial_balance + cumulative_pnl
+
+    max_drawdown_pct = max([p["drawdown_pct"] for p in equity_points], default=0.0)
+
+
+
+    return {
+
+        "status": "success",
+
+        "initial_balance": initial_balance,
+
+        "current_equity": round(current_equity, 2),
+
+        "peak_equity": round(peak_equity, 2),
+
+        "max_drawdown_pct": round(max_drawdown_pct, 2),
+
+        "total_trades": len(trades),
+
+        "equity_curve": equity_points[-60:],
+
+        "daily_pnl": daily_bars
+
+    }
+
+
+
+
+
+@router.post("/telegram/test")
+
+def test_telegram_connection(request, payload: TelegramTestRequest):
+
+    """Перевірка валідності токена Telegram та відправка тестового повідомлення."""
+
+    import urllib.request
+
+    from src.shared.config import settings
+
+
+
+    token = payload.token
+
+    chat_id = payload.chat_id
+
+
+
+    cfg_file = DATA_DIR / "runtime_config.json"
+
+    if cfg_file.exists():
+
+        try:
+
+            with open(cfg_file, "r", encoding="utf-8") as f:
+
+                saved = json.load(f)
+
+                token = token or saved.get("telegram_bot_token")
+
+                chat_id = chat_id or saved.get("telegram_chat_id")
+
+        except Exception:
+
+            pass
+
+
+
+    if not token:
+
+        raw = getattr(settings, 'TELEGRAM_BOT_TOKEN', None)
+
+        token = raw.get_secret_value() if hasattr(raw, 'get_secret_value') else str(raw or '')
+
+
+
+    if not chat_id:
+
+        chat_id = str(getattr(settings, 'TELEGRAM_CHAT_ID', '') or '')
+
+
+
+    token = (token or '').strip()
+
+    chat_id = (chat_id or '').strip()
+
+
+
+    if not token or not chat_id:
+
+        return {"status": "error", "message": "Будь ласка, вкажіть Telegram Bot Token та Chat ID."}
+
+
+
+    text = (
+
+        "🚀 <b>AlgoTrade PRO Web Terminal</b>\n"
+
+        "━━━━━━━━━━━━━━━━━━\n"
+
+        "✅ <b>Тестове з'єднання успішне!</b>\n"
+
+        "Ваш персональний Telegram-пульт підключено до квантового рушія.\n"
+
+        f"⏰ Час: <code>{datetime.now().strftime('%H:%M:%S')}</code>\n"
+
+        "━━━━━━━━━━━━━━━━━━"
+
+    )
+
+
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    post_data = json.dumps({
+
+        "chat_id": chat_id,
+
+        "text": text,
+
+        "parse_mode": "HTML"
+
+    }).encode("utf-8")
+
+
+
+    req = urllib.request.Request(url, data=post_data, headers={"Content-Type": "application/json"})
+
+    try:
+
+        with urllib.request.urlopen(req, timeout=8) as resp:
+
+            if resp.status == 200:
+
+                return {"status": "success", "message": "Тестове повідомлення успішно надіслано у ваш Telegram!"}
+
+            return {"status": "error", "message": f"Помилка Telegram API: HTTP {resp.status}"}
+
+    except Exception as e:
+
+        return {"status": "error", "message": f"Не вдалося надіслати тестове повідомлення: {e}"}
+
+
+
+
+
+@router.get("/ai/error_patterns")
+
+def get_ai_error_patterns(request):
+
+    """Статистичний звіт діагностики патернів помилок на базі закритих угод."""
+
+    try:
+
+        from src.infrastructure.ai.feedback_loop import FeedbackLoopService
+
+        svc = FeedbackLoopService()
+
+        report = svc.analyze_error_patterns(lookback_trades=100)
+
+        return {"status": "success", "report": report.model_dump()}
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+@router.post("/ai/trigger_feedback_loop")
+
+def trigger_feedback_retrain(request, payload: Optional[FeedbackRetrainRequest] = None):
+
+    """Ручний або плановий запуск самонавчання ШІ на бойовому досвіді угод."""
+
+    try:
+
+        from src.infrastructure.ai.feedback_loop import FeedbackLoopService
+
+        svc = FeedbackLoopService()
+
+        min_trades = payload.min_real_trades if payload else 15
+
+        force = payload.force_deploy if payload else False
+
+        result = svc.retrain_with_feedback(
+
+            min_real_trades=min_trades,
+
+            force_deploy=force
+
+        )
+
+        return {
+
+            "status": "success" if result.success else "info",
+
+            "deployed": result.deployed,
+
+            "trained_samples": result.trained_samples,
+
+            "real_trades_used": result.real_trades_used,
+
+            "metrics": result.metrics,
+
+            "message": result.message
+
+        }
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+@router.get("/engine_logs")
+
+def get_engine_logs(request):
+
+    """Отримання останніх 80 рядків реальних логів рушія."""
+
+    log_file = DATA_DIR / "engine.log"
+
+    if not log_file.exists():
+
+        return {"logs": ["Лог-файл ініціалізується..."]}
+
+    try:
+
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+
+            lines = f.readlines()
+
+            tail = [line.strip() for line in lines[-80:] if line.strip()]
+
+            return {"logs": tail}
+
+    except Exception as e:
+
+        return {"logs": [f"Помилка читання логів: {e}"]}
+
+
+
+
+
+@router.post("/reset_account")
+
+def reset_account(request):
+
+    """Скидання демо-депозиту до $1,000 та очищення історії для нового тестування."""
+
+    try:
+
+        Trade.objects.all().delete()
+
+        ActivePosition.objects.all().delete()
+
+        Wallet.objects.update_or_create(id=1, defaults={"usdt_balance": 1000.0})
+
+        return {"status": "success", "message": "Баланс успішно скинуто до 1,000 USDT"}
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+@router.get("/export_trades_csv")
+
+def export_trades_csv(request):
+
+    """Експорт історії виконаних угод у CSV-файл."""
+
+    trades = Trade.objects.order_by("-timestamp")
+
+    output = io.StringIO()
+
+    writer = csv.writer(output)
+
+    writer.writerow(["ID", "Timestamp", "Symbol", "Side", "Price", "Amount", "Cost_USDT", "PnL_USDT"])
+
+    for t in trades:
+
+        writer.writerow([t.id, t.timestamp, t.symbol, t.side, t.price, t.amount, t.cost, t.pnl])
+
+    
+
+    response = HttpResponse(output.getvalue(), content_type="text/csv")
+
+    response["Content-Disposition"] = 'attachment; filename="trades_history.csv"'
+
+    return response
+
+
+
+
+
+@router.post("/backtest")
+
+async def run_backtest_endpoint(request, payload: BacktestRequest):
+
+    """Виконання квантового бектесту на історичних даних."""
+
+    from src.analytics.backtester import BacktestEngine
+
+    from src.engine.infrastructure.exchange_manager import ExchangeManager
+
+    from src.shared.config import settings
+
+    import numpy as np
+
+    import pandas as pd
+
+
+
+    engine = BacktestEngine(settings=settings)
+
+    exchange_mgr = ExchangeManager(settings=settings)
+
+    df = None
+
+    try:
+
+        df = await exchange_mgr.fetch_data(
+
+            symbol=payload.symbol,
+
+            timeframe=payload.timeframe,
+
+            limit=payload.candles
+
+        )
+
+    except Exception as e:
+
+        logger.warning(f"Backtest exchange fetch warning: {e}")
+
+    finally:
+
+        await exchange_mgr.close()
+
+
+
+
+
+    if df is None or len(df) < 50:
+
+        # Автоматична генерація надійного датасету для бектесту, якщо біржа обмежила рейтліміт
+
+        dates = pd.date_range("2026-01-01", periods=payload.candles, freq="5min")
+
+        sym = payload.symbol.upper()
+
+        if "BTC" in sym:
+
+            base_p = 65000.0
+
+        elif "ETH" in sym:
+
+            base_p = 2500.0
+
+        elif "SOL" in sym:
+
+            base_p = 180.0
+
+        elif "BNB" in sym:
+
+            base_p = 600.0
+
+        elif "AVAX" in sym:
+
+            base_p = 28.0
+
+        elif "XRP" in sym:
+
+            base_p = 0.55
+
+        else:
+
+            base_p = 100.0
+
+        trend = np.linspace(0, base_p * 0.05, payload.candles)
+
+        noise = np.random.normal(0, base_p * 0.002, payload.candles)
+
+        closes = base_p + trend + noise
+
+        highs = closes * 1.002
+
+        lows = closes * 0.998
+
+        opens = (highs + lows) / 2
+
+        vols = np.random.uniform(50, 200, payload.candles)
+
+        df = pd.DataFrame({"timestamp": dates, "open": opens, "high": highs, "low": lows, "close": closes, "volume": vols})
+
+
+
+    results = engine.run(
+
+        df=df,
+
+        symbol=payload.symbol,
+
+        confidence_threshold=payload.confidence_threshold,
+
+        risk_reward_ratio=payload.risk_reward_ratio,
+
+        trade_fraction=payload.trade_fraction
+
+    )
+
+    return {"status": "success", "results": results}
+
+
+
+
+
+@router.get("/portfolio")
+
+async def get_portfolio_endpoint(request):
+
+    """Отримання розподілу активів та статусу BNB Fee Optimizer."""
+
+    from src.engine.application.portfolio_manager import PortfolioManager
+
+    from src.engine.infrastructure.exchange_manager import ExchangeManager
+
+    from src.shared.config import settings
+
+
+
+    exchange_mgr = ExchangeManager(settings=settings)
+
+    pm = PortfolioManager(settings=settings, exchange_manager=exchange_mgr)
+
+    try:
+
+        summary = await pm.get_portfolio_summary()
+
+        return {"status": "success", "portfolio": summary}
+
+    finally:
+
+        await exchange_mgr.close()
+
+
+
+
+
+@router.get("/sentiment")
+
+async def get_sentiment_endpoint(request):
+
+    """Отримання макро-індексу Fear & Greed та адаптивних квантових рекомендацій."""
+
+    from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
+
+    analyzer = MarketSentimentAnalyzer()
+
+    sentiment = await analyzer.get_market_sentiment()
+
+    return {"status": "success", "sentiment": sentiment}
+
+
+
+
+
+
+
+@router.get("/news")
+
+async def get_news_endpoint(request):
+
+    """Отримання стрічки свіжих криптоновин з AI сентиментом та активних блекаутів."""
+
+    from src.engine.infrastructure.news_analyzer import NewsAnalyzer
+
+    analyzer = NewsAnalyzer()
+
+    news = await analyzer.fetch_latest_news()
+
+    blackouts = analyzer.get_active_blackouts()
+
+    return {
+
+        "status": "success",
+
+        "count": len(news),
+
+        "blackouts": blackouts,
+
+        "news": news[:25]
+
+    }
+
+
+
+
+
+@router.get("/system_infra")
+
+def get_system_infra(request):
+
+    """Статус інституційних технологій: Redis Cache, Celery Distributed Tasks, LightGBM Dual Ensemble."""
+
+    from src.engine.infrastructure.cache_manager import cache_manager
+
+    from src.shared.config import settings
+
+
+
+    stats = cache_manager.get_stats()
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+
+
+
+    lgbm_path = Path(settings.LIGHTGBM_MODEL_PATH)
+
+    if not lgbm_path.is_absolute():
+
+        lgbm_path = project_root / lgbm_path
+
+
+
+    rf_path = Path(settings.MODEL_PATH)
+
+    if not rf_path.is_absolute():
+
+        rf_path = project_root / rf_path
+
+
+
+    return {
+
+        "status": "success",
+
+        "redis": {
+
+            "backend": stats.get("backend", "in_memory"),
+
+            "connected": stats.get("redis_connected", False),
+
+            "keys_count": stats.get("memory_keys_count", 0),
+
+            "url": stats.get("redis_url", "")
+
+        },
+
+        "celery": {
+
+            "broker": settings.CELERY_BROKER_URL,
+
+            "tasks": ["task_refresh_news_feed", "task_sync_market_sentiment", "task_retrain_ai_model", "task_deep_backtest"],
+
+            "beat_active": True
+
+        },
+
+        "ai_ensemble": {
+
+            "rf_loaded": rf_path.exists(),
+
+            "lgbm_loaded": lgbm_path.exists(),
+
+            "ensemble_enabled": settings.ENABLE_QUANT_DUAL_ENSEMBLE,
+
+            "weights": {"rf": 0.55, "lightgbm": 0.45}
+
+        }
+
+    }
+
+
+
+
+
+def sse_event_stream():
+
+    """Генератор Server-Sent Events (SSE) для Cupertino Web Terminal (Non-blocking)."""
+
+    import time
+
+    from src.engine.infrastructure.cache_manager import cache_manager
+
+
+
+    telemetry = {
+
+        "connected": True,
+
+        "timestamp": time.time(),
+
+        "redis_active": cache_manager.is_redis_available,
+
+        "time_str": datetime.now().strftime("%H:%M:%S")
+
+    }
+
+    yield f"event: connected\ndata: {json.dumps(telemetry)}\n\n"
+
+    yield f"event: heartbeat\ndata: {json.dumps(telemetry)}\n\n"
+
+
+
+
+
+@router.get("/stream")
+
+def stream_telemetry_endpoint(request):
+
+    from django.http import StreamingHttpResponse
+
+    response = StreamingHttpResponse(sse_event_stream(), content_type="text/event-stream")
+
+    response['Cache-Control'] = 'no-cache'
+
+    response['X-Accel-Buffering'] = 'no'
+
+    return response
+
+
+
+
+
+@router.post("/celery/trigger_news")
+
+def trigger_news_task(request):
+
+    """Ручний запуск Celery таски оновлення новин."""
+
+    try:
+
+        from src.engine.application.tasks import task_refresh_news_feed
+
+        try:
+
+            res = task_refresh_news_feed.delay()
+
+            task_id = str(res.id)
+
+        except Exception:
+
+            res = task_refresh_news_feed()
+
+            task_id = "sync_executed"
+
+        return {"status": "success", "task_id": task_id}
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+@router.post("/celery/trigger_retrain")
+
+def trigger_retrain_task(request):
+
+    """Ручний запуск Celery таски перенавчання ансамблю ШІ."""
+
+    try:
+
+        from src.engine.application.tasks import task_retrain_ai_model
+
+        try:
+
+            res = task_retrain_ai_model.delay(pairs=["BTC/USDT", "ETH/USDT"], history_days=14)
+
+            task_id = str(res.id)
+
+        except Exception:
+
+            res = task_retrain_ai_model(pairs=["BTC/USDT"], history_days=7)
+
+            task_id = "sync_executed"
+
+        return {"status": "success", "task_id": task_id}
+
+    except Exception as e:
+
+        return {"status": "error", "message": str(e)}
+
+
+
+
+
+
+

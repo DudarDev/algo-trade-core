@@ -210,7 +210,19 @@ class PaperTrader:
                 f"Risk: {risk_pct*100:.2f}% | Regime: {regime} | Conf: {ai_confidence:.2f} | Комісія: {entry_fee_usdt:.4f}"
             )
             if getattr(self.settings, 'ENABLE_TELEGRAM', False) and self.notifier:
-                await self.notifier.send_message(f"🟢 Відкрито: {side.value} {symbol} по {price:.4f} (Risk: {risk_pct*100:.1f}%, Conf: {ai_confidence:.2f})")
+                try:
+                    if hasattr(self.notifier, 'notify_trade_open'):
+                        self.notifier.notify_trade_open(
+                            symbol=symbol,
+                            entry_price=price,
+                            size_usdt=actual_usdt,
+                            regime=str(regime),
+                            conf=float(ai_confidence)
+                        )
+                    else:
+                        await self.notifier.send_message(f"🟢 Відкрито: {side.value} {symbol} по {price:.4f} (Risk: {risk_pct*100:.1f}%, Conf: {ai_confidence:.2f})")
+                except Exception as t_err:
+                    logger.debug(f"Telegram open notify error: {t_err}")
 
         except Exception as e:
             # 3. ROLLBACK: Якщо БД впала
@@ -429,7 +441,20 @@ class PaperTrader:
             msg = f"📉 [ВИХІД] {symbol} ({reason}) [{result_tag}] | Ціна: {close_price:.4f} | Чистий PnL: {net_pnl:+.2f} USDT"
             logger.info(msg)
             if getattr(self.settings, 'ENABLE_TELEGRAM', False) and self.notifier:
-                await self.notifier.send_message(msg)
+                try:
+                    pnl_pct = (net_pnl / pos.amount_usdt) * 100.0 if pos and pos.amount_usdt > 0 else 0.0
+                    if hasattr(self.notifier, 'notify_trade_close'):
+                        self.notifier.notify_trade_close(
+                            symbol=symbol,
+                            exit_price=close_price,
+                            net_pnl=net_pnl,
+                            pnl_pct=pnl_pct,
+                            reason=str(reason)
+                        )
+                    else:
+                        await self.notifier.send_message(msg)
+                except Exception as t_err:
+                    logger.debug(f"Telegram close notify error: {t_err}")
 
         except Exception as e:
             # 3. ROLLBACK: Відновлюємо позицію в пам'яті

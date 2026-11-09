@@ -401,6 +401,30 @@
             </tbody>
         </table>
     </div>
+
+    <!-- 💰 Таблиця Дельта-Нейтрального Фандингу (Binance & Bybit Perps) -->
+    <div id="arbitrage-funding-container" class="overflow-x-auto max-h-80 overflow-y-auto hidden">
+        <table class="w-full text-left text-xs">
+            <thead class="text-[11px] uppercase font-semibold border-b sticky top-0 z-10 backdrop-blur-md" style="background: var(--apple-subtle-bg); color: var(--apple-text-secondary); border-color: var(--apple-divider);">
+                <tr>
+                    <th class="px-5 py-2.5">Пара (Futures)</th>
+                    <th class="px-4 py-2.5">Binance 8h / APY</th>
+                    <th class="px-4 py-2.5">Bybit 8h / APY</th>
+                    <th class="px-4 py-2.5">Оптимальний маршрут</th>
+                    <th class="px-4 py-2.5">Дельта-Нейтральний Дохід (APY)</th>
+                    <th class="px-4 py-2.5">Міжбіржовий Спред APY</th>
+                    <th class="px-5 py-2.5 text-right">Статус / Потенціал</th>
+                </tr>
+            </thead>
+            <tbody id="arbitrage-funding-table-body" class="divide-y mono-num" style="divide-color: var(--apple-divider); color: var(--apple-text);">
+                <tr>
+                    <td colspan="7" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
+                        Опитування ставок фінансування Binance & Bybit (безстрокові ф'ючерси)...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 </section>
 
 <!-- 📈 5. ГРАФІЧНИЙ ЦЕНТР: TRADINGVIEW ТА CUMULATIVE PNL -->
@@ -527,6 +551,15 @@
             <span id="arb-radar-status-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all" style="background: var(--apple-orange-bg); color: var(--apple-orange-text); border-color: rgba(255, 149, 0, 0.3);">
                 СКАНИ: 0
             </span>
+            <!-- Під-вкладки Арбітражу: Spot Спред vs Delta-Neutral Funding -->
+            <div class="apple-seg-container ml-2">
+                <button type="button" id="arb-subtab-spot" class="apple-seg-item active px-2.5 py-1 text-[11px] flex items-center gap-1" onclick="window.dashboardApp?.switchArbSubTab('spot')">
+                    <i class="fa-solid fa-arrows-split-up-and-left text-[#FF9500]"></i> <span>Spot Спред</span>
+                </button>
+                <button type="button" id="arb-subtab-funding" class="apple-seg-item px-2.5 py-1 text-[11px] flex items-center gap-1" onclick="window.dashboardApp?.switchArbSubTab('funding')">
+                    <i class="fa-solid fa-coins text-[#34C759]"></i> <span>Фандинг APY (0 Ризику)</span>
+                </button>
+            </div>
         </div>
 
         <div class="flex items-center gap-3">
@@ -1280,6 +1313,7 @@ class DashboardController {
             activePositions: '/api/active_positions',
             marketScanner: '/api/market_scanner',
             arbitrageRadar: '/api/arbitrage/radar',
+            arbitrageFunding: '/api/arbitrage/funding',
             control: '/api/bot_control',
             status: '/api/status',
             config: '/api/config',
@@ -1323,6 +1357,11 @@ class DashboardController {
             arbAlertsContainer: document.getElementById('arb-alerts-container'),
             arbAlertsSummary: document.getElementById('arb-alerts-summary'),
             navArbBadge: document.getElementById('nav-arbitrage-badge'),
+            arbRadarContainer: document.getElementById('arbitrage-radar-container'),
+            arbFundingContainer: document.getElementById('arbitrage-funding-container'),
+            arbFundingTable: document.getElementById('arbitrage-funding-table-body'),
+            arbSubtabSpot: document.getElementById('arb-subtab-spot'),
+            arbSubtabFunding: document.getElementById('arb-subtab-funding'),
             tradesHistoryCount: document.getElementById('trades-history-count'),
             terminal: document.getElementById('terminal-screen'),
             autoscrollToggle: document.getElementById('autoscroll-toggle'),
@@ -1362,6 +1401,7 @@ class DashboardController {
         this.fetchActivePositions();
         this.fetchMarketRadar();
         this.fetchArbitrageRadar();
+        this.fetchArbitrageFunding();
         this.fetchEngineLogs();
         this.fetchConfig();
         this.fetchPortfolio();
@@ -2247,6 +2287,102 @@ class DashboardController {
         } catch (e) {
             console.error("fetchArbitrageRadar error:", e);
         }
+    }
+
+    switchArbSubTab(tab) {
+        this.currentArbSubTab = tab;
+        if (tab === 'funding') {
+            this.elements.arbSubtabSpot?.classList.remove('active');
+            this.elements.arbSubtabFunding?.classList.add('active');
+            this.elements.arbRadarContainer?.classList.add('hidden');
+            this.elements.arbFundingContainer?.classList.remove('hidden');
+            this.fetchArbitrageFunding();
+        } else {
+            this.elements.arbSubtabFunding?.classList.remove('active');
+            this.elements.arbSubtabSpot?.classList.add('active');
+            this.elements.arbFundingContainer?.classList.add('hidden');
+            this.elements.arbRadarContainer?.classList.remove('hidden');
+            this.fetchArbitrageRadar();
+        }
+    }
+
+    async fetchArbitrageFunding() {
+        try {
+            const res = await fetch(this.endpoints.arbitrageFunding);
+            if (!res.ok) return;
+            const data = await res.json();
+            this.updateArbitrageFundingUI(data);
+        } catch (e) {
+            console.error("fetchArbitrageFunding error:", e);
+        }
+    }
+
+    updateArbitrageFundingUI(data) {
+        if (!data || !this.elements.arbFundingTable) return;
+        const rates = data.funding_rates || [];
+        if (rates.length === 0) {
+            this.elements.arbFundingTable.innerHTML = `
+                <tr>
+                    <td colspan="7" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
+                        ${data.status === 'initializing' ? 'Опитування безстрокових ф’ючерсів Binance & Bybit...' : 'Дані фандингу оновлюються...'}
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        this.elements.arbFundingTable.innerHTML = rates.map(item => {
+            const isOpp = item.is_opportunity || item.spot_futures_apy >= 10.0;
+            const bRate = typeof item.binance_8h_pct === 'number' ? item.binance_8h_pct : 0.0;
+            const yRate = typeof item.bybit_8h_pct === 'number' ? item.bybit_8h_pct : 0.0;
+            const bApy = typeof item.binance_apy === 'number' ? item.binance_apy : 0.0;
+            const yApy = typeof item.bybit_apy === 'number' ? item.bybit_apy : 0.0;
+            const netApy = typeof item.spot_futures_apy === 'number' ? item.spot_futures_apy : 0.0;
+            const spreadApy = typeof item.cross_exchange_spread_apy === 'number' ? item.cross_exchange_spread_apy : 0.0;
+
+            let apyColor = 'var(--apple-text-secondary)';
+            if (netApy >= 15.0) apyColor = 'var(--apple-green-text)';
+            else if (netApy >= 8.0) apyColor = 'var(--apple-blue)';
+
+            let statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] border font-mono" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text-secondary);">NORMAL</span>`;
+            if (isOpp) {
+                statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] text-white font-extrabold animate-pulse shadow-sm" style="background: var(--apple-green);"><i class="fa-solid fa-coins mr-1"></i>HIGH APY +${netApy.toFixed(1)}%</span>`;
+            } else if (netApy > 5.0) {
+                statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border" style="background: var(--apple-blue-bg); color: var(--apple-blue-text); border-color: var(--apple-blue-border);">STEADY +${netApy.toFixed(1)}%</span>`;
+            }
+
+            const bestEx = item.best_delta_neutral_exchange || 'Binance';
+            const route = `<div class="flex items-center gap-1.5 font-semibold text-[11px]">
+                <span class="px-1.5 py-0.5 rounded text-[10px]" style="background: var(--apple-green-bg); color: var(--apple-green-text);">BUY SPOT</span>
+                <i class="fa-solid fa-plus text-[9px]" style="color: var(--apple-text-secondary);"></i>
+                <span class="px-1.5 py-0.5 rounded text-[10px]" style="background: var(--apple-orange-bg); color: var(--apple-orange-text);">SHORT ${bestEx} PERP</span>
+            </div>`;
+
+            return `
+                <tr class="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                    <td class="px-5 py-3 font-bold flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full" style="background: ${isOpp ? 'var(--apple-green)' : 'var(--apple-blue)'};"></span>
+                        ${item.symbol}
+                    </td>
+                    <td class="px-4 py-3 font-mono">
+                        <span class="font-bold">${bRate >= 0 ? '+' : ''}${bRate.toFixed(4)}%</span>
+                        <span class="text-[10px] block opacity-75">${bApy >= 0 ? '+' : ''}${bApy.toFixed(2)}% APY</span>
+                    </td>
+                    <td class="px-4 py-3 font-mono">
+                        <span class="font-bold">${yRate >= 0 ? '+' : ''}${yRate.toFixed(4)}%</span>
+                        <span class="text-[10px] block opacity-75">${yApy >= 0 ? '+' : ''}${yApy.toFixed(2)}% APY</span>
+                    </td>
+                    <td class="px-4 py-3">${route}</td>
+                    <td class="px-4 py-3 font-mono font-bold text-sm" style="color: ${apyColor};">
+                        +${netApy.toFixed(2)}% <span class="text-[10px] font-normal opacity-75 block">Річних (0 ризику)</span>
+                    </td>
+                    <td class="px-4 py-3 font-mono font-semibold" style="color: var(--apple-text-secondary);">
+                        ${spreadApy.toFixed(2)}% APY
+                    </td>
+                    <td class="px-5 py-3 text-right">${statusBadge}</td>
+                </tr>
+            `;
+        }).join('');
     }
 
     updateArbitrageRadarUI(data) {

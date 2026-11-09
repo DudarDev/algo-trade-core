@@ -10,6 +10,8 @@ from typing import Dict, List, Optional, Any
 from src.shared.config import Settings
 from src.engine.infrastructure.exchange_manager import ExchangeManager
 from src.engine.domain.models import ArbitrageOpportunity
+import ccxt.async_support as ccxt_async
+from src.engine.infrastructure.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,10 @@ class ArbitrageEngine:
         self.data_dir = Path(data_dir) if data_dir else DATA_DIR
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.radar_file = self.data_dir / "arbitrage_radar.json"
+        self.funding_file = self.data_dir / "funding_radar.json"
+        self.telegram = TelegramNotifier()
+        self._futures_binance = None
+        self._futures_bybit = None
 
         if exchanges:
             self.exchanges = exchanges
@@ -292,6 +298,21 @@ class ArbitrageEngine:
         if len(self.recent_alerts) > self.max_recent_alerts:
             self.recent_alerts = self.recent_alerts[:self.max_recent_alerts]
 
+        # Відправка миттєвого сповіщення в Telegram
+        try:
+            self.telegram.notify_arbitrage_opportunity(
+                symbol=opp.get('symbol', ''),
+                route=opp.get('route', ''),
+                gross_pct=float(opp.get('gross_spread_pct', 0.0)),
+                net_pct=float(opp.get('net_spread_pct', 0.0)),
+                best_buy=opp.get('buy_exchange', ''),
+                buy_price=float(opp.get('buy_price', 0.0)),
+                best_sell=opp.get('sell_exchange', ''),
+                sell_price=float(opp.get('sell_price', 0.0))
+            )
+        except Exception:
+            pass
+
     def save_radar_state(self, payload: Dict[str, Any]) -> None:
         try:
             tmp_file = self.radar_file.with_suffix('.tmp')
@@ -309,7 +330,121 @@ class ArbitrageEngine:
         except Exception:
             pass
 
+    def _ensure_futures(self) -> None:
+        if self._futures_binance is None:
+            self._futures_binance = ccxt_async.binance({
+                'options': {'defaultType': 'future'},
+                'enableRateLimit': True,
+                'apiKey': '',
+                'secret': ''
+            })
+        if self._futures_bybit is None:
+            self._futures_bybit = ccxt_async.bybit({
+                'options': {'defaultType': 'linear'},
+                'enableRateLimit': True,
+                'apiKey': '',
+                'secret': ''
+            })
+
+    async def scan_funding_rates(self, symbols: List[str]) -> Dict[str, Any]:
+        """
+        Сканує ставки фінансування (Funding Rates) на безстрокових ф'ючерсах Binance та Bybit.
+        Вираховує річну дохідність (APY) для Дельта-Нейтрального арбітражу (Long Spot + Short Futures).
+        """
+        self._ensure_futures()
+        start_ts = time.time()
+        clean_symbols = [s for s in symbols if '/' in s]
+        futures_symbols = [f"{s}:USDT" for s in clean_symbols]
+
+        try:
+            res_bin, res_byb = await asyncio.gather(
+                asyncio.wait_for(self._futures_binance.fetch_funding_rates(futures_symbols), timeout=12.0),
+                asyncio.wait_for(self._futures_bybit.fetch_funding_rates(futures_symbols), timeout=12.0),
+                return_exceptions=True
+            )
+        except Exception as e:
+            logger.debug(f"⚠️ [Funding Radar] Помилка отримання ставок: {e}")
+            res_bin, res_byb = {}, {}
+
+        funding_table = []
+        top_opportunity = None
+
+        for s in clean_symbols:
+            fs = f"{s}:USDT"
+            b_info = res_bin.get(fs, {}) if isinstance(res_bin, dict) else {}
+            y_info = res_byb.get(fs, {}) if isinstance(res_byb, dict) else {}
+            b_rate = float(b_info.get('fundingRate') or 0.0)
+            y_rate = float(y_info.get('fundingRate') or 0.0)
+
+            # 8h rate переводимо в річні APY: rate * 3 рази на добу * 365 днів * 100%
+            b_apy = round(b_rate * 3.0 * 365.0 * 100.0, 2)
+            y_apy = round(y_rate * 3.0 * 365.0 * 100.0, 2)
+            spread_apy = round(abs(b_apy - y_apy), 2)
+            best_delta_neutral_apy = max(b_apy, y_apy)
+
+            is_opp = best_delta_neutral_apy >= 10.0 or spread_apy >= 5.0
+            row = {
+                "symbol": s,
+                "binance_8h_pct": round(b_rate * 100.0, 4),
+                "binance_apy": b_apy,
+                "bybit_8h_pct": round(y_rate * 100.0, 4),
+                "bybit_apy": y_apy,
+                "best_delta_neutral_exchange": "Binance" if b_apy >= y_apy else "Bybit",
+                "spot_futures_apy": best_delta_neutral_apy,
+                "cross_exchange_spread_apy": spread_apy,
+                "is_opportunity": is_opp,
+                "timestamp": round(start_ts, 2)
+            }
+            funding_table.append(row)
+
+            if is_opp and (top_opportunity is None or best_delta_neutral_apy > top_opportunity['spot_futures_apy']):
+                top_opportunity = row
+
+        funding_table.sort(key=lambda x: x["spot_futures_apy"], reverse=True)
+        max_apy = funding_table[0]["spot_futures_apy"] if funding_table else 0.0
+
+        payload = {
+            "status": "active",
+            "updated_at": round(start_ts, 2),
+            "updated_time": time.strftime("%H:%M:%S UTC", time.gmtime(start_ts)),
+            "pairs_scanned": len(funding_table),
+            "max_funding_apy": max_apy,
+            "top_opportunity": top_opportunity,
+            "funding_rates": funding_table
+        }
+
+        self.save_funding_state(payload)
+        return payload
+
+    def save_funding_state(self, payload: Dict[str, Any]) -> None:
+        try:
+            tmp_file = self.funding_file.with_suffix('.tmp')
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(payload, f, indent=2)
+            tmp_file.replace(self.funding_file)
+        except Exception as e:
+            logger.debug(f"⚠️ [Funding Radar] Помилка збереження JSON: {e}")
+
+        try:
+            import redis
+            r = redis.Redis.from_url(getattr(self.settings, 'REDIS_URL', 'redis://127.0.0.1:6379/0'))
+            r.set("arbitrage:funding", json.dumps(payload), ex=90)
+        except Exception:
+            pass
+
     async def close(self) -> None:
+        """Звільнення з'єднань асинхронних клієнтів."""
+        if self._futures_binance and hasattr(self._futures_binance, 'close'):
+            try:
+                await self._futures_binance.close()
+            except Exception:
+                pass
+        if self._futures_bybit and hasattr(self._futures_bybit, 'close'):
+            try:
+                await self._futures_bybit.close()
+            except Exception:
+                pass
+
         """Звільнення з'єднань асинхронних клієнтів."""
         if self._owns_exchanges:
             for name, mgr in self.exchanges.items():

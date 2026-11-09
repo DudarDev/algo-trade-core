@@ -156,7 +156,7 @@ class HybridStrategy:
         buy_press = float(curr.get('BUY_PRESSURE', 0.5))
 
         # 1. Справжня перепроданість: RSI <= поріг або дотик нижньої смуги Боллінджера
-        is_oversold = (rsi_val <= self.mean_reversion_max_rsi) or (bb_pos <= 0.08)
+        is_oversold = (rsi_val <= max(self.mean_reversion_max_rsi, 36.0)) or (bb_pos <= 0.15)
 
         # 2. Обов'язкове підтвердження розвороту (Reversal Confirmation):
         # Відсікаємо падаючі червоні свічки: ціна повинна показати відскок (зелена свічка або close >= prev_close)
@@ -197,7 +197,7 @@ class HybridStrategy:
         
         # 1. Фільтр мертвого ринку (CHOPPY_FLAT)
         if regime == MarketRegime.CHOP:
-            if not (is_mean_rev and ai_confidence >= 0.60):
+            if not (is_mean_rev and ai_confidence >= 0.55):
                 meta.reason = f"Market is CHOPPY (ADX < {effective_min_adx:.1f})"
                 return SignalAction.HOLD, meta
 
@@ -275,7 +275,7 @@ class HybridStrategy:
             return SignalAction.HOLD, meta
 
         # Обробка бокового режиму (CHOPPY_FLAT) для Mean Reversion
-        if regime == MarketRegime.CHOP and is_mean_rev and ai_confidence >= 0.60:
+        if regime == MarketRegime.CHOP and is_mean_rev and ai_confidence >= 0.55:
             tp_info = f", TP={meta.dynamic_tp_pct*100:.1f}%" if meta.dynamic_tp_pct else ""
             meta.reason = f"Mean_Reversion_Bounce_CHOP(RSI={rsi_val:.1f}{tp_info}, Conf={ai_confidence:.2f}, Ens={ensemble_conf:.2f})"
             return SignalAction.BUY, meta

@@ -494,9 +494,10 @@ class CryptoBot:
         gc.collect()
 
     async def run_arbitrage_radar(self):
-        """Паралельний асинхронний радар цін між біржами Binance ↔ Bybit."""
-        logger.info("📡 [Arbitrage Radar] Запущено паралельний радар цін Binance ↔ Bybit...")
+        """Паралельний асинхронний радар цін та ставок фінансування Binance ↔ Bybit."""
+        logger.info("📡 [Arbitrage Radar] Запущено паралельний радар цін та фандингу Binance ↔ Bybit...")
         await asyncio.sleep(2)
+        last_funding_scan = 0.0
         while True:
             try:
                 if not getattr(settings, 'ARBITRAGE_ENABLED', True):
@@ -509,6 +510,15 @@ class CryptoBot:
                 ]
                 res = await self.arbitrage_engine.scan_radar(symbols)
                 logger.info(f"⚡ [Arbitrage Radar] Скан #{self.arbitrage_engine.scan_count}: {res.get('pairs_scanned', 0)} пар | Макс: {res.get('max_spread_pct', 0.0):+.2f}%")
+
+                now = time.time()
+                if now - last_funding_scan > 60.0:
+                    last_funding_scan = now
+                    try:
+                        f_res = await self.arbitrage_engine.scan_funding_rates(symbols)
+                        logger.info(f"📊 [Funding Radar] Ставки оновлено | Топ APY: {f_res.get('max_funding_apy', 0.0):.1f}%")
+                    except Exception as fe:
+                        logger.debug(f"Funding radar error: {fe}")
 
                 interval = float(getattr(settings, 'ARBITRAGE_SCAN_INTERVAL_SEC', 4.0))
                 await asyncio.sleep(interval)

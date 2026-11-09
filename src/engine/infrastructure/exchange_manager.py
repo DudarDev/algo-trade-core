@@ -10,18 +10,22 @@ from src.shared.config import Settings
 logger = logging.getLogger(__name__)
 
 class ExchangeManager:
-    def __init__(self, settings: Settings, exchange_id: str = "binance"):
+    def __init__(self, settings: Settings, exchange_id: str = "binance", default_type: str = "spot"):
         self.settings = settings
         self.exchange_id = exchange_id
+        self.default_type = default_type
 
         # --------------------- ПУБЛІЧНИЙ КЛІЄНТ (МАКСИМАЛЬНО ПРОСТИЙ) ---------------------
-        # Жодних options['defaultType']. Просто чистий анонімний клієнт.
-        self.public_exchange = getattr(ccxt_async, exchange_id)({
+        config = {
             'enableRateLimit': True,
             'apiKey': '', # Явно кажемо CCXT: "у мене немає ключів"
             'secret': '',
-        })
-        logger.info(f"🌍 [Exchange] Публічне підключення: {self.public_exchange.name}")
+        }
+        if default_type and default_type != "spot":
+            config['options'] = {'defaultType': default_type}
+
+        self.public_exchange = getattr(ccxt_async, exchange_id)(config)
+        logger.info(f"🌍 [Exchange] Публічне підключення: {self.public_exchange.name} ({default_type})")
 
         # --------------------- ПРИВАТНИЙ КЛІЄНТ ---------------------
         self.private_exchange: Optional[ccxt_async.Exchange] = None

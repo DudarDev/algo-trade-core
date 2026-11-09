@@ -510,7 +510,8 @@ class CryptoBot:
                     'INJ/USDT', 'BCH/USDT', 'LTC/USDT', 'UNI/USDT', 'BNB/USDT'
                 ]
                 valid_symbols = [s for s in symbols if '/' in s and not any(bad in s for bad in ['SOXLB', 'KORUB', 'TQQQB'])][:15]
-                await self.arbitrage_engine.scan_radar(valid_symbols)
+                res = await self.arbitrage_engine.scan_radar(valid_symbols)
+                logger.info(f"⚡ [Arbitrage Radar] Скан #{self.arbitrage_engine.scan_count}: {res.get('pairs_scanned', 0)} пар | Макс: {res.get('max_spread_pct', 0.0):+.2f}%")
 
                 interval = float(getattr(settings, 'ARBITRAGE_SCAN_INTERVAL_SEC', 4.0))
                 await asyncio.sleep(interval)
@@ -518,7 +519,7 @@ class CryptoBot:
                 logger.info("🛑 [Arbitrage Radar] Зупинка фонового сканера.")
                 break
             except Exception as e:
-                logger.debug(f"⚠️ [Arbitrage Radar] Помилка циклу: {e}")
+                logger.warning(f"⚠️ [Arbitrage Radar] Помилка циклу: {e}", exc_info=True)
                 await asyncio.sleep(5)
 
     async def start(self):

@@ -84,7 +84,7 @@ class CryptoBot:
         self.current_sentiment = {}
         self.news_analyzer = NewsAnalyzer()
         self.pair_cooldowns = {}
-        self.arbitrage_engine = ArbitrageEngine(settings=settings, data_dir=self.data_dir)
+        self.arbitrage_engine = ArbitrageEngine(settings=settings, exchanges={'binance': self.exchange, 'bybit': ExchangeManager(settings, exchange_id='bybit')}, data_dir=self.data_dir)
         self.load_runtime_config()
 
     async def get_higher_timeframe_trend(self, symbol: str) -> str:
@@ -505,12 +505,9 @@ class CryptoBot:
 
                 symbols = [
                     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT',
-                    'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT', 'SUI/USDT',
-                    'APT/USDT', 'DOT/USDT', 'ARB/USDT', 'OP/USDT', 'TIA/USDT',
-                    'INJ/USDT', 'BCH/USDT', 'LTC/USDT', 'UNI/USDT', 'BNB/USDT'
+                    'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT', 'SUI/USDT'
                 ]
-                valid_symbols = [s for s in symbols if '/' in s and not any(bad in s for bad in ['SOXLB', 'KORUB', 'TQQQB'])][:15]
-                res = await self.arbitrage_engine.scan_radar(valid_symbols)
+                res = await self.arbitrage_engine.scan_radar(symbols)
                 logger.info(f"⚡ [Arbitrage Radar] Скан #{self.arbitrage_engine.scan_count}: {res.get('pairs_scanned', 0)} пар | Макс: {res.get('max_spread_pct', 0.0):+.2f}%")
 
                 interval = float(getattr(settings, 'ARBITRAGE_SCAN_INTERVAL_SEC', 4.0))

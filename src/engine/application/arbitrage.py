@@ -50,13 +50,15 @@ class ArbitrageEngine:
 
     async def _fetch_ticker_safe(self, name: str, mgr: ExchangeManager, symbol: str) -> Optional[Dict[str, Any]]:
         try:
-            # 🛡️ Захист від зависання біржі (Тайм-аут 2.5 секунди)
-            ticker = await asyncio.wait_for(mgr.exchange.fetch_ticker(symbol), timeout=2.5)
+            # 🛡️ Захист від зависання біржі (8.0s timeout)
+            ticker = await asyncio.wait_for(mgr.exchange.fetch_ticker(symbol), timeout=8.0)
+            if not isinstance(ticker, dict):
+                return None
             bid = float(ticker.get('bid') or 0.0)
             ask = float(ticker.get('ask') or 0.0)
             last = float(ticker.get('last') or 0.0)
 
-            # Fallback якщо bid/ask порожні (наприклад, низька ліквідність у тестнеті)
+            # Fallback якщо bid/ask порожні
             if bid <= 0 and last > 0:
                 bid = last
             if ask <= 0 and last > 0:
@@ -70,10 +72,45 @@ class ArbitrageEngine:
                     'last': last
                 }
         except asyncio.TimeoutError:
-            logger.debug(f"⚠️ [Arbitrage] Тайм-аут API для {name} ({symbol})")
+            logger.debug(f"⚠️ [Arbitrage] API Timeout for {name} ({symbol})")
         except Exception as e:
-            logger.debug(f"⚠️ [Arbitrage] Помилка {name} для {symbol}: {e}")
+            logger.debug(f"⚠️ [Arbitrage] Error {name} for {symbol}: {e}")
         return None
+
+    async def _fetch_exchange_tickers(self, name: str, mgr: ExchangeManager, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        # Fast bulk fetch_tickers for all symbols in 1 network request
+        try:
+            if hasattr(mgr.exchange, 'fetch_tickers'):
+                raw = await asyncio.wait_for(mgr.exchange.fetch_tickers(symbols), timeout=15.0)
+                if isinstance(raw, dict) and raw:
+                    result = {}
+                    for sym in symbols:
+                        t = raw.get(sym)
+                        if isinstance(t, dict):
+                            bid = float(t.get('bid') or 0.0)
+                            ask = float(t.get('ask') or 0.0)
+                            last = float(t.get('last') or 0.0)
+                            if bid <= 0 and last > 0: bid = last
+                            if ask <= 0 and last > 0: ask = last
+                            if bid > 0 and ask > 0:
+                                result[sym] = {
+                                    'exchange': name,
+                                    'bid': bid,
+                                    'ask': ask,
+                                    'last': last
+                                }
+                    if len(result) > 0:
+                        return result
+        except Exception:
+            pass
+
+        # Fallback to single fetches
+        res = {}
+        for s in symbols:
+            item = await self._fetch_ticker_safe(name, mgr, s)
+            if item:
+                res[s] = item
+        return res
 
     async def get_prices(self, symbol: str) -> Dict[str, Dict[str, Any]]:
         tasks = [
@@ -139,18 +176,26 @@ class ArbitrageEngine:
         fee_pct = (getattr(self.settings, 'ARBITRAGE_FEE_PCT', 0.001) * 100.0) * 2.0
         min_spread = float(getattr(self.settings, 'ARBITRAGE_MIN_SPREAD_PCT', 0.5))
 
-        tasks = [self.get_prices(sym) for sym in symbols]
-        all_prices = await asyncio.gather(*tasks, return_exceptions=True)
+        # Одночасне паралельне батч-сканування бірж
+        tasks = [self._fetch_exchange_tickers(name, mgr, symbols) for name, mgr in self.exchanges.items()]
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        exchange_map: Dict[str, Dict[str, Any]] = {}
+        for (name, _), res in zip(self.exchanges.items(), batch_results):
+            if isinstance(res, dict):
+                exchange_map[name] = res
+            else:
+                exchange_map[name] = {}
+
+        binance_tickers = exchange_map.get('binance', {})
+        bybit_tickers = exchange_map.get('bybit', {})
 
         live_spreads: List[Dict[str, Any]] = []
         active_opportunities: List[Dict[str, Any]] = []
 
-        for symbol, prices_dict in zip(symbols, all_prices):
-            if not isinstance(prices_dict, dict) or len(prices_dict) < 2:
-                continue
-
-            binance_p = prices_dict.get('binance')
-            bybit_p = prices_dict.get('bybit')
+        for symbol in symbols:
+            binance_p = binance_tickers.get(symbol)
+            bybit_p = bybit_tickers.get(symbol)
 
             if not binance_p or not bybit_p:
                 continue

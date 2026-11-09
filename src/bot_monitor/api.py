@@ -57,9 +57,9 @@ class ClosePositionRequest(BaseModel):
     symbol: str
 
 class ConfigUpdateRequest(BaseModel):
-    confidence_threshold: float = 0.30
+    confidence_threshold: float = 0.60
     risk_reward_ratio: float = 1.5
-    max_positions: int = 3
+    max_positions: int = 2
     trade_fraction: float = 0.04
     min_adx_trend: float = 25.0
     gemini_api_key: Optional[str] = None
@@ -264,9 +264,9 @@ def get_config(request):
     from src.shared.config import settings
     cfg_file = DATA_DIR / "runtime_config.json"
     default_cfg = {
-        "confidence_threshold": 0.30,
+        "confidence_threshold": 0.60,
         "risk_reward_ratio": 1.5,
-        "max_positions": 3,
+        "max_positions": 2,
         "trade_fraction": 0.04,
         "min_adx_trend": 25.0,
         "trading_mode": getattr(settings, 'TRADING_MODE', 'PAPER'),
@@ -767,3 +767,5 @@ def trigger_retrain_task(request):
         return {"status": "success", "task_id": task_id}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+

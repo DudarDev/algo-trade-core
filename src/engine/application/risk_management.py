@@ -101,7 +101,7 @@ class RiskManager:
                 return None
 
             position_size_usdt = (max_loss_usdt / risk_per_coin) * entry_price
-            max_allowed_position = capital * 0.98
+            max_allowed_position = min(capital * 0.50, 60.0)
             
             if position_size_usdt > max_allowed_position:
                 logger.debug(f"Об'єм {position_size_usdt:.2f} перевищує ліміт. Урізано до {max_allowed_position:.2f}")

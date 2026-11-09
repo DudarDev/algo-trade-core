@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     min_ai_confidence: float = Field(default=0.65, ge=0.0, le=1.0)
     ARBITRAGE_FEE_PCT: float = Field(default=0.001, ge=0.0)
     ARBITRAGE_MIN_SPREAD_PCT: float = Field(default=0.5, ge=0.0)
+    ARBITRAGE_SCAN_INTERVAL_SEC: float = Field(default=4.0, ge=1.0)
+    ARBITRAGE_ENABLED: bool = Field(default=True)
     SCANNER_TOP_N: int = Field(default=10, ge=1, le=50)
     ENABLE_MEAN_REVERSION_SCALP: bool = Field(default=True, description="Enable oversold mean reversion scalp in bear/choppy regimes")
     MEAN_REVERSION_MAX_RSI: float = Field(default=32.0, ge=10.0, le=45.0, description="Max RSI to qualify as oversold bounce")

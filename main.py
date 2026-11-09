@@ -57,6 +57,7 @@ from src.engine.application.risk_management import RiskManager, RiskConfig
 from src.engine.application.paper_trader import PaperTrader
 from src.engine.application.live_trader import LiveBinanceTrader
 from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
+from src.engine.application.arbitrage import ArbitrageEngine
 from src.engine.infrastructure.order_book_analyzer import OrderBookAnalyzer
 from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
 from src.engine.infrastructure.news_analyzer import NewsAnalyzer
@@ -83,6 +84,7 @@ class CryptoBot:
         self.current_sentiment = {}
         self.news_analyzer = NewsAnalyzer()
         self.pair_cooldowns = {}
+        self.arbitrage_engine = ArbitrageEngine(settings=settings, data_dir=self.data_dir)
         self.load_runtime_config()
 
     async def get_higher_timeframe_trend(self, symbol: str) -> str:
@@ -268,6 +270,8 @@ class CryptoBot:
     async def cleanup(self):
         logger.info("🧹 Очищення ресурсів...")
         await self.exchange.close()
+        if hasattr(self, 'arbitrage_engine') and self.arbitrage_engine:
+            await self.arbitrage_engine.close()
 
     async def process_pair(self, symbol: str):
         async with self.concurrency_limit:
@@ -489,9 +493,38 @@ class CryptoBot:
         import gc
         gc.collect()
 
+    async def run_arbitrage_radar(self):
+        """Паралельний асинхронний радар цін між біржами Binance ↔ Bybit."""
+        logger.info("📡 [Arbitrage Radar] Запущено паралельний радар цін Binance ↔ Bybit...")
+        await asyncio.sleep(2)
+        while True:
+            try:
+                if not getattr(settings, 'ARBITRAGE_ENABLED', True):
+                    await asyncio.sleep(10)
+                    continue
+
+                symbols = self.scanner.get_priority_pairs() or [
+                    'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT',
+                    'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT', 'SUI/USDT',
+                    'APT/USDT', 'DOT/USDT', 'ARB/USDT', 'OP/USDT', 'TIA/USDT',
+                    'INJ/USDT', 'BCH/USDT', 'LTC/USDT', 'UNI/USDT', 'BNB/USDT'
+                ]
+                valid_symbols = [s for s in symbols if '/' in s and not any(bad in s for bad in ['SOXLB', 'KORUB', 'TQQQB'])][:15]
+                await self.arbitrage_engine.scan_radar(valid_symbols)
+
+                interval = float(getattr(settings, 'ARBITRAGE_SCAN_INTERVAL_SEC', 4.0))
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                logger.info("🛑 [Arbitrage Radar] Зупинка фонового сканера.")
+                break
+            except Exception as e:
+                logger.debug(f"⚠️ [Arbitrage Radar] Помилка циклу: {e}")
+                await asyncio.sleep(5)
+
     async def start(self):
         logger.info("🟢 Бот запущено! Очікування команди з дашборду...")
         monitor_task = asyncio.create_task(self.monitor_open_positions())
+        arbitrage_task = asyncio.create_task(self.run_arbitrage_radar())
         try:
             while True:
                 if not self.is_bot_active():
@@ -512,6 +545,7 @@ class CryptoBot:
                     await asyncio.sleep(30)
         finally:
             monitor_task.cancel()
+            arbitrage_task.cancel()
 
 
 async def main():

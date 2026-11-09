@@ -110,6 +110,10 @@
         <button type="button" class="apple-seg-item flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('scanner')" id="nav-btn-scanner">
             <i class="fa-solid fa-satellite-dish text-[#34C759]"></i> <span data-i18n="nav_scanner">Радар Ринку</span>
         </button>
+        <button type="button" class="apple-seg-item flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('arbitrage')" id="nav-btn-arbitrage">
+            <i class="fa-solid fa-arrows-split-up-and-left text-[#FF9500]"></i> <span data-i18n="nav_arbitrage">Арбітраж Радар</span>
+            <span id="nav-arbitrage-badge" class="px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-[#FF9500] text-white hidden">0</span>
+        </button>
         <button type="button" class="apple-seg-item flex items-center gap-1.5" onclick="window.dashboardApp?.switchView('history')" id="nav-btn-history">
             <i class="fa-solid fa-clock-rotate-left"></i> <span data-i18n="nav_history">Історія Угод</span>
         </button>
@@ -456,7 +460,7 @@
 </section>
 
 <!-- 🛰️ 6. ЖИВИЙ РАДАР РИНКУ ШІ (MARKET SCANNER RADAR) -->
-<section class="glass-panel overflow-hidden mb-5">
+<section id="market-radar-section" class="glass-panel overflow-hidden mb-5">
     <div class="px-5 py-3.5 border-b flex flex-wrap justify-between items-center gap-3" style="border-color: var(--apple-divider); background: var(--apple-subtle-bg);">
         <div class="flex items-center gap-2.5">
             <span class="w-2 h-2 rounded-full" style="background: var(--apple-green);"></span>
@@ -504,6 +508,70 @@
                 <tr>
                     <td colspan="10" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
                         Отримання свіжих даних сканування біржі...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ⚡ 6.5. ЖИВИЙ МІЖБІРЖОВИЙ АРБІТРАЖНИЙ РАДАР (BINANCE ↔ BYBIT) -->
+<section id="arbitrage-radar-section" class="glass-panel overflow-hidden mb-5">
+    <div class="px-5 py-3.5 border-b flex flex-wrap justify-between items-center gap-3" style="border-color: var(--apple-divider); background: var(--apple-subtle-bg);">
+        <div class="flex items-center gap-2.5">
+            <span class="w-2 h-2 rounded-full animate-ping" style="background: var(--apple-orange);"></span>
+            <span class="w-2 h-2 rounded-full" style="background: var(--apple-orange);"></span>
+            <h2 class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--apple-text);">
+                <span>⚡</span> Міжбіржовий Арбітражний Радар: Binance ↔ Bybit (Spot Taker, 0.20% Fee)
+            </h2>
+            <span id="arb-radar-status-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all" style="background: var(--apple-orange-bg); color: var(--apple-orange-text); border-color: rgba(255, 149, 0, 0.3);">
+                СКАНИ: 0
+            </span>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <div class="text-[11px] font-mono flex items-center gap-2" style="color: var(--apple-text-secondary);">
+                <span>Макс. спред:</span>
+                <span id="arb-max-spread" class="font-bold text-xs" style="color: var(--apple-green-text);">0.00%</span>
+            </div>
+            <div class="text-[11px] font-mono flex items-center gap-2" style="color: var(--apple-text-secondary);">
+                <span>Поріг прибутку:</span>
+                <span class="font-bold text-xs" style="color: var(--apple-blue);">&gt; 0.50% Net</span>
+            </div>
+            <span id="arb-updated-time" class="text-[11px] font-mono" style="color: var(--apple-text-secondary);">Оновлено: --:--:--</span>
+        </div>
+    </div>
+
+    <!-- Банер активних арбітражних можливостей -->
+    <div id="arb-alerts-container" class="px-5 py-3 border-b hidden" style="background: rgba(52, 199, 89, 0.08); border-color: var(--apple-divider);">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-bolt text-[#34C759] animate-bounce"></i>
+                <span class="text-xs font-bold" style="color: var(--apple-green-text);">Знайдено активне арбітражне вікно!</span>
+                <span id="arb-alerts-summary" class="text-xs font-mono" style="color: var(--apple-text);"></span>
+            </div>
+            <span class="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded" style="background: var(--apple-green-bg); color: var(--apple-green-text);">Net Profit &gt; 0.5%</span>
+        </div>
+    </div>
+
+    <div id="arbitrage-radar-container" class="overflow-x-auto max-h-80 overflow-y-auto">
+        <table class="w-full text-left text-xs">
+            <thead class="text-[11px] uppercase font-semibold border-b sticky top-0 z-10 backdrop-blur-md" style="background: var(--apple-subtle-bg); color: var(--apple-text-secondary); border-color: var(--apple-divider);">
+                <tr>
+                    <th class="px-5 py-2.5">Пара</th>
+                    <th class="px-4 py-2.5">Binance Bid / Ask</th>
+                    <th class="px-4 py-2.5">Bybit Bid / Ask</th>
+                    <th class="px-4 py-2.5">Оптимальний маршрут</th>
+                    <th class="px-4 py-2.5">Gross Spread</th>
+                    <th class="px-4 py-2.5">Комісія (2x 0.10%)</th>
+                    <th class="px-4 py-2.5">Net Profit %</th>
+                    <th class="px-5 py-2.5 text-right">Статус можливості</th>
+                </tr>
+            </thead>
+            <tbody id="arbitrage-radar-table-body" class="divide-y mono-num" style="divide-color: var(--apple-divider); color: var(--apple-text);">
+                <tr>
+                    <td colspan="8" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
+                        Опитування ліквідних пар на Binance та Bybit...
                     </td>
                 </tr>
             </tbody>
@@ -1104,6 +1172,7 @@ const TERMINAL_I18N = {
         nav_overview: "Головна",
         nav_news: "ШІ Новини",
         nav_scanner: "Радар Ринку",
+        nav_arbitrage: "Арбітраж Радар",
         nav_history: "Історія Угод",
         nav_logs: "Термінал Логів",
         current_lang: "Мова: 🇺🇦 Українська",
@@ -1154,6 +1223,7 @@ const TERMINAL_I18N = {
         nav_overview: "Overview",
         nav_news: "AI News",
         nav_scanner: "Market Radar",
+        nav_arbitrage: "Arbitrage Radar",
         nav_history: "Trade History",
         nav_logs: "Terminal Logs",
         current_lang: "Language: 🇬🇧 English",
@@ -1209,6 +1279,7 @@ class DashboardController {
             recentTrades: '/api/recent_trades',
             activePositions: '/api/active_positions',
             marketScanner: '/api/market_scanner',
+            arbitrageRadar: '/api/arbitrage/radar',
             control: '/api/bot_control',
             status: '/api/status',
             config: '/api/config',
@@ -1245,6 +1316,13 @@ class DashboardController {
             activePositionsBadge: document.getElementById('active-positions-badge'),
             marketRadarTable: document.getElementById('market-radar-table-body'),
             radarUpdatedTime: document.getElementById('radar-updated-time'),
+            arbTable: document.getElementById('arbitrage-radar-table-body'),
+            arbMaxSpread: document.getElementById('arb-max-spread'),
+            arbUpdatedTime: document.getElementById('arb-updated-time'),
+            arbStatusBadge: document.getElementById('arb-radar-status-badge'),
+            arbAlertsContainer: document.getElementById('arb-alerts-container'),
+            arbAlertsSummary: document.getElementById('arb-alerts-summary'),
+            navArbBadge: document.getElementById('nav-arbitrage-badge'),
             tradesHistoryCount: document.getElementById('trades-history-count'),
             terminal: document.getElementById('terminal-screen'),
             autoscrollToggle: document.getElementById('autoscroll-toggle'),
@@ -1283,6 +1361,7 @@ class DashboardController {
         this.fetchBotStatus();
         this.fetchActivePositions();
         this.fetchMarketRadar();
+        this.fetchArbitrageRadar();
         this.fetchEngineLogs();
         this.fetchConfig();
         this.fetchPortfolio();
@@ -1298,6 +1377,7 @@ class DashboardController {
             this.fetchBotStatus();
             this.fetchActivePositions();
             this.fetchMarketRadar();
+            this.fetchArbitrageRadar();
             this.fetchEngineLogs();
             this.fetchPortfolio();
             this.fetchSentiment();
@@ -1350,6 +1430,7 @@ class DashboardController {
             overview: document.getElementById('nav-btn-overview'),
             news: document.getElementById('nav-btn-news'),
             scanner: document.getElementById('nav-btn-scanner'),
+            arbitrage: document.getElementById('nav-btn-arbitrage'),
             history: document.getElementById('nav-btn-history'),
             logs: document.getElementById('nav-btn-logs')
         };
@@ -1363,6 +1444,7 @@ class DashboardController {
             overview: document.getElementById('overview-section'),
             news: document.getElementById('ai-news-section'),
             scanner: document.getElementById('market-radar-section'),
+            arbitrage: document.getElementById('arbitrage-radar-section'),
             history: document.getElementById('recent-trades-container')?.parentElement?.parentElement,
             logs: document.getElementById('engine-logs-section')
         };
@@ -2151,6 +2233,118 @@ class DashboardController {
                     <td class="px-4 py-2.5" style="color: var(--apple-text-secondary);">${item.adx ? item.adx.toFixed(1) : '-'}</td>
                     <td class="px-4 py-2.5">${actionBadge}</td>
                     <td class="px-5 py-2.5 text-[11px] truncate max-w-xs font-sans" style="color: var(--apple-text-secondary);">${item.reason || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async fetchArbitrageRadar() {
+        try {
+            const res = await fetch(this.endpoints.arbitrageRadar);
+            if (!res.ok) return;
+            const data = await res.json();
+            this.updateArbitrageRadarUI(data);
+        } catch (e) {
+            console.error("fetchArbitrageRadar error:", e);
+        }
+    }
+
+    updateArbitrageRadarUI(data) {
+        if (!data || !this.elements.arbTable) return;
+
+        if (this.elements.arbUpdatedTime && data.updated_time) {
+            this.elements.arbUpdatedTime.innerText = `Оновлено: ${data.updated_time} UTC`;
+        }
+
+        if (this.elements.arbStatusBadge) {
+            this.elements.arbStatusBadge.innerText = `СКАНИ: ${data.scan_count || 0} (${data.pairs_scanned || 0} ПАР)`;
+        }
+
+        if (this.elements.arbMaxSpread) {
+            const maxSpread = typeof data.max_spread_pct === 'number' ? data.max_spread_pct : 0.0;
+            this.elements.arbMaxSpread.innerText = (maxSpread >= 0 ? '+' : '') + maxSpread.toFixed(2) + '%';
+            this.elements.arbMaxSpread.style.color = maxSpread >= 0.50 ? 'var(--apple-green-text)' : (maxSpread >= 0.20 ? 'var(--apple-blue)' : 'var(--apple-text-secondary)');
+        }
+
+        // Active opportunities alert
+        const oppCount = data.active_opportunities_count || (data.opportunities ? data.opportunities.length : 0);
+        if (this.elements.navArbBadge) {
+            if (oppCount > 0) {
+                this.elements.navArbBadge.innerText = oppCount;
+                this.elements.navArbBadge.classList.remove('hidden');
+            } else {
+                this.elements.navArbBadge.classList.add('hidden');
+            }
+        }
+
+        if (this.elements.arbAlertsContainer && this.elements.arbAlertsSummary) {
+            if (oppCount > 0 && data.opportunities && data.opportunities.length > 0) {
+                const opp = data.opportunities[0];
+                this.elements.arbAlertsSummary.innerHTML = `
+                    <b>${opp.symbol}</b>: Купівля на <b>${opp.buy_exchange}</b> ($${opp.buy_price}) ➔ Продаж на <b>${opp.sell_exchange}</b> ($${opp.sell_price}) |
+                    Чистий прибуток: <span class="font-bold text-[#34C759]">+${opp.net_spread_pct.toFixed(2)}%</span> (Gross: ${opp.spread_pct.toFixed(2)}%)
+                `;
+                this.elements.arbAlertsContainer.classList.remove('hidden');
+            } else {
+                this.elements.arbAlertsContainer.classList.add('hidden');
+            }
+        }
+
+        // Live spreads table
+        const spreads = data.live_spreads || [];
+        if (spreads.length === 0) {
+            this.elements.arbTable.innerHTML = `
+                <tr>
+                    <td colspan="8" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
+                        ${data.status === 'initializing' ? 'Ініціалізація та сканування стаканів Binance ↔ Bybit...' : 'Очікування чергового циклу сканування...'}
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        this.elements.arbTable.innerHTML = spreads.map(item => {
+            const isOpp = item.is_opportunity || item.net_spread_pct >= (data.min_spread_threshold_pct || 0.50);
+            const gross = typeof item.gross_spread_pct === 'number' ? item.gross_spread_pct : 0.0;
+            const net = typeof item.net_spread_pct === 'number' ? item.net_spread_pct : (gross - 0.20);
+            
+            let netColor = 'var(--apple-text-secondary)';
+            if (net >= 0.50) netColor = 'var(--apple-green-text)';
+            else if (net > 0) netColor = 'var(--apple-blue)';
+            else if (net < -0.15) netColor = 'var(--apple-text-muted)';
+
+            let statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] border font-mono" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text-secondary);">SCANNING</span>`;
+            if (isOpp) {
+                statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] text-white font-extrabold animate-pulse shadow-sm" style="background: var(--apple-green);"><i class="fa-solid fa-bolt mr-1"></i>PROFIT +${net.toFixed(2)}%</span>`;
+            } else if (net > 0) {
+                statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border" style="background: var(--apple-blue-bg); color: var(--apple-blue-text); border-color: var(--apple-blue-border);">THIN +${net.toFixed(2)}%</span>`;
+            }
+
+            const routeDisplay = (item.buy_exchange && item.sell_exchange) ? 
+                `<div class="flex items-center gap-1.5 font-semibold text-[11px]">
+                    <span class="px-1.5 py-0.5 rounded text-[10px]" style="background: var(--apple-subtle-bg); border: 1px solid var(--apple-panel-border);">${item.buy_exchange}</span>
+                    <i class="fa-solid fa-arrow-right text-[9px]" style="color: var(--apple-orange);"></i>
+                    <span class="px-1.5 py-0.5 rounded text-[10px]" style="background: var(--apple-subtle-bg); border: 1px solid var(--apple-panel-border);">${item.sell_exchange}</span>
+                 </div>` : `<span style="color: var(--apple-text-muted);">-</span>`;
+
+            const binanceQuote = (item.binance_bid && item.binance_ask) ? 
+                `<span class="text-xs font-mono">$${item.binance_bid} / $${item.binance_ask}</span>` : `<span style="color: var(--apple-text-muted);">-</span>`;
+
+            const bybitQuote = (item.bybit_bid && item.bybit_ask) ? 
+                `<span class="text-xs font-mono">$${item.bybit_bid} / $${item.bybit_ask}</span>` : `<span style="color: var(--apple-text-muted);">-</span>`;
+
+            return `
+                <tr class="transition-colors hover:opacity-80" style="border-color: var(--apple-divider); ${isOpp ? 'background: rgba(52, 199, 89, 0.05);' : ''}">
+                    <td class="px-5 py-2.5 font-bold flex items-center gap-1.5" style="color: var(--apple-text);">
+                        <i class="fa-solid fa-arrows-split-up-and-left text-[10px]" style="color: var(--apple-orange);"></i> ${item.symbol}
+                    </td>
+                    <td class="px-4 py-2.5">${binanceQuote}</td>
+                    <td class="px-4 py-2.5">${bybitQuote}</td>
+                    <td class="px-4 py-2.5">${routeDisplay}</td>
+                    <td class="px-4 py-2.5 font-mono font-semibold" style="color: var(--apple-text);">${gross.toFixed(2)}%</td>
+                    <td class="px-4 py-2.5 font-mono text-[11px]" style="color: var(--apple-text-muted);">-0.20%</td>
+                    <td class="px-4 py-2.5 font-mono font-bold" style="color: ${netColor};">${net >= 0 ? '+' : ''}${net.toFixed(2)}%</td>
+                    <td class="px-5 py-2.5 text-right">${statusBadge}</td>
                 </tr>
             `;
         }).join('');

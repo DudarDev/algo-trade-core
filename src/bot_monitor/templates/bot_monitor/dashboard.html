@@ -490,7 +490,7 @@
     
     <div id="radar-container" class="overflow-x-auto max-h-80 overflow-y-auto">
         <table class="w-full text-left text-xs">
-            <thead class="text-[11px] uppercase font-semibold border-b sticky top-0 z-10 backdrop-blur-md" style="background: var(--apple-subtle-bg); color: var(--apple-text-secondary); border-color: var(--apple-divider);">
+            <thead class="text-[11px] uppercase font-semibold border-b sticky top-0 z-10 shadow-sm" style="background: var(--apple-panel-bg); color: var(--apple-text-secondary); border-color: var(--apple-divider);">
                 <tr>
                     <th class="px-5 py-2.5">Символ</th>
                     <th class="px-4 py-2.5">Ціна</th>
@@ -2253,7 +2253,7 @@ class DashboardController {
         if (!data || !this.elements.arbTable) return;
 
         if (this.elements.arbUpdatedTime && data.updated_time) {
-            this.elements.arbUpdatedTime.innerText = `Оновлено: ${data.updated_time} UTC`;
+            this.elements.arbUpdatedTime.innerText = `Оновлено: ${data.updated_time.replace(/ UTC/g, '')} UTC`;
         }
 
         if (this.elements.arbStatusBadge) {

@@ -503,7 +503,7 @@ class CryptoBot:
                     await asyncio.sleep(10)
                     continue
 
-                symbols = self.scanner.get_priority_pairs() or [
+                symbols = [
                     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT',
                     'ADA/USDT', 'AVAX/USDT', 'LINK/USDT', 'NEAR/USDT', 'SUI/USDT',
                     'APT/USDT', 'DOT/USDT', 'ARB/USDT', 'OP/USDT', 'TIA/USDT',

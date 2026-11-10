@@ -371,6 +371,8 @@ class ArbitrageEngine:
             import redis
             r = redis.Redis.from_url(getattr(self.settings, 'REDIS_URL', 'redis://127.0.0.1:6379/0'))
             r.set("arbitrage:radar", json.dumps(payload), ex=30)
+            if payload.get("ws_stats"):
+                r.set("infra:ws_stats", json.dumps(payload["ws_stats"]), ex=30)
         except Exception:
             pass
 

@@ -63,5 +63,14 @@ try:
     for r, count in sorted(reasons.items(), key=lambda x: x[1], reverse=True):
         print(f"{r}: {count}")
 
+    # Wallet and positions audit
+    w = Wallet.objects.first()
+    print(f"\n--- WALLET & POSITIONS AUDIT ---")
+    print(f"DB Wallet Balance: {w.balance if w else 'None'} USDT")
+    active_pos = list(ActivePosition.objects.all())
+    print(f"Active Positions in DB: {len(active_pos)}")
+    for p in active_pos:
+        print(f"  {p.symbol}: entry={p.entry_price}, current={getattr(p, 'current_price', 'N/A')}, amt_usdt={p.amount_usdt}")
+
 except Exception as e:
     print(f"Error during audit: {e}", file=sys.stderr)

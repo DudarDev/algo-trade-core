@@ -518,6 +518,13 @@ class CryptoBot:
                 res = await self.arbitrage_engine.scan_radar(symbols)
                 logger.info(f"⚡ [Arbitrage Radar] Скан #{self.arbitrage_engine.scan_count}: {res.get('pairs_scanned', 0)} пар | Макс: {res.get('max_spread_pct', 0.0):+.2f}%")
 
+                try:
+                    from src.engine.infrastructure.cache_manager import cache_manager
+                    if hasattr(self, 'ws_feed') and self.ws_feed:
+                        cache_manager.set("infra:ws_stats", self.ws_feed.get_stats(), ttl=30)
+                except Exception:
+                    pass
+
                 now = time.time()
                 if now - last_funding_scan > 60.0:
                     last_funding_scan = now

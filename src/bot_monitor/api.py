@@ -1453,12 +1453,13 @@ def get_system_infra(request):
 
 
 
-    ws_stats = None
-    try:
-        from src.engine.infrastructure.websocket_feed import ws_feed
-        ws_stats = ws_feed.get_stats()
-    except Exception:
-        pass
+    ws_stats = cache_manager.get("infra:ws_stats")
+    if not ws_stats:
+        try:
+            from src.engine.infrastructure.websocket_feed import ws_feed
+            ws_stats = ws_feed.get_stats()
+        except Exception:
+            pass
 
     return {
         "status": "success",

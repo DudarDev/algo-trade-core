@@ -12,7 +12,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "web_panel.settings")
 try:
     import django
     django.setup()
-    from bot_monitor.models import Trade, SystemState
+    from bot_monitor.models import Trade, Wallet, ActivePosition, BotConfig
     
     trades = list(Trade.objects.filter(side="SELL").order_by("timestamp"))
     total_trades = len(trades)

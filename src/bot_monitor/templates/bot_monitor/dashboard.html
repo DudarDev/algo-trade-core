@@ -264,7 +264,7 @@
 </section>
 
 <!-- 🏛️ 2.8. INSTITUTIONAL QUANT ARCHITECTURE & DISTRIBUTED COMPONENT MONITOR -->
-<section class="glass-panel p-3 mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+<section class="glass-panel p-3 mb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
     <div class="flex items-center gap-2 p-2 rounded-xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
         <div class="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">
             <i class="fa-solid fa-bolt"></i>
@@ -301,6 +301,24 @@
             <div id="tech-stream-status" class="font-bold font-mono flex items-center gap-1.5" style="color: var(--apple-green-text);">
                 <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block"></span> SSE Telemetry Live
             </div>
+        </div>
+    </div>
+    <div class="flex items-center gap-2 p-2 rounded-xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+            <i class="fa-solid fa-bolt-lightning animate-pulse"></i>
+        </div>
+        <div>
+            <div class="text-[9px] uppercase font-semibold" style="color: var(--apple-text-secondary);">WebSocket Stream</div>
+            <div id="tech-ws-status" class="font-bold font-mono" style="color: var(--apple-orange-text);"><i class="fa-solid fa-satellite"></i> WS &lt;20ms</div>
+        </div>
+    </div>
+    <div class="flex items-center gap-2 p-2 rounded-xl border" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border);">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
+            <i class="fa-solid fa-gem"></i>
+        </div>
+        <div>
+            <div class="text-[9px] uppercase font-semibold" style="color: var(--apple-text-secondary);">Execution Mode</div>
+            <div id="tech-maker-status" class="font-bold font-mono" style="color: var(--apple-blue-text);"><i class="fa-solid fa-shield"></i> Maker 0.02%</div>
         </div>
     </div>
 </section>
@@ -3277,6 +3295,18 @@ class DashboardController {
                 } else {
                     aiEl.innerHTML = `<span style="color: var(--apple-purple);"><i class="fa-solid fa-brain"></i> Random Forest v4</span>`;
                 }
+            }
+
+            const wsEl = document.getElementById('tech-ws-status');
+            if (wsEl && data.websocket) {
+                const lat = data.websocket.binance_latency_ms || 18.0;
+                wsEl.innerHTML = `<span style="color: var(--apple-orange-text);"><i class="fa-solid fa-satellite"></i> WS ~${lat}ms</span>`;
+            }
+
+            const makerEl = document.getElementById('tech-maker-status');
+            if (makerEl && data.execution) {
+                const fee = data.execution.maker_fee_pct || 0.02;
+                makerEl.innerHTML = `<span style="color: var(--apple-blue-text);"><i class="fa-solid fa-gem"></i> Maker ${fee}% (-73%)</span>`;
             }
         } catch (e) {
             console.debug('System infra fetch error:', e);

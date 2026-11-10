@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     MIN_DYNAMIC_TP_PCT: float = Field(default=0.012, ge=0.004, le=0.02, description="Min dynamic TP % to EMA 20 (1.2%)")
     MAX_DYNAMIC_TP_PCT: float = Field(default=0.030, ge=0.015, le=0.08, description="Max dynamic TP % to EMA 20 (3.0%)")
 
+    # Maker Execution & Fee Optimization
+    USE_MAKER_ORDERS: bool = Field(default=True, description="Execute entries and TPs via Maker Limit Orders")
+    MAKER_FEE_PCT: float = Field(default=0.0002, ge=0.0, description="Binance/Bybit Maker fee (0.02%)")
+    TAKER_FEE_PCT: float = Field(default=0.00075, ge=0.0, description="Binance VIP 0 Taker fee with BNB (0.075%)")
+
+    # Ultra-Low Latency WebSocket Stream
+    WS_STREAM_ENABLED: bool = Field(default=True, description="Enable ultra-low latency WebSocket price stream")
+
     # Redis & Celery Institutional Infrastructure
     REDIS_URL: str = Field(default="redis://127.0.0.1:6379/0", description="Redis connection URL")
     CELERY_BROKER_URL: str = Field(default="redis://127.0.0.1:6379/0", description="Celery broker URL")

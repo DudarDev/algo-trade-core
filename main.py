@@ -85,6 +85,11 @@ class CryptoBot:
         self.news_analyzer = NewsAnalyzer()
         self.pair_cooldowns = {}
         self.arbitrage_engine = ArbitrageEngine(settings=settings, exchanges={'binance': self.exchange, 'bybit': ExchangeManager(settings, exchange_id='bybit')}, data_dir=self.data_dir)
+        if getattr(settings, 'WS_STREAM_ENABLED', True):
+            from src.engine.infrastructure.websocket_feed import ws_feed
+            self.ws_feed = ws_feed
+        else:
+            self.ws_feed = None
         self.load_runtime_config()
 
     async def get_higher_timeframe_trend(self, symbol: str) -> str:
@@ -272,6 +277,8 @@ class CryptoBot:
         await self.exchange.close()
         if hasattr(self, 'arbitrage_engine') and self.arbitrage_engine:
             await self.arbitrage_engine.close()
+        if hasattr(self, 'ws_feed') and self.ws_feed:
+            await self.ws_feed.stop()
 
     async def process_pair(self, symbol: str):
         async with self.concurrency_limit:
@@ -423,7 +430,7 @@ class CryptoBot:
                 break
             except Exception as e:
                 logger.debug(f"Помилка швидкого моніторингу: {e}")
-            await asyncio.sleep(10)
+            await asyncio.sleep(2)
 
 
     def update_pair_cooldowns(self):
@@ -531,6 +538,8 @@ class CryptoBot:
 
     async def start(self):
         logger.info("🟢 Бот запущено! Очікування команди з дашборду...")
+        if hasattr(self, 'ws_feed') and self.ws_feed:
+            await self.ws_feed.start()
         monitor_task = asyncio.create_task(self.monitor_open_positions())
         arbitrage_task = asyncio.create_task(self.run_arbitrage_radar())
         try:

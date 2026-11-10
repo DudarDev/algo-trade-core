@@ -90,9 +90,19 @@ class ExchangeManager:
         return self._empty_dataframe()
 
     async def fetch_current_price(self, symbol: str) -> Optional[float]:
+        # 1. Перевірка надшвидкого WebSocket стріму (<20ms)
+        if getattr(self.settings, 'WS_STREAM_ENABLED', True):
+            try:
+                from src.engine.infrastructure.websocket_feed import ws_feed
+                ws_p = ws_feed.get_price(symbol, self.exchange_id)
+                if ws_p is not None and ws_p > 0:
+                    return ws_p
+            except Exception:
+                pass
+
         try:
             from src.engine.infrastructure.cache_manager import cache_manager
-            cache_key = f"ticker:{symbol}"
+            cache_key = f"ticker:{self.exchange_id}:{symbol}"
             cached = cache_manager.get(cache_key)
             if cached is not None:
                 return float(cached)
@@ -104,10 +114,30 @@ class ExchangeManager:
             price = float(ticker['last'])
             try:
                 from src.engine.infrastructure.cache_manager import cache_manager
-                cache_manager.set(f"ticker:{symbol}", price, ttl=3)
+                cache_manager.set(f"ticker:{self.exchange_id}:{symbol}", price, ttl=3)
             except Exception:
                 pass
             return price
+        except Exception:
+            return None
+
+    async def fetch_bbo(self, symbol: str) -> Optional[dict]:
+        """Отримує Best Bid / Best Ask (з WebSocket стріму або через REST)."""
+        if getattr(self.settings, 'WS_STREAM_ENABLED', True):
+            try:
+                from src.engine.infrastructure.websocket_feed import ws_feed
+                ws_bbo = ws_feed.get_bbo(symbol, self.exchange_id)
+                if ws_bbo is not None:
+                    return ws_bbo
+            except Exception:
+                pass
+
+        try:
+            ticker = await self.public_exchange.fetch_ticker(symbol)
+            bid = float(ticker.get('bid') or ticker.get('last') or 0.0)
+            ask = float(ticker.get('ask') or ticker.get('last') or 0.0)
+            last = float(ticker.get('last') or 0.0)
+            return {"bid": bid, "ask": ask, "last": last}
         except Exception:
             return None
 

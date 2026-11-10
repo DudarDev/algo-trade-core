@@ -88,7 +88,8 @@ async def test_open_position_success(paper_trader, settings):
     
     assert pos.amount_usdt == 100.0
     assert pos.amount_coins == 0.002
-    assert round(paper_trader.balance, 2) == 899.9
+    # З Maker Limit Orders комісія становить 0.02% ($0.02 на $100 замість $0.10)
+    assert round(paper_trader.balance, 2) == 899.98
 
 @pytest.mark.asyncio
 async def test_open_position_with_features_snapshot(paper_trader, repo):

@@ -168,9 +168,13 @@ class PaperTrader:
                 logger.warning(f"⚠️ Пропуск {symbol}: розрахований об'єм {actual_usdt:.2f} USDT занадто малий.")
                 return
 
-            # --- ОБЛІК КОМІСІЇ ---
-            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.00075)
-            entry_fee_usdt = actual_usdt * fee_pct
+            # --- ОБЛІК КОМІСІЇ (MAKER VS TAKER) ---
+            use_maker = getattr(self.settings, 'USE_MAKER_ORDERS', True)
+            maker_fee_pct = getattr(self.settings, 'MAKER_FEE_PCT', 0.0002)
+            taker_fee_pct = getattr(self.settings, 'TAKER_FEE_PCT', getattr(self.settings, 'exchange_fee_pct', 0.00075))
+            order_type = "MAKER" if use_maker else "TAKER"
+            entry_fee_pct = maker_fee_pct if use_maker else taker_fee_pct
+            entry_fee_usdt = actual_usdt * entry_fee_pct
             total_cost_from_balance = actual_usdt + entry_fee_usdt
 
             if total_cost_from_balance > self.balance:
@@ -185,7 +189,8 @@ class PaperTrader:
                 amount_usdt=actual_usdt, amount_coins=actual_coins,
                 sl=sl, tp=tp, highest_price=price, entry_time=time.time(),
                 regime=regime, ai_confidence=float(ai_confidence),
-                features_snapshot=features_dict
+                features_snapshot=features_dict,
+                order_type=order_type
             )
             self.positions[symbol] = pos_to_save
 
@@ -206,8 +211,8 @@ class PaperTrader:
             await asyncio.to_thread(self.repo.save_balance, float(current_balance))
             
             logger.info(
-                f"🚀 [ВХІД] {side.value} {symbol} | Ціна: {price:.4f} | Об'єм: {actual_usdt:.2f} USDT | "
-                f"Risk: {risk_pct*100:.2f}% | Regime: {regime} | Conf: {ai_confidence:.2f} | Комісія: {entry_fee_usdt:.4f}"
+                f"🚀 [ВХІД ({order_type})] {side.value} {symbol} | Ціна: {price:.4f} | Об'єм: {actual_usdt:.2f} USDT | "
+                f"Risk: {risk_pct*100:.2f}% | Regime: {regime} | Conf: {ai_confidence:.2f} | Комісія: {entry_fee_usdt:.4f} USDT"
             )
             if getattr(self.settings, 'ENABLE_TELEGRAM', False) and self.notifier:
                 try:
@@ -293,13 +298,17 @@ class PaperTrader:
             closed_coins = pos.amount_coins * ratio
             closed_cost = pos.amount_usdt * ratio
 
-            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.00075)
+            use_maker = getattr(self.settings, 'USE_MAKER_ORDERS', True)
+            maker_fee_pct = getattr(self.settings, 'MAKER_FEE_PCT', 0.0002)
+            taker_fee_pct = getattr(self.settings, 'TAKER_FEE_PCT', getattr(self.settings, 'exchange_fee_pct', 0.00075))
+            exit_fee_pct = maker_fee_pct if use_maker else taker_fee_pct
             gross_exit_value_usdt = close_price * closed_coins
-            exit_fee_usdt = gross_exit_value_usdt * fee_pct
+            exit_fee_usdt = gross_exit_value_usdt * exit_fee_pct
             net_return_amount = gross_exit_value_usdt - exit_fee_usdt
 
             # Початкова вартість половини з урахуванням вхідної комісії
-            initial_cost_half_with_fee = closed_cost + (closed_cost * fee_pct)
+            entry_fee_pct = maker_fee_pct if (use_maker and getattr(pos, 'order_type', 'MAKER') == 'MAKER') else taker_fee_pct
+            initial_cost_half_with_fee = closed_cost + (closed_cost * entry_fee_pct)
             net_pnl = net_return_amount - initial_cost_half_with_fee
 
             # Нараховуємо прибуток на живий баланс
@@ -373,14 +382,22 @@ class PaperTrader:
 
             pos = self.positions.pop(symbol)
             
-            # --- ОБЛІК КОМІСІЇ ПРИ ВИХОДІ ---
+            # --- ОБЛІК КОМІСІЇ ПРИ ВИХОДІ (MAKER VS TAKER) ---
             gross_exit_value_usdt = close_price * pos.amount_coins
-            fee_pct = getattr(self.settings, 'exchange_fee_pct', 0.00075)
-            exit_fee_usdt = gross_exit_value_usdt * fee_pct
+            use_maker = getattr(self.settings, 'USE_MAKER_ORDERS', True)
+            maker_fee_pct = getattr(self.settings, 'MAKER_FEE_PCT', 0.0002)
+            taker_fee_pct = getattr(self.settings, 'TAKER_FEE_PCT', getattr(self.settings, 'exchange_fee_pct', 0.00075))
+
+            is_emergency_stop = "stop loss" in reason.lower() or "hard dollar" in reason.lower()
+            exit_fee_pct = taker_fee_pct if (is_emergency_stop or not use_maker) else maker_fee_pct
+            exit_type_label = "TAKER" if (is_emergency_stop or not use_maker) else "MAKER"
+
+            exit_fee_usdt = gross_exit_value_usdt * exit_fee_pct
             net_return_amount = gross_exit_value_usdt - exit_fee_usdt
 
-            # Чистий PnL: Скільки отримали мінус скільки витратили спочатку (чиста вартість позиції + комісія входу)
-            initial_cost_with_fee = pos.amount_usdt + (pos.amount_usdt * fee_pct)
+            # Початкова вартість з урахуванням вхідної комісії
+            entry_fee_pct = maker_fee_pct if (use_maker and getattr(pos, 'order_type', 'MAKER') == 'MAKER') else taker_fee_pct
+            initial_cost_with_fee = pos.amount_usdt + (pos.amount_usdt * entry_fee_pct)
             net_pnl = net_return_amount - initial_cost_with_fee
 
             self.balance += net_return_amount
@@ -438,7 +455,7 @@ class PaperTrader:
             await asyncio.to_thread(self.repo.save_balance, float(current_balance))
 
             result_tag = "WIN" if target_label == 1 else "LOSS"
-            msg = f"📉 [ВИХІД] {symbol} ({reason}) [{result_tag}] | Ціна: {close_price:.4f} | Чистий PnL: {net_pnl:+.2f} USDT"
+            msg = f"📉 [ВИХІД ({exit_type_label})] {symbol} ({reason}) [{result_tag}] | Ціна: {close_price:.4f} | Чистий PnL: {net_pnl:+.2f} USDT"
             logger.info(msg)
             if getattr(self.settings, 'ENABLE_TELEGRAM', False) and self.notifier:
                 try:

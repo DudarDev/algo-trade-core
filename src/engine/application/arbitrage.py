@@ -55,6 +55,21 @@ class ArbitrageEngine:
         logger.info(f"🌍 [Arbitrage Radar] Ініціалізація. Біржі: {list(self.exchanges.keys())}")
 
     async def _fetch_ticker_safe(self, name: str, mgr: ExchangeManager, symbol: str) -> Optional[Dict[str, Any]]:
+        # 1. Надшвидкий BBO з WebSocket стріму (<20ms)
+        if getattr(self.settings, 'WS_STREAM_ENABLED', True):
+            try:
+                from src.engine.infrastructure.websocket_feed import ws_feed
+                ws_bbo = ws_feed.get_bbo(symbol, name)
+                if ws_bbo and ws_bbo.get('bid', 0.0) > 0 and ws_bbo.get('ask', 0.0) > 0:
+                    return {
+                        'exchange': name,
+                        'bid': float(ws_bbo['bid']),
+                        'ask': float(ws_bbo['ask']),
+                        'last': float(ws_bbo.get('last') or ws_bbo['bid'])
+                    }
+            except Exception:
+                pass
+
         try:
             # 🛡️ Захист від зависання біржі (8.0s timeout)
             ticker = await asyncio.wait_for(mgr.exchange.fetch_ticker(symbol), timeout=8.0)
@@ -84,6 +99,25 @@ class ArbitrageEngine:
         return None
 
     async def _fetch_exchange_tickers(self, name: str, mgr: ExchangeManager, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        # 1. Спроба взяти BBO з надшвидкого WebSocket стріму (<20ms)
+        if getattr(self.settings, 'WS_STREAM_ENABLED', True):
+            try:
+                from src.engine.infrastructure.websocket_feed import ws_feed
+                ws_result = {}
+                for sym in symbols:
+                    bbo = ws_feed.get_bbo(sym, name)
+                    if bbo and bbo.get('bid', 0.0) > 0 and bbo.get('ask', 0.0) > 0:
+                        ws_result[sym] = {
+                            'exchange': name,
+                            'bid': float(bbo['bid']),
+                            'ask': float(bbo['ask']),
+                            'last': float(bbo.get('last') or bbo['bid'])
+                        }
+                if len(ws_result) >= len(symbols) * 0.8:
+                    return ws_result
+            except Exception:
+                pass
+
         # Fast bulk fetch_tickers for all symbols in 1 network request
         try:
             if hasattr(mgr.exchange, 'fetch_tickers'):
@@ -268,8 +302,18 @@ class ArbitrageEngine:
         live_spreads.sort(key=lambda x: x["net_spread_pct"], reverse=True)
         max_spread = live_spreads[0]["net_spread_pct"] if live_spreads else 0.0
 
+        ws_info = None
+        if getattr(self.settings, 'WS_STREAM_ENABLED', True):
+            try:
+                from src.engine.infrastructure.websocket_feed import ws_feed
+                ws_info = ws_feed.get_stats()
+            except Exception:
+                pass
+
         payload = {
             "status": "active",
+            "feed_type": "WebSocket Live (<25ms)" if (ws_info and ws_info.get("status") == "online") else "REST Polling",
+            "ws_stats": ws_info,
             "updated_at": round(start_ts, 2),
             "updated_time": time.strftime("%H:%M:%S UTC", time.gmtime(start_ts)),
             "scan_count": self.scan_count,

@@ -30,6 +30,7 @@ class Position(BaseModel):
     
     # Scale-Out Engine (Partial Take Profit)
     partial_tp_hit: bool = Field(default=False)
+    order_type: str = Field(default="MAKER")
 
     model_config = ConfigDict(strict=False, validate_assignment=True)
 

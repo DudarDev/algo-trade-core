@@ -115,6 +115,23 @@ class InteractiveTelegramBot:
             ]
         }
 
+    def get_positions_keyboard(self, positions: list) -> Dict[str, Any]:
+        """Інтерактивні кнопки безпосереднього керування відкритими угодами."""
+        rows = []
+        for p in positions[:4]:
+            sym = getattr(p, 'symbol', '')
+            clean = sym.replace("/USDT", "").replace("/", "")
+            rows.append([
+                {"text": f"🔒 BE: {clean}", "callback_data": f"cmd_be:{sym}"},
+                {"text": f"🎯 50%: {clean}", "callback_data": f"cmd_scale:{sym}"},
+                {"text": f"🛑 Закрити", "callback_data": f"cmd_close:{sym}"}
+            ])
+        rows.append([
+            {"text": "🔄 Оновити", "callback_data": "cmd_positions"},
+            {"text": "⬅️ Назад до меню", "callback_data": "cmd_status"}
+        ])
+        return {"inline_keyboard": rows}
+
     async def _send_request(self, session: aiohttp.ClientSession, endpoint: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Виконання запиту до Telegram Bot API."""
         if not self.token:
@@ -348,9 +365,49 @@ class InteractiveTelegramBot:
 
             elif action == "cmd_positions":
                 text = await asyncio.to_thread(self.format_positions_message)
-                _, is_active = await asyncio.to_thread(self.format_status_message)
-                await self.edit_message(session, chat_id, msg_id, text, self.get_inline_keyboard(is_active))
+                positions = await asyncio.to_thread(lambda: list(ActivePosition.objects.all()) if ActivePosition else [])
+                kb = self.get_positions_keyboard(positions) if positions else self.get_inline_keyboard(True)
+                await self.edit_message(session, chat_id, msg_id, text, kb)
                 await self.answer_callback(session, cb_id)
+
+            elif action.startswith("cmd_be:"):
+                sym = action.split(":", 1)[1]
+                try:
+                    with open(self.cmd_file, "w", encoding="utf-8") as f:
+                        json.dump({"action": "lock_breakeven", "symbol": sym}, f)
+                    await self.answer_callback(session, cb_id, f"🔒 Запит безубитку для {sym} надіслано!")
+                except Exception as e:
+                    await self.answer_callback(session, cb_id, f"❌ Помилка: {e}")
+                text = await asyncio.to_thread(self.format_positions_message)
+                positions = await asyncio.to_thread(lambda: list(ActivePosition.objects.all()) if ActivePosition else [])
+                kb = self.get_positions_keyboard(positions) if positions else self.get_inline_keyboard(True)
+                await self.edit_message(session, chat_id, msg_id, text, kb)
+
+            elif action.startswith("cmd_scale:"):
+                sym = action.split(":", 1)[1]
+                try:
+                    with open(self.cmd_file, "w", encoding="utf-8") as f:
+                        json.dump({"action": "scale_out", "symbol": sym}, f)
+                    await self.answer_callback(session, cb_id, f"🎯 Запит Take Profit 50% для {sym} надіслано!")
+                except Exception as e:
+                    await self.answer_callback(session, cb_id, f"❌ Помилка: {e}")
+                text = await asyncio.to_thread(self.format_positions_message)
+                positions = await asyncio.to_thread(lambda: list(ActivePosition.objects.all()) if ActivePosition else [])
+                kb = self.get_positions_keyboard(positions) if positions else self.get_inline_keyboard(True)
+                await self.edit_message(session, chat_id, msg_id, text, kb)
+
+            elif action.startswith("cmd_close:"):
+                sym = action.split(":", 1)[1]
+                try:
+                    with open(self.cmd_file, "w", encoding="utf-8") as f:
+                        json.dump({"action": "close_position", "symbol": sym}, f)
+                    await self.answer_callback(session, cb_id, f"🛑 Запит закриття {sym} надіслано!")
+                except Exception as e:
+                    await self.answer_callback(session, cb_id, f"❌ Помилка: {e}")
+                text = await asyncio.to_thread(self.format_positions_message)
+                positions = await asyncio.to_thread(lambda: list(ActivePosition.objects.all()) if ActivePosition else [])
+                kb = self.get_positions_keyboard(positions) if positions else self.get_inline_keyboard(True)
+                await self.edit_message(session, chat_id, msg_id, text, kb)
 
             elif action == "cmd_digest":
                 from src.engine.infrastructure.telegram_scheduler import TelegramDigestScheduler

@@ -209,10 +209,27 @@ class CryptoBot:
                     if not current_price or current_price <= 0:
                         pos = self.trader.positions[symbol]
                         current_price = pos.highest_price or pos.entry_price
-                    logger.info(f"🛑 [РУЧНЕ ЗАКРИТТЯ] Команда з дашборду для {symbol}")
-                    await self.trader._close_position(symbol, current_price, reason="Ручне закриття з дашборду")
+                    logger.info(f"🛑 [РУЧНЕ ЗАКРИТТЯ] Команда для {symbol}")
+                    await self.trader._close_position(symbol, current_price, reason="Ручне закриття з інтерфейсу")
+            elif action == 'lock_breakeven':
+                symbol = cmd_data.get('symbol')
+                if symbol and symbol in self.trader.positions:
+                    pos = self.trader.positions[symbol]
+                    be_sl = pos.entry_price * 1.0030
+                    if be_sl > pos.sl:
+                        pos.sl = be_sl
+                        logger.info(f"🔒 [РУЧНИЙ БЕЗЗБИТОК] Стоп {symbol} перенесено на {be_sl:.4f}")
+            elif action == 'scale_out':
+                symbol = cmd_data.get('symbol')
+                if symbol and symbol in self.trader.positions:
+                    current_price = await self.exchange.fetch_current_price(symbol)
+                    if not current_price or current_price <= 0:
+                        pos = self.trader.positions[symbol]
+                        current_price = pos.highest_price or pos.entry_price
+                    logger.info(f"🎯 [РУЧНИЙ SCALE-OUT] Фіксація 50% {symbol}")
+                    await self.trader._partial_close_position(symbol, current_price, reason="Ручний Take Profit 50%")
             elif action == 'close_all':
-                logger.warning("🚨 [PANIC EXIT] Екстрене закриття ВСІХ відкритих позицій за командою з дашборду!")
+                logger.warning("🚨 [PANIC EXIT] Екстрене закриття ВСІХ відкритих позицій за командою!")
                 for symbol in list(self.trader.positions.keys()):
                     current_price = await self.exchange.fetch_current_price(symbol)
                     if not current_price or current_price <= 0:
@@ -526,6 +543,18 @@ class CryptoBot:
         tasks = [self.process_pair(symbol) for symbol in filtered_pairs]
         await asyncio.gather(*tasks)
         self.save_market_radar()
+        # Оновлення серцебиття системи (Dead Man's Switch Watcher)
+        try:
+            cache_manager.set("system:heartbeat", {
+                "timestamp": time.time(),
+                "status": "HEALTHY",
+                "balance": float(self.trader.balance),
+                "open_positions": len(self.trader.positions),
+                "btc_pulse": self.btc_market_pulse
+            }, ttl=300)
+        except Exception:
+            pass
+
         logger.info(f"✅ Цикл завершено. Баланс: {self.trader.balance:.2f} USDT | Активних позицій: {len(self.trader.positions)}")
         # Очищення пам'яті та кешу для стабільної роботи на 1GB VPS (Zero-Leak Protection)
         if len(self.htf_trend_cache) > 50:

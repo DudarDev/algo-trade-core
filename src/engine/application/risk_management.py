@@ -8,12 +8,11 @@ logger = logging.getLogger(__name__)
 class RiskConfig(BaseModel):
     taker_fee: float = Field(0.001, ge=0.0)
     
-    # ЗНИЖЕНО з 1.5 до 1.2. Тепер бот швидше фіксує прибуток!
-    min_risk_reward: float = Field(1.2, gt=0.0) 
+    # Піднято до 2.0 (мінімум 1:2 Risk/Reward для забезпечення позитивного математичного сподівання)
+    min_risk_reward: float = Field(2.0, gt=0.0) 
     
     max_risk_pct: float = Field(2.0, gt=0.0, le=10.0)
     
-    # ЗНИЖЕНО з 1.5 до 1.2. Стоп-лос стає коротшим і безпечнішим.
     atr_multiplier: float = Field(1.2, gt=0.0) 
     
     min_stop_loss_pct: float = Field(0.8, gt=0.0)
@@ -60,11 +59,11 @@ class RiskManager:
             min_dist = entry_price * (self.config.min_stop_loss_pct / 100.0)
             stop_loss_dist = min(max(atr * 1.2, min_dist), entry_price * 0.018)
 
-            # Динамічний тейк-профіт до EMA 20 / BB Mid (мінімум 1.2% + комісії)
+            # Динамічний тейк-профіт до EMA 20 / BB Mid (мінімум 1.6% + комісії)
             if target_tp_pct is not None and target_tp_pct > 0:
-                profit_dist = max(entry_price * float(target_tp_pct), entry_price * 0.012)
+                profit_dist = max(entry_price * float(target_tp_pct), entry_price * 0.016)
             else:
-                profit_dist = max(atr * 1.8, entry_price * 0.014) + fee_impact
+                profit_dist = max(atr * 2.2, entry_price * 0.018) + fee_impact
 
             stop_loss = entry_price - (stop_loss_dist * direction)
             take_profit = entry_price + (profit_dist * direction)
@@ -82,6 +81,9 @@ class RiskManager:
                 position_size_usdt = max_allowed_position
 
             actual_rr_ratio = abs(take_profit - entry_price) / risk_per_coin
+            if actual_rr_ratio < 1.35:
+                logger.debug(f"🛑 [Mean Reversion] Відхилено: R:R {actual_rr_ratio:.2f} < 1.35")
+                return None
         else:
             # Стандартний трендовий режим
             stop_loss_dist = atr * self.config.atr_multiplier

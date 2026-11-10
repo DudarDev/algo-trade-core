@@ -434,19 +434,39 @@ class CryptoBot:
 
 
     def update_pair_cooldowns(self):
-        """Перевіряє історію закритих угод. Якщо монета отримала 2 збитки за останні 24г - кулдаун на 24г."""
+        """
+        Перевіряє історію закритих угод. Якщо монета отримала >= 2 збитки за останні 48 годин,
+        активується 48-годинний динамічний Blacklist/Cooldown із синхронізацією в Redis/CacheManager.
+        """
         try:
             from bot_monitor.models import Trade
             from datetime import timedelta
-            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            from src.engine.infrastructure.cache_manager import cache_manager
+
+            since = datetime.now(timezone.utc) - timedelta(hours=48)
             recent_losses = list(Trade.objects.filter(side='SELL', pnl__lt=0, timestamp__gte=since).values('symbol'))
             from collections import Counter
             counts = Counter(r['symbol'] for r in recent_losses)
             now_ts = time.time()
+            cooldown_ttl = int(getattr(settings, 'PAIR_COOLDOWN_SECONDS', 172800))
+
             for sym, cnt in counts.items():
-                if cnt >= 2 and sym not in self.pair_cooldowns:
-                    self.pair_cooldowns[sym] = now_ts + 86400  # 24г кулдаун
-                    logger.warning(f"🛡️ [COOLDOWN ACTIVE] {sym} заморожено на 24г (зафіксовано {cnt} збитків за добу).")
+                if cnt >= 2:
+                    until_ts = now_ts + cooldown_ttl
+                    if sym not in self.pair_cooldowns or self.pair_cooldowns[sym] < until_ts:
+                        self.pair_cooldowns[sym] = until_ts
+                        cache_manager.set(
+                            f"cooldown:{sym}",
+                            {
+                                "symbol": sym,
+                                "cooldown_until": until_ts,
+                                "losses_count": cnt,
+                                "loss_pnl": -1.0,
+                                "reason": f"Серійний збиток ({cnt} стопів за 48г)"
+                            },
+                            ttl=cooldown_ttl
+                        )
+                        logger.warning(f"🛡️ [DYNAMIC BLACKLIST] {sym} заморожено на {cooldown_ttl // 3600}г ({cnt} збитків за 48г).")
         except Exception as e:
             logger.debug(f"Cooldown update note: {e}")
 
@@ -473,9 +493,18 @@ class CryptoBot:
         open_positions = list(self.trader.positions.keys())
         all_pairs = list(dict.fromkeys(open_positions + (active_pairs or [])))
         
-        # Відсіюємо токсичні пари та пари на Cooldown (захист від серійних втрат)
+        # Відсіюємо токсичні пари, пари на Cooldown та застосовуємо захисний Majors-Only режим у ведмежому ринку
         filtered_pairs = []
         now_ts = time.time()
+        from src.engine.infrastructure.cache_manager import cache_manager
+
+        # Захисний фільтр у ведмежому або нестабільному ринку (Majors-Only Mode)
+        # Якщо ринковий сентимент < 40 (Fear / Extreme Fear) або пульс BTC не HEALTHY,
+        # блокуємо відкриття нових позицій по альткоїнах (NEAR, AVAX, DOGE тощо), які ловлять падаючі ножі
+        fng_score = self.current_sentiment.get('score', 50) if isinstance(self.current_sentiment, dict) else 50
+        is_defensive_market = fng_score < 40 or self.btc_market_pulse in ['BEARISH', 'CORRECTION', 'CHOPPY', 'DUMP_ALERT']
+        majors = {"BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"}
+
         for s in all_pairs:
             if s in open_positions:
                 filtered_pairs.append(s)
@@ -483,6 +512,11 @@ class CryptoBot:
             if s in HARD_BLACKLIST:
                 continue
             if now_ts < self.pair_cooldowns.get(s, 0):
+                continue
+            if cache_manager.get(f"cooldown:{s}"):
+                continue
+            # У захисному режимі допускаємо до аналізу виключно мейджор-активи
+            if is_defensive_market and s not in majors:
                 continue
             filtered_pairs.append(s)
 

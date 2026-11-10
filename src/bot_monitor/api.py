@@ -1455,6 +1455,10 @@ def get_system_infra(request):
 
     ws_stats = cache_manager.get("infra:ws_stats")
     if not ws_stats:
+        radar_latest = cache_manager.get("radar:latest")
+        if radar_latest and isinstance(radar_latest, dict) and "ws_stats" in radar_latest:
+            ws_stats = radar_latest["ws_stats"]
+    if not ws_stats:
         try:
             from src.engine.infrastructure.websocket_feed import ws_feed
             ws_stats = ws_feed.get_stats()

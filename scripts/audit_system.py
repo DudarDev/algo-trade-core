@@ -66,11 +66,15 @@ try:
     # Wallet and positions audit
     w = Wallet.objects.first()
     print(f"\n--- WALLET & POSITIONS AUDIT ---")
-    print(f"DB Wallet Balance: {w.balance if w else 'None'} USDT")
+    print(f"DB Wallet Free Balance: {w.usdt_balance if w else 'None'} USDT")
     active_pos = list(ActivePosition.objects.all())
     print(f"Active Positions in DB: {len(active_pos)}")
+    total_in_pos = sum(p.cost for p in active_pos)
+    print(f"Total Invested in Positions: {total_in_pos:.2f} USDT")
     for p in active_pos:
-        print(f"  {p.symbol}: entry={p.entry_price}, current={getattr(p, 'current_price', 'N/A')}, amt_usdt={p.amount_usdt}")
+        print(f"  {p.symbol}: entry={p.entry_price}, cost={p.cost} USDT, regime={p.regime}, conf={p.ai_confidence}")
+    if w:
+        print(f"TOTAL ACCOUNT EQUITY: {w.usdt_balance + total_in_pos:.2f} USDT")
 
 except Exception as e:
     print(f"Error during audit: {e}", file=sys.stderr)

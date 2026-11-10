@@ -31,15 +31,26 @@ class OrderExecutionService:
                 if be_sl > sl:
                     sl = be_sl
 
-            # 2. Рівень 2 та 3: Динамічний Трейлінг-прибуток (Profit Ladder Trailing)
+            # 2. Рівень 2 та 3: Динамічний Chandelier ATR Трейлінг-прибуток
             default_activation = 0.0150 if is_mean_rev else 0.0180
             activation_pct = getattr(settings, 'TRAILING_STOP_ACTIVATION_PCT', default_activation)
             if highest_price >= pos.entry_price * (1 + activation_pct):
-                # Базовий відступ 0.60% (замість занадто вузького 0.45%)
-                offset_pct = getattr(settings, 'TRAILING_OFFSET_PCT', 0.0060)
-                # Якщо тренд дуже сильний (+2.5%+), звужуємо відступ до 0.45% для збереження прибутку
+                base_offset = getattr(settings, 'TRAILING_OFFSET_PCT', 0.0060)
+                
+                # Розрахунок Chandelier ATR-динамічного відступу на базі поточної волатильності пари
+                atr_pct = 0.0
+                if hasattr(pos, 'features_snapshot') and isinstance(pos.features_snapshot, dict):
+                    atr_pct = float(pos.features_snapshot.get('ATR_PCT', 0.0) or 0.0)
+                
+                if atr_pct > 0.001:
+                    # Адаптуємо відступ як 1.5 * ATR_PCT (клемп від 0.40% до 1.20% для безпеки)
+                    offset_pct = max(0.0040, min(0.0120, atr_pct * 1.5))
+                else:
+                    offset_pct = base_offset
+
+                # Якщо тренд дуже сильний (+2.5%+), звужуємо відступ на 25% для фіксації накопиченого прибутку
                 if highest_price >= pos.entry_price * 1.025:
-                    offset_pct = 0.0045
+                    offset_pct = max(0.0035, offset_pct * 0.75)
 
                 new_sl = highest_price * (1 - offset_pct)
                 if new_sl > sl:

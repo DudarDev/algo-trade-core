@@ -209,15 +209,38 @@ class LiveBinanceTrader(PaperTrader):
 
             actual_coins = actual_usdt / exec_price
 
-            # Відправка реального ринкового ордера на купівлю через CCXT
+            # Відправка ордера на купівлю через CCXT (Maker Limit Post-Only або Fallback Market)
+            use_maker = getattr(self.settings, 'USE_MAKER_ORDERS', True)
             try:
-                logger.info(f"📤 [LIVE CEX ORDER] Відправка BUY {actual_coins:.6f} {symbol} (~{actual_usdt:.2f} USDT)...")
-                order = await self.exchange_manager.private_exchange.create_order(
-                    symbol=symbol,
-                    type='market',
-                    side='buy',
-                    amount=actual_coins
-                )
+                order = None
+                order_type = "TAKER"
+                if use_maker:
+                    try:
+                        ticker = await self.exchange_manager.private_exchange.fetch_ticker(symbol)
+                        bid_price = float(ticker.get('bid') or exec_price)
+                        limit_price = min(bid_price, exec_price)
+                        logger.info(f"📤 [LIVE CEX MAKER] Відправка Limit Post-Only BUY {actual_coins:.6f} {symbol} @ {limit_price:.4f} (~{actual_usdt:.2f} USDT)...")
+                        order = await self.exchange_manager.private_exchange.create_order(
+                            symbol=symbol,
+                            type='limit',
+                            side='buy',
+                            amount=actual_coins,
+                            price=limit_price,
+                            params={'postOnly': True}
+                        )
+                        order_type = "MAKER"
+                    except Exception as maker_err:
+                        logger.warning(f"⚠️ [LIVE CEX] Post-Only ордер не прийнято ({maker_err}). Виконуємо Taker Market ордер...")
+
+                if not order:
+                    logger.info(f"📤 [LIVE CEX TAKER] Відправка Market BUY {actual_coins:.6f} {symbol} (~{actual_usdt:.2f} USDT)...")
+                    order = await self.exchange_manager.private_exchange.create_order(
+                        symbol=symbol,
+                        type='market',
+                        side='buy',
+                        amount=actual_coins
+                    )
+                    order_type = "TAKER"
                 
                 # Аналіз виконаного ордера
                 filled_price = float(order.get('average') or order.get('price') or exec_price)
@@ -227,9 +250,10 @@ class LiveBinanceTrader(PaperTrader):
                 if order.get('fee'):
                     fee_cost = float(order['fee'].get('cost', 0.0))
                 else:
-                    fee_cost = executed_cost * getattr(self.settings, 'exchange_fee_pct', 0.001)
+                    fee_pct = getattr(self.settings, 'MAKER_FEE_PCT', 0.0002) if order_type == 'MAKER' else getattr(self.settings, 'TAKER_FEE_PCT', getattr(self.settings, 'exchange_fee_pct', 0.00075))
+                    fee_cost = executed_cost * fee_pct
 
-                logger.info(f"💸 [LIVE CEX FILL] Успішно! ID: {order.get('id')} | Ціна: {filled_price:.4f} | Сума: {executed_cost:.2f} USDT")
+                logger.info(f"💸 [LIVE CEX FILL ({order_type})] Успішно! ID: {order.get('id')} | Ціна: {filled_price:.4f} | Сума: {executed_cost:.2f} USDT | Комісія: {fee_cost:.4f} USDT")
 
                 self.balance -= (executed_cost + fee_cost)
                 current_balance = self.balance
@@ -239,7 +263,8 @@ class LiveBinanceTrader(PaperTrader):
                     amount_usdt=executed_cost, amount_coins=filled_amount,
                     sl=sl, tp=tp, highest_price=filled_price, entry_time=time.time(),
                     regime=regime, ai_confidence=float(ai_confidence),
-                    features_snapshot=features_dict
+                    features_snapshot=features_dict,
+                    order_type=order_type
                 )
                 self.positions[symbol] = pos_to_save
 
@@ -289,14 +314,35 @@ class LiveBinanceTrader(PaperTrader):
             ratio = getattr(self.settings, 'PARTIAL_TP_RATIO', 0.50)
             closed_coins = pos.amount_coins * ratio
 
+            use_maker = getattr(self.settings, 'USE_MAKER_ORDERS', True)
+            is_tp = reason.startswith("Take Profit")
             try:
-                logger.info(f"📤 [LIVE CEX SCALE-OUT] Продаж 50% ({closed_coins:.6f} {symbol}) на Binance...")
-                order = await self.exchange_manager.private_exchange.create_order(
-                    symbol=symbol,
-                    type='market',
-                    side='sell',
-                    amount=closed_coins
-                )
+                order = None
+                if use_maker and is_tp:
+                    try:
+                        ticker = await self.exchange_manager.private_exchange.fetch_ticker(symbol)
+                        ask_price = float(ticker.get('ask') or close_price)
+                        limit_sell_price = max(ask_price, close_price)
+                        logger.info(f"📤 [LIVE CEX MAKER SCALE-OUT] Limit Post-Only SELL 50% ({closed_coins:.6f} {symbol}) @ {limit_sell_price:.4f}...")
+                        order = await self.exchange_manager.private_exchange.create_order(
+                            symbol=symbol,
+                            type='limit',
+                            side='sell',
+                            amount=closed_coins,
+                            price=limit_sell_price,
+                            params={'postOnly': True}
+                        )
+                    except Exception as maker_err:
+                        logger.debug(f"Maker scale-out fallback: {maker_err}")
+
+                if not order:
+                    logger.info(f"📤 [LIVE CEX SCALE-OUT] Продаж 50% ({closed_coins:.6f} {symbol}) на Binance...")
+                    order = await self.exchange_manager.private_exchange.create_order(
+                        symbol=symbol,
+                        type='market',
+                        side='sell',
+                        amount=closed_coins
+                    )
                 fill_price = float(order.get('average') or order.get('price') or close_price)
                 real_closed_coins = float(order.get('filled') or closed_coins)
             except Exception as e:
@@ -319,14 +365,35 @@ class LiveBinanceTrader(PaperTrader):
             if not pos:
                 return
 
+            use_maker = getattr(self.settings, 'USE_MAKER_ORDERS', True)
+            is_tp = reason.startswith("Take Profit")
             try:
-                logger.info(f"📤 [LIVE CEX CLOSE] Продаж {pos.amount_coins:.6f} {symbol} ({reason})...")
-                order = await self.exchange_manager.private_exchange.create_order(
-                    symbol=symbol,
-                    type='market',
-                    side='sell',
-                    amount=pos.amount_coins
-                )
+                order = None
+                if use_maker and is_tp:
+                    try:
+                        ticker = await self.exchange_manager.private_exchange.fetch_ticker(symbol)
+                        ask_price = float(ticker.get('ask') or close_price)
+                        limit_sell_price = max(ask_price, close_price)
+                        logger.info(f"📤 [LIVE CEX MAKER CLOSE] Limit Post-Only SELL {pos.amount_coins:.6f} {symbol} @ {limit_sell_price:.4f} ({reason})...")
+                        order = await self.exchange_manager.private_exchange.create_order(
+                            symbol=symbol,
+                            type='limit',
+                            side='sell',
+                            amount=pos.amount_coins,
+                            price=limit_sell_price,
+                            params={'postOnly': True}
+                        )
+                    except Exception as maker_err:
+                        logger.debug(f"Maker close fallback: {maker_err}")
+
+                if not order:
+                    logger.info(f"📤 [LIVE CEX CLOSE] Продаж {pos.amount_coins:.6f} {symbol} ({reason})...")
+                    order = await self.exchange_manager.private_exchange.create_order(
+                        symbol=symbol,
+                        type='market',
+                        side='sell',
+                        amount=pos.amount_coins
+                    )
                 fill_price = float(order.get('average') or order.get('price') or close_price)
             except Exception as e:
                 logger.error(f"❌ [LIVE CEX] Помилка закриття позиції {symbol} на Binance: {e}")

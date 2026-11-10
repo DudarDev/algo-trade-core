@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlgoTrade PRO - Інвесторський Звіт Ефективності</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b0e14;
+            --card-bg: #151922;
+            --text-primary: #f0f3f8;
+            --text-muted: #8b949e;
+            --accent-green: #0ecb81;
+            --accent-red: #f6465d;
+            --accent-blue: #007aff;
+            --border: #21262d;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text-primary);
+            padding: 40px 20px;
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            padding: 36px 40px;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 24px;
+            margin-bottom: 28px;
+        }
+        .brand {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        .brand span { color: var(--accent-green); }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            background: rgba(0, 122, 255, 0.15);
+            color: var(--accent-blue);
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .meta-text {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .kpi-card {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
+        }
+        .kpi-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+        .kpi-val {
+            font-size: 22px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .val-green { color: var(--accent-green); }
+        .val-red { color: var(--accent-red); }
+        .val-blue { color: var(--accent-blue); }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .specs-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 32px;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 13px;
+        }
+        .specs-item span { color: var(--text-muted); }
+        .specs-item strong { font-family: 'JetBrains Mono', monospace; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid var(--border);
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .no-print-bar {
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        .btn-print {
+            background: var(--accent-blue);
+            color: #fff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-print:hover { opacity: 0.9; }
+
+        @media print {
+            body { background: #fff; color: #000; padding: 0; }
+            .container { box-shadow: none; border: none; padding: 0; }
+            .no-print-bar { display: none; }
+            .kpi-card { border: 1px solid #ccc; background: #fafafa; }
+            .specs-grid { border: 1px solid #ccc; background: #fafafa; }
+            th { background: #eee; color: #333; }
+            td { border-bottom: 1px solid #ddd; }
+            .badge { border: 1px solid #ccc; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="no-print-bar">
+            <button class="btn-print" onclick="window.print()">🖨️ Друк / Зберегти в PDF</button>
+        </div>
+
+        <div class="header">
+            <div>
+                <div class="brand">AlgoTrade <span>PRO</span> <span class="badge">{{ execution_mode }}</span></div>
+                <div class="meta-text">Аудит ефективності квантової системи • Senior Algorithmic Infrastructure</div>
+            </div>
+            <div style="text-align: right;">
+                <div class="badge">Звіт згенеровано: {{ generated_at }}</div>
+                <div class="meta-text">Початковий капітал: ${{ initial_balance }} USDT</div>
+            </div>
+        </div>
+
+        <!-- KPI Grid -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Чистий PnL (Net)</div>
+                <div class="kpi-val {% if net_pnl >= 0 %}val-green{% else %}val-red{% endif %}">
+                    {% if net_pnl >= 0 %}+{% endif %}{{ net_pnl }} USDT
+                </div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Вінрейт (Win Rate)</div>
+                <div class="kpi-val val-blue">{{ win_rate }}%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Profit Factor</div>
+                <div class="kpi-val">{{ profit_factor }}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Макс. Просадка (DD)</div>
+                <div class="kpi-val val-red">{{ max_drawdown }}%</div>
+            </div>
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Всього Угод</div>
+                <div class="kpi-val">{{ total_trades }}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Прибуткові / Збиткові</div>
+                <div class="kpi-val"><span class="val-green">{{ winning_trades }}</span> / <span class="val-red">{{ losing_trades }}</span></div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Валовий прибуток (Gross)</div>
+                <div class="kpi-val val-green">+{{ gross_profits }} USDT</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Поточний Баланс</div>
+                <div class="kpi-val val-blue">{{ current_balance }} USDT</div>
+            </div>
+        </div>
+
+        <!-- Архітектурні параметри ризику -->
+        <div class="section-title">🛡️ Архітектурні Параметри Ризик-Менеджменту</div>
+        <div class="specs-grid">
+            <div class="specs-item"><span>Цільовий R:R:</span> <strong>{{ risk_reward_target }}:1</strong></div>
+            <div class="specs-item"><span>Тип ордерів:</span> <strong>Maker Post-Only (0.02%)</strong></div>
+            <div class="specs-item"><span>Трейлінг-стоп:</span> <strong>Chandelier Dynamic ATR (1.5x)</strong></div>
+            <div class="specs-item"><span>Захист від флету:</span> <strong>Структурний вихід (4h limit)</strong></div>
+            <div class="specs-item"><span>Динамічний блекліст:</span> <strong>48 годин після 2 стопів</strong></div>
+            <div class="specs-item"><span>Фільтр паніки:</span> <strong>Majors-Only при F&G &lt; 40</strong></div>
+        </div>
+
+        <!-- Таблиця закритих угод -->
+        <div class="section-title">📋 Журнал Останніх Угод (Аудит)</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Час</th>
+                    <th>Пара</th>
+                    <th>Сторона</th>
+                    <th>Ціна входу</th>
+                    <th>PnL (USDT)</th>
+                    <th>Причина виходу</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in trades %}
+                <tr>
+                    <td>{{ t.timestamp|date:"d.m.Y H:i" }}</td>
+                    <td><strong>{{ t.symbol }}</strong></td>
+                    <td>{{ t.side }}</td>
+                    <td>${{ t.price }}</td>
+                    <td class="{% if t.pnl >= 0 %}val-green{% else %}val-red{% endif %}">
+                        {% if t.pnl >= 0 %}+{% endif %}{{ t.pnl }}
+                    </td>
+                    <td>{{ t.exit_reason|default:"Manual / TP" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Немає записів угод.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

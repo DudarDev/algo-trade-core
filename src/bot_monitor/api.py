@@ -1453,14 +1453,10 @@ def get_system_infra(request):
 
 
 
-    ws_stats = cache_manager.get("infra:ws_stats")
+    radar_data = get_arbitrage_radar(request)
+    ws_stats = radar_data.get("ws_stats") if isinstance(radar_data, dict) else None
     if not ws_stats:
-        radar_latest = cache_manager.get("arbitrage:radar")
-        if radar_latest and isinstance(radar_latest, dict) and "ws_stats" in radar_latest:
-            ws_stats = radar_latest["ws_stats"]
-    if not ws_stats or (isinstance(ws_stats, dict) and ws_stats.get("status") == "connecting"):
-        # Якщо в кеші ще статус connecting, але сокети вже мають зв'язок або фоновий радар активний
-        pass
+        ws_stats = cache_manager.get("infra:ws_stats")
     if not ws_stats:
         try:
             from src.engine.infrastructure.websocket_feed import ws_feed

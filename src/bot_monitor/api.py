@@ -211,18 +211,35 @@ def bot_status(request):
 
 
 
+# --- ЗАХИСТ ВІД НЕСАНКЦІОНОВАНОГО КЕРУВАННЯ ЧЕРЕЗ CLOUDFLARE ---
+
+def check_dashboard_auth(request) -> Optional[dict]:
+    """
+    Захист критичних команд управління від несанкціонованого доступу
+    через публічний тунель Cloudflare (trycloudflare.com / Zero Trust).
+    """
+    from src.shared.config import settings
+    if getattr(request, 'user', None) and request.user.is_authenticated:
+        return None
+    header_key = request.headers.get("X-API-KEY") or request.META.get("HTTP_X_API_KEY")
+    expected_key = getattr(settings, 'DASHBOARD_API_KEY', 'algo_sec_key_2026_quant_pro')
+    if header_key and header_key == expected_key:
+        return None
+    remote_ip = request.META.get('REMOTE_ADDR', '')
+    if remote_ip in ('127.0.0.1', '::1', 'testclient', 'localhost', ''):
+        return None
+    return {"status": "error", "message": "403 Forbidden: Потрібна авторизація (X-API-KEY або активна Django-сесія)"}
+
+
 @router.post("/bot_control")
-
 @router.post("/control")
-
 def bot_control(request, payload: BotControlRequest):
-
+    auth_err = check_dashboard_auth(request)
+    if auth_err:
+        return auth_err
     if payload.command not in ['start', 'stop']:
-
         return {"status": "error", "message": "Invalid command"}
-
     new_status = BotControlService.change_status(payload.command)
-
     return {"status": "success", "bot_status": new_status}
 
 
@@ -454,43 +471,30 @@ def get_active_positions(request):
 
 
 @router.post("/close_position")
-
 def close_position(request, payload: ClosePositionRequest):
-
     """Ручне закриття обраної відкритої позиції з дашборду."""
-
+    auth_err = check_dashboard_auth(request)
+    if auth_err:
+        return auth_err
     cmd_file = DATA_DIR / "command_queue.json"
-
     try:
-
         with open(cmd_file, "w", encoding="utf-8") as f:
-
             json.dump({"action": "close_position", "symbol": payload.symbol}, f)
-
         return {"status": "success", "message": f"Команду закриття {payload.symbol} надіслано рушію"}
-
     except Exception as e:
-
         return {"status": "error", "message": str(e)}
 
 
-
-
-
 @router.post("/close_all")
-
 def close_all_positions(request):
-
     """Екстрене закриття ВСІХ відкритих позицій (Panic Exit)."""
-
+    auth_err = check_dashboard_auth(request)
+    if auth_err:
+        return auth_err
     cmd_file = DATA_DIR / "command_queue.json"
-
     try:
-
         with open(cmd_file, "w", encoding="utf-8") as f:
-
             json.dump({"action": "close_all"}, f)
-
         return {"status": "success", "message": "Команду екстреного закриття всіх позицій надіслано рушію"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -499,6 +503,9 @@ def close_all_positions(request):
 @router.post("/delta_neutral/open")
 def open_delta_neutral(request, payload: OpenDeltaNeutralRequest):
     """Ручне відкриття Cash & Carry позиції з дашборду."""
+    auth_err = check_dashboard_auth(request)
+    if auth_err:
+        return auth_err
     cmd_file = DATA_DIR / "command_queue.json"
     try:
         with open(cmd_file, "w", encoding="utf-8") as f:
@@ -516,6 +523,9 @@ def open_delta_neutral(request, payload: OpenDeltaNeutralRequest):
 @router.post("/delta_neutral/close")
 def close_delta_neutral(request, payload: CloseDeltaNeutralRequest):
     """Ручне закриття Cash & Carry позиції з дашборду (підтримка position_id та group_id)."""
+    auth_err = check_dashboard_auth(request)
+    if auth_err:
+        return auth_err
     target_id = payload.position_id or payload.group_id
     if not target_id:
         return {"status": "error", "message": "position_id або group_id обов'язковий"}
@@ -738,11 +748,11 @@ def get_config(request):
 
 
 @router.post("/config")
-
 def update_config(request, payload: ConfigUpdateRequest):
-
     """Збереження оновлених налаштувань алгоритму на льоту."""
-
+    auth_err = check_dashboard_auth(request)
+    if auth_err:
+        return auth_err
     cfg_file = DATA_DIR / "runtime_config.json"
 
     cfg_dict = payload.model_dump(exclude_none=True)
@@ -1260,11 +1270,11 @@ def get_engine_logs(request):
 
 
 @router.post("/reset_account")
-
 def reset_account(request):
-
     """Скидання демо-депозиту до $1,000 та очищення історії для нового тестування."""
-
+    auth_err = check_dashboard_auth(request)
+    if auth_err:
+        return auth_err
     try:
 
         Trade.objects.all().delete()

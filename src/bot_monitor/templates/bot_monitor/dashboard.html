@@ -1307,6 +1307,24 @@
 <script src="https://s3.tradingview.com/tv.js"></script>
 
 <script>
+window.DASHBOARD_API_KEY = "{{ dashboard_api_key|default:'algo_sec_key_2026_quant_pro' }}";
+
+// Автоматичний захисний інжектор X-API-KEY для всіх викликів панелі через Cloudflare тунель
+(function() {
+    const origFetch = window.fetch;
+    window.fetch = function(url, options = {}) {
+        options = options || {};
+        options.headers = options.headers || {};
+        if (window.DASHBOARD_API_KEY) {
+            if (options.headers instanceof Headers) {
+                options.headers.set('X-API-KEY', window.DASHBOARD_API_KEY);
+            } else {
+                options.headers['X-API-KEY'] = window.DASHBOARD_API_KEY;
+            }
+        }
+        return origFetch.apply(this, [url, options]);
+    };
+})();
 
 const TERMINAL_I18N = {
     ua: {

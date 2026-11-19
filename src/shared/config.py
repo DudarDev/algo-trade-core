@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     RISK_REWARD_RATIO: float = Field(default=2.0, gt=1.0)
     
     # --- КРИТИЧНІ ПАРАМЕТРИ, ЯКІ ШУКАВ РУШІЙ ---
+    DASHBOARD_API_KEY: str = Field(default="algo_sec_key_2026_quant_pro", description="Secret API key for Dashboard POST endpoints")
+    MIN_BNB_USDT: float = Field(default=3.0, ge=0.0, description="Minimum BNB equivalent balance before refilling")
+    BNB_TOP_UP_USDT: float = Field(default=10.0, ge=5.0, description="USDT quote amount for BNB auto refill")
+    MIN_FREE_USDT_RESERVE: float = Field(default=20.0, ge=0.0, description="Minimum free USDT reserve to retain")
+    BNB_REFILL_COOLDOWN_MINUTES: int = Field(default=60, ge=1, description="Cooldown between BNB refills")
     MODEL_PATH: str = Field(default="data_storage/models/global_rf_v4.pkl")
     DEFAULT_SL_PCT: float = Field(default=0.015)
     DEFAULT_TP_PCT: float = Field(default=0.030)

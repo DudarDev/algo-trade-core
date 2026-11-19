@@ -59,6 +59,7 @@ from src.engine.application.live_trader import LiveBinanceTrader
 from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
 from src.engine.application.arbitrage import ArbitrageEngine
 from src.engine.application.delta_neutral_trader import DeltaNeutralTrader
+from src.engine.application.bnb_manager import BNBAutoBalanceManager
 
 from src.engine.infrastructure.order_book_analyzer import OrderBookAnalyzer
 from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
@@ -95,6 +96,14 @@ class CryptoBot:
             is_paper=getattr(settings, 'PAPER_TRADING', True)
         )
         self.margin_monitor = getattr(self.delta_neutral_trader, 'margin_monitor', None)
+        self.bnb_manager = BNBAutoBalanceManager(
+            exchange=self.exchange,
+            trading_mode="PAPER" if getattr(settings, 'PAPER_TRADING', True) else "LIVE",
+            min_bnb_usdt=float(getattr(settings, 'MIN_BNB_USDT', 3.0)),
+            top_up_usdt=float(getattr(settings, 'BNB_TOP_UP_USDT', 10.0)),
+            min_free_usdt_reserve=float(getattr(settings, 'MIN_FREE_USDT_RESERVE', 20.0)),
+            cooldown_minutes=int(getattr(settings, 'BNB_REFILL_COOLDOWN_MINUTES', 60))
+        )
 
         if getattr(settings, 'WS_STREAM_ENABLED', True):
             from src.engine.infrastructure.websocket_feed import ws_feed
@@ -666,6 +675,14 @@ class CryptoBot:
                                             )
                                 except Exception as me:
                                     logger.warning(f"⚠️ [Margin Monitor Loop] Помилка перевірки маржі: {me}")
+
+                            # BNB Auto-Balance Manager: авто-поповнення BNB для знижки комісій
+                            if hasattr(self, 'bnb_manager') and self.bnb_manager:
+                                try:
+                                    notify_cb = getattr(self.notifier, 'send_message', getattr(self.notifier, 'notify', None)) if self.notifier else None
+                                    await self.bnb_manager.check_and_refill(notify_callback=notify_cb)
+                                except Exception as be:
+                                    logger.debug(f"BNB manager check error: {be}")
 
                     except Exception as fe:
                         logger.debug(f"Funding radar error: {fe}")

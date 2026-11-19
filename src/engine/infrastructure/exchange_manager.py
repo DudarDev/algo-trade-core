@@ -190,3 +190,65 @@ class ExchangeManager:
         except Exception as e:
             logger.error(f"❌ [Universal Transfer Error] Не вдалося переказати {amount_usdt:.2f} USDT: {e}")
             return False
+
+    async def get_spot_free_balance(self, asset: str) -> float:
+        """Повертає вільний баланс активу на спотовому акаунті."""
+        if getattr(self.settings, 'PAPER_TRADING', True) or not self.private_exchange:
+            if asset.upper() == "USDT":
+                return 1000.0
+            return 0.05 if asset.upper() == "BNB" else 0.0
+
+        try:
+            balance = await self.private_exchange.fetch_balance()
+            asset_clean = asset.upper()
+            free = 0.0
+            if asset_clean in balance:
+                free = float(balance[asset_clean].get('free', 0.0) or 0.0)
+            elif 'free' in balance and asset_clean in balance['free']:
+                free = float(balance['free'].get(asset_clean, 0.0) or 0.0)
+            return free
+        except Exception as e:
+            logger.warning(f"⚠️ [Balance Query] Помилка отримання балансу {asset}: {e}")
+            return 0.0
+
+    async def get_spot_price(self, symbol: str) -> float:
+        """Повертає поточну ціну споту для оцінки вартості активу."""
+        p = await self.fetch_current_price(symbol)
+        if p and p > 0:
+            return p
+        try:
+            ticker = await self.public_exchange.fetch_ticker(symbol)
+            return float(ticker.get('last') or ticker.get('bid') or 0.0)
+        except Exception:
+            return 600.0 if "BNB" in symbol else 0.0
+
+    async def buy_spot_market_quote(self, symbol: str, quote_usdt: float) -> dict:
+        """Купівля на споті ринковим ордером на суму quote_usdt (quoteOrderQty)."""
+        if getattr(self.settings, 'PAPER_TRADING', True) or not self.private_exchange:
+            price = max(1.0, await self.get_spot_price(symbol))
+            qty = round(quote_usdt / price, 4)
+            logger.info(f"📝 [Paper Buy] Ринкова купівля {symbol} на суму {quote_usdt:.2f} USDT (~{qty} {symbol.split('/')[0]})")
+            return {
+                "id": f"paper_spot_{int(time.time())}",
+                "status": "closed",
+                "symbol": symbol,
+                "cost": quote_usdt,
+                "filled": qty
+            }
+
+        try:
+            if hasattr(self.private_exchange, 'create_market_buy_order_with_cost'):
+                order = await self.private_exchange.create_market_buy_order_with_cost(symbol, quote_usdt)
+            else:
+                order = await self.private_exchange.create_order(
+                    symbol=symbol,
+                    type='market',
+                    side='buy',
+                    amount=None,
+                    price=None,
+                    params={'quoteOrderQty': quote_usdt}
+                )
+            return order
+        except Exception as e:
+            logger.error(f"❌ [Market Buy Error] Не вдалося купити {symbol} на {quote_usdt} USDT: {e}")
+            raise

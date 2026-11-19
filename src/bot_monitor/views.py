@@ -7,6 +7,7 @@ from django.db.models import Sum, Avg, Count
 
 from .models import Trade, Wallet, ActivePosition, BotConfig
 from .services import BotControlService
+from src.shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,7 @@ def dashboard_view(request):
         'max_drawdown': round(max_drawdown_pct, 1),
         'banned_coins': banned_coins,
         'banned_count': len(banned_coins),
+        'dashboard_api_key': getattr(settings, 'DASHBOARD_API_KEY', 'algo_sec_key_2026_quant_pro'),
     }
     return render(request, 'bot_monitor/dashboard.html', context)
 

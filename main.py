@@ -205,6 +205,8 @@ class CryptoBot:
                     if hasattr(self.strategy, 'risk_controller') and self.strategy.risk_controller:
                         self.strategy.risk_controller.base_min_adx = new_adx
                     settings.min_adx_trend = new_adx
+                if 'max_position_size_usdt' in cfg:
+                    settings.MAX_POSITION_SIZE_USDT = float(cfg['max_position_size_usdt'])
             except Exception as e:
                 logger.debug(f"Помилка завантаження runtime_config: {e}")
 

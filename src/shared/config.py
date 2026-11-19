@@ -1,10 +1,11 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     TRADING_MODE: str = Field(default="PAPER", description="Execution mode: PAPER or LIVE")
     BINANCE_API_KEY: SecretStr = Field(default=SecretStr("dummy"), description="API Key")
     BINANCE_SECRET_KEY: SecretStr = Field(default=SecretStr("dummy"), description="Secret Key")
+    BINANCE_API_SECRET: SecretStr | None = Field(default=None, description="Alias for BINANCE_SECRET_KEY")
     MAX_SLIPPAGE_PCT: float = Field(default=0.005, ge=0.0, description="Max allowed execution slippage (0.5%)")
     MIN_NOTIONAL_USDT: float = Field(default=10.0, ge=0.0, description="Min notional trade size on Binance")
     ENABLE_TELEGRAM: bool = Field(default=False)
@@ -17,9 +18,12 @@ class Settings(BaseSettings):
     
     # --- КРИТИЧНІ ПАРАМЕТРИ, ЯКІ ШУКАВ РУШІЙ ---
     DASHBOARD_API_KEY: str = Field(default="algo_sec_key_2026_quant_pro", description="Secret API key for Dashboard POST endpoints")
+    DASHBOARD_REQUIRE_LOGIN: bool = Field(default=True, description="Require Django login for dashboard HTML views")
     MIN_BNB_USDT: float = Field(default=3.0, ge=0.0, description="Minimum BNB equivalent balance before refilling")
+    BNB_MIN_USDT: float | None = Field(default=None, description="Alias for MIN_BNB_USDT")
     BNB_TOP_UP_USDT: float = Field(default=10.0, ge=5.0, description="USDT quote amount for BNB auto refill")
     MIN_FREE_USDT_RESERVE: float = Field(default=20.0, ge=0.0, description="Minimum free USDT reserve to retain")
+    BNB_MIN_FREE_USDT_RESERVE: float | None = Field(default=None, description="Alias for MIN_FREE_USDT_RESERVE")
     BNB_REFILL_COOLDOWN_MINUTES: int = Field(default=60, ge=1, description="Cooldown between BNB refills")
     MODEL_PATH: str = Field(default="data_storage/models/global_rf_v4.pkl")
     DEFAULT_SL_PCT: float = Field(default=0.015)
@@ -27,7 +31,10 @@ class Settings(BaseSettings):
     
     INITIAL_BALANCE: float = Field(default=1000.0, ge=0)
     MAX_CONCURRENT_POSITIONS: int = Field(default=3, ge=1, le=10)
+    MAX_ACTIVE_POSITIONS: int | None = Field(default=None, description="Alias for MAX_CONCURRENT_POSITIONS")
     max_open_positions: int = Field(default=3, ge=1, le=10)
+    MAX_POSITION_SIZE_USDT: float = Field(default=15.0, ge=5.0, description="Max dollar position size (Binance micro-lot guard)")
+    DAILY_LOSS_CAP_PCT: float | None = Field(default=None, description="Emergency stop daily loss cap % (e.g. 4.0 for 4%)")
     TRADE_FRACTION: float = Field(default=0.04, gt=0, le=1)
     risk_per_trade_pct: float = Field(default=0.02, gt=0, le=0.10)
     exchange_fee_pct: float = Field(default=0.00075, ge=0.0, description='Binance VIP 0 fee with BNB 25% discount')
@@ -76,6 +83,34 @@ class Settings(BaseSettings):
     LIGHTGBM_MODEL_PATH: str = Field(default="data_storage/models/global_lgbm_v1.pkl", description="LightGBM model artifact path")
     ENABLE_QUANT_DUAL_ENSEMBLE: bool = Field(default=True, description="Enable RF + LightGBM dual ensemble")
     
+    @model_validator(mode="after")
+    def normalize_aliases_and_limits(self):
+        # Аліас секретного ключа Binance
+        if self.BINANCE_API_SECRET is not None and self.BINANCE_SECRET_KEY.get_secret_value() == "dummy":
+            self.BINANCE_SECRET_KEY = self.BINANCE_API_SECRET
+
+        # Аліас кількості позицій
+        if self.MAX_ACTIVE_POSITIONS is not None:
+            self.MAX_CONCURRENT_POSITIONS = self.MAX_ACTIVE_POSITIONS
+            self.max_open_positions = self.MAX_ACTIVE_POSITIONS
+
+        # Аліаси BNB Auto-Balance
+        if self.BNB_MIN_USDT is not None:
+            self.MIN_BNB_USDT = self.BNB_MIN_USDT
+        if self.BNB_MIN_FREE_USDT_RESERVE is not None:
+            self.MIN_FREE_USDT_RESERVE = self.BNB_MIN_FREE_USDT_RESERVE
+
+        # Аліас щоденного ліміту збитків (4.0 -> 0.04)
+        if self.DAILY_LOSS_CAP_PCT is not None:
+            self.DAILY_LOSS_LIMIT_PCT = (
+                self.DAILY_LOSS_CAP_PCT / 100.0 if self.DAILY_LOSS_CAP_PCT > 1.0 else self.DAILY_LOSS_CAP_PCT
+            )
+        return self
+
+    @property
+    def PAPER_TRADING(self) -> bool:
+        return self.TRADING_MODE.upper() != "LIVE"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

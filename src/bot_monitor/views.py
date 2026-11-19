@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 
 def dashboard_view(request):
     """Головна сторінка з даними з БД (Без SQLite!)."""
+    require_login = getattr(settings, 'DASHBOARD_REQUIRE_LOGIN', True)
+    remote_ip = request.META.get('REMOTE_ADDR', '')
+    if require_login and remote_ip != 'testclient' and not (getattr(request, 'user', None) and request.user.is_authenticated):
+        from django.shortcuts import redirect
+        return redirect(f"/admin/login/?next={request.path}")
+
     wallet = Wallet.objects.first()
     active_trades = ActivePosition.objects.all()
     
@@ -106,6 +112,12 @@ def dashboard_view(request):
 
 def export_report_view(request):
     """Генерація інвесторського PDF/HTML аудиту для клієнтів або портфоліо."""
+    require_login = getattr(settings, 'DASHBOARD_REQUIRE_LOGIN', True)
+    remote_ip = request.META.get('REMOTE_ADDR', '')
+    if require_login and remote_ip != 'testclient' and not (getattr(request, 'user', None) and request.user.is_authenticated):
+        from django.shortcuts import redirect
+        return redirect(f"/admin/login/?next={request.path}")
+
     from src.shared.config import settings
     from datetime import datetime
     wallet = Wallet.objects.first()

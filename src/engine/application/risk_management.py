@@ -74,9 +74,12 @@ class RiskManager:
             if risk_per_coin == 0:
                 return None
 
+            from src.shared.config import settings
+            max_cap_limit = float(getattr(settings, 'MAX_POSITION_SIZE_USDT', 60.0))
+
             position_size_usdt = (max_loss_usdt / risk_per_coin) * entry_price
-            # Обмежуємо розмір контртренд позиції макс 45 USDT для збереження депозиту
-            max_allowed_position = min(capital * 0.50, 45.0)
+            # Обмежуємо розмір контртренд позиції макс 45 USDT (або MAX_POSITION_SIZE_USDT) для збереження депозиту
+            max_allowed_position = min(capital * 0.50, min(max_cap_limit, 45.0))
             if position_size_usdt > max_allowed_position:
                 position_size_usdt = max_allowed_position
 
@@ -102,8 +105,10 @@ class RiskManager:
             if risk_per_coin == 0:
                 return None
 
+            from src.shared.config import settings
+            max_cap_limit = float(getattr(settings, 'MAX_POSITION_SIZE_USDT', 60.0))
             position_size_usdt = (max_loss_usdt / risk_per_coin) * entry_price
-            max_allowed_position = min(capital * 0.50, 60.0)
+            max_allowed_position = min(capital * 0.50, max_cap_limit)
             
             if position_size_usdt > max_allowed_position:
                 logger.debug(f"Об'єм {position_size_usdt:.2f} перевищує ліміт. Урізано до {max_allowed_position:.2f}")

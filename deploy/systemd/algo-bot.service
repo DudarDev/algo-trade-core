@@ -1,0 +1,23 @@
+[Unit]
+Description=Algo Trade Core - Autonomous AI Trading Bot
+After=network.target algo-web.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/algo-trade-core
+
+# Автоматична перевірка перед стартом (працює лише при TRADING_MODE=LIVE)
+ExecStartPre=/home/ubuntu/algo-trade-core/venv/bin/python3 /home/ubuntu/algo-trade-core/scripts/preflight_check.py
+ExecStart=/home/ubuntu/algo-trade-core/venv/bin/python3 /home/ubuntu/algo-trade-core/main.py
+
+Restart=on-failure
+RestartSec=10
+RestartPreventExitStatus=2
+
+MemoryHigh=550M
+MemoryMax=650M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

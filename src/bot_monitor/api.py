@@ -225,9 +225,18 @@ def check_dashboard_auth(request) -> Optional[dict]:
     expected_key = getattr(settings, 'DASHBOARD_API_KEY', 'algo_sec_key_2026_quant_pro')
     if header_key and header_key == expected_key:
         return None
+    # Перевірка на проксі (Cloudflare Tunnel або зовнішній reverse-proxy)
+    is_proxied = bool(
+        request.META.get('HTTP_CF_CONNECTING_IP')
+        or request.META.get('HTTP_CF_RAY')
+        or request.META.get('HTTP_X_FORWARDED_FOR')
+    )
     remote_ip = request.META.get('REMOTE_ADDR', '')
-    if remote_ip in ('127.0.0.1', '::1', 'testclient', 'localhost', ''):
+
+    # Дозволяємо лише чистий локальний виклик (тести, внутрішні скрипти), якщо запит НЕ прийшов через тунель
+    if not is_proxied and remote_ip in ('127.0.0.1', '::1', 'testclient', 'localhost', ''):
         return None
+
     return {"status": "error", "message": "403 Forbidden: Потрібна авторизація (X-API-KEY або активна Django-сесія)"}
 
 

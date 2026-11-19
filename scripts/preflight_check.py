@@ -18,12 +18,17 @@ MIN_BNB_USDT_VALUE = 2.0   # Мінімум BNB для активації 25% з
 
 
 async def run_preflight() -> int:
+    trading_mode = os.getenv("TRADING_MODE", "PAPER").strip().upper()
+    if trading_mode != "LIVE":
+        print(f"⚪ [PRE-FLIGHT] TRADING_MODE={trading_mode}. Перевірка Live API пропущена.")
+        return 0
+
     api_key = (os.getenv("BINANCE_API_KEY") or "").strip()
     api_secret = (os.getenv("BINANCE_API_SECRET") or os.getenv("BINANCE_SECRET_KEY") or "").strip()
 
     if not api_key or not api_secret:
         print("❌ [FAIL] BINANCE_API_KEY або BINANCE_API_SECRET (чи BINANCE_SECRET_KEY) не задані в .env")
-        return 1
+        return 2
 
     exchange = ccxt.binance({
         "apiKey": api_key,
@@ -91,17 +96,20 @@ async def run_preflight() -> int:
 
     except ccxt.AuthenticationError as e:
         print(f"❌ [AUTH FAIL] Невалідний ключ, секрет або IP-адреса не у білому списку:\n   {e}")
+        return 2
+    except (ccxt.NetworkError, ccxt.ExchangeNotAvailable, ccxt.RequestTimeout) as e:
+        print(f"⚠️ [NETWORK ERROR] Тимчасовий збій зв'язку з Binance: {e}")
         return 1
     except Exception as e:
         print(f"❌ [ERROR] Помилка під час перевірки: {e}")
-        return 1
+        return 2
     finally:
         await exchange.close()
 
     print("\n" + "=" * 50)
     if has_critical_error:
         print("🛑 VERDICT: NO-GO. Виправте блокери вище перед запуском LIVE.")
-        return 1
+        return 2
 
     print("🟢 VERDICT: GO! Система готова до безпечного запуску LIVE.")
     return 0

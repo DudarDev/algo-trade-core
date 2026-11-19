@@ -424,30 +424,6 @@
             </tbody>
         </table>
     </div>
-
-    <!-- 💰 Таблиця Дельта-Нейтрального Фандингу (Binance & Bybit Perps) -->
-    <div id="arbitrage-funding-container" class="overflow-x-auto max-h-80 overflow-y-auto hidden">
-        <table class="w-full text-left text-xs">
-            <thead class="text-[11px] uppercase font-semibold border-b sticky top-0 z-10 backdrop-blur-md" style="background: var(--apple-subtle-bg); color: var(--apple-text-secondary); border-color: var(--apple-divider);">
-                <tr>
-                    <th class="px-5 py-2.5">Пара (Futures)</th>
-                    <th class="px-4 py-2.5">Binance 8h / APY</th>
-                    <th class="px-4 py-2.5">Bybit 8h / APY</th>
-                    <th class="px-4 py-2.5">Оптимальний маршрут</th>
-                    <th class="px-4 py-2.5">Дельта-Нейтральний Дохід (APY)</th>
-                    <th class="px-4 py-2.5">Міжбіржовий Спред APY</th>
-                    <th class="px-5 py-2.5 text-right">Статус / Потенціал</th>
-                </tr>
-            </thead>
-            <tbody id="arbitrage-funding-table-body" class="divide-y mono-num" style="divide-color: var(--apple-divider); color: var(--apple-text);">
-                <tr>
-                    <td colspan="7" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
-                        Опитування ставок фінансування Binance & Bybit (безстрокові ф'ючерси)...
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
 </section>
 
 <!-- 📈 5. ГРАФІЧНИЙ ЦЕНТР: TRADINGVIEW ТА CUMULATIVE PNL -->
@@ -574,13 +550,17 @@
             <span id="arb-radar-status-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all" style="background: var(--apple-orange-bg); color: var(--apple-orange-text); border-color: rgba(255, 149, 0, 0.3);">
                 СКАНИ: 0
             </span>
-            <!-- Під-вкладки Арбітражу: Spot Спред vs Delta-Neutral Funding -->
+            <!-- Під-вкладки Арбітражу: Spot Спред vs Delta-Neutral Funding vs Vault -->
             <div class="apple-seg-container ml-2">
                 <button type="button" id="arb-subtab-spot" class="apple-seg-item active px-2.5 py-1 text-[11px] flex items-center gap-1" onclick="window.dashboardApp?.switchArbSubTab('spot')">
                     <i class="fa-solid fa-arrows-split-up-and-left text-[#FF9500]"></i> <span>Spot Спред</span>
                 </button>
                 <button type="button" id="arb-subtab-funding" class="apple-seg-item px-2.5 py-1 text-[11px] flex items-center gap-1" onclick="window.dashboardApp?.switchArbSubTab('funding')">
-                    <i class="fa-solid fa-coins text-[#34C759]"></i> <span>Фандинг APY (0 Ризику)</span>
+                    <i class="fa-solid fa-coins text-[#34C759]"></i> <span>Фандинг APY</span>
+                </button>
+                <button type="button" id="arb-subtab-vault" class="apple-seg-item px-2.5 py-1 text-[11px] flex items-center gap-1" onclick="window.dashboardApp?.switchArbSubTab('vault')">
+                    <i class="fa-solid fa-vault text-[#007AFF]"></i> <span>Delta-Neutral Vault</span>
+                    <span id="nav-vault-badge" class="px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-[#007AFF] text-white hidden">0</span>
                 </button>
             </div>
         </div>
@@ -633,9 +613,72 @@
             </tbody>
         </table>
     </div>
-</section>
 
-<!-- 📋 7. ІСТОРІЯ УГОД ТА КВАНТ-ПРОФІЛЬ -->
+    <!-- 💰 2. Таблиця Дельта-Нейтрального Фандингу (Binance & Bybit Perps) -->
+    <div id="arbitrage-funding-container" class="overflow-x-auto max-h-80 overflow-y-auto hidden">
+        <table class="w-full text-left text-xs">
+            <thead class="text-[11px] uppercase font-semibold border-b sticky top-0 z-10 backdrop-blur-md" style="background: var(--apple-subtle-bg); color: var(--apple-text-secondary); border-color: var(--apple-divider);">
+                <tr>
+                    <th class="px-5 py-2.5">Пара (Futures)</th>
+                    <th class="px-4 py-2.5">Binance 8h / APY</th>
+                    <th class="px-4 py-2.5">Bybit 8h / APY</th>
+                    <th class="px-4 py-2.5">Оптимальний маршрут</th>
+                    <th class="px-4 py-2.5">Дельта-Нейтральний Дохід (APY)</th>
+                    <th class="px-4 py-2.5">Окупність комісії</th>
+                    <th class="px-5 py-2.5 text-right">Дія / Запуск Vault</th>
+                </tr>
+            </thead>
+            <tbody id="arbitrage-funding-table-body" class="divide-y mono-num" style="divide-color: var(--apple-divider); color: var(--apple-text);">
+                <tr>
+                    <td colspan="7" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
+                        Опитування ставок фінансування Binance & Bybit (безстрокові ф'ючерси)...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 💎 3. Сховище Дельта-Нейтральних Позицій (Delta-Neutral Vault) -->
+    <div id="arbitrage-vault-container" class="overflow-x-auto max-h-80 overflow-y-auto hidden">
+        <div class="px-5 py-2.5 border-b flex flex-wrap items-center justify-between gap-3 text-xs" style="background: rgba(0, 122, 255, 0.05); border-color: var(--apple-divider);">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-shield-halved text-[#007AFF]"></i>
+                <span class="font-bold" style="color: var(--apple-text);">Cash & Carry Vault:</span>
+                <span class="px-2 py-0.5 rounded text-[11px] font-semibold" style="background: var(--apple-green-bg); color: var(--apple-green-text);">🛡️ Дельта = 0 (Spot Long + Perp Short)</span>
+            </div>
+            <div class="flex items-center gap-4 font-mono text-[11px]">
+                <div>Активних сховищ: <span id="dn-vault-count" class="font-bold text-[#007AFF]">0</span></div>
+                <div>Сумарно вкладено: <span id="dn-vault-notional" class="font-bold">$0.00</span></div>
+                <div>Нараховано фандингу: <span id="dn-vault-harvested" class="font-bold text-[#34C759]">+$0.0000 USDT</span></div>
+            </div>
+        </div>
+
+        <table class="w-full text-left text-xs">
+            <thead class="text-[11px] uppercase font-semibold border-b sticky top-0 z-10 backdrop-blur-md" style="background: var(--apple-subtle-bg); color: var(--apple-text-secondary); border-color: var(--apple-divider);">
+                <tr>
+                    <th class="px-5 py-2.5">Пара / Сховище</th>
+                    <th class="px-4 py-2.5">Режим & Ноги</th>
+                    <th class="px-4 py-2.5">Об'єм (Notional)</th>
+                    <th class="px-4 py-2.5">Базис при вході</th>
+                    <th class="px-4 py-2.5">Ставка 8h / APY</th>
+                    <th class="px-4 py-2.5">Зібрано фандингу</th>
+                    <th class="px-4 py-2.5">Цикли (8г)</th>
+                    <th class="px-5 py-2.5 text-right">Управління</th>
+                </tr>
+            </thead>
+            <tbody id="arbitrage-vault-table-body" class="divide-y mono-num" style="divide-color: var(--apple-divider); color: var(--apple-text);">
+                <tr>
+                    <td colspan="8" class="px-5 py-8 text-center font-sans" style="color: var(--apple-text-muted);">
+                        <div class="flex flex-col items-center justify-center gap-2">
+                            <i class="fa-solid fa-vault text-2xl" style="color: var(--apple-text-muted);"></i>
+                            <span class="text-xs">Немає відкритих Cash & Carry сховищ. Перейдіть у вкладку "Фандинг APY" для запуску.</span>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
     <!-- Ліва частина (2/3): Таблиця історії угод -->
     <section class="glass-panel overflow-hidden lg:col-span-2">
@@ -1337,6 +1380,9 @@ class DashboardController {
             marketScanner: '/api/market_scanner',
             arbitrageRadar: '/api/arbitrage/radar',
             arbitrageFunding: '/api/arbitrage/funding',
+            deltaNeutralPositions: '/api/delta_neutral/positions',
+            deltaNeutralOpen: '/api/delta_neutral/open',
+            deltaNeutralClose: '/api/delta_neutral/close',
             control: '/api/bot_control',
             status: '/api/status',
             config: '/api/config',
@@ -1385,7 +1431,15 @@ class DashboardController {
             arbFundingTable: document.getElementById('arbitrage-funding-table-body'),
             arbSubtabSpot: document.getElementById('arb-subtab-spot'),
             arbSubtabFunding: document.getElementById('arb-subtab-funding'),
+            arbSubtabVault: document.getElementById('arb-subtab-vault'),
+            arbVaultContainer: document.getElementById('arbitrage-vault-container'),
+            arbVaultTable: document.getElementById('arbitrage-vault-table-body'),
+            navVaultBadge: document.getElementById('nav-vault-badge'),
+            dnVaultCount: document.getElementById('dn-vault-count'),
+            dnVaultNotional: document.getElementById('dn-vault-notional'),
+            dnVaultHarvested: document.getElementById('dn-vault-harvested'),
             tradesHistoryCount: document.getElementById('trades-history-count'),
+
             terminal: document.getElementById('terminal-screen'),
             autoscrollToggle: document.getElementById('autoscroll-toggle'),
             toastContainer: document.getElementById('toast-container'),
@@ -1425,6 +1479,7 @@ class DashboardController {
         this.fetchMarketRadar();
         this.fetchArbitrageRadar();
         this.fetchArbitrageFunding();
+        this.fetchDeltaNeutralVault();
         this.fetchEngineLogs();
         this.fetchConfig();
         this.fetchPortfolio();
@@ -1440,7 +1495,13 @@ class DashboardController {
             this.fetchBotStatus();
             this.fetchActivePositions();
             this.fetchMarketRadar();
-            this.fetchArbitrageRadar();
+            if (this.currentArbSubTab === 'funding') {
+                this.fetchArbitrageFunding();
+            } else if (this.currentArbSubTab === 'vault') {
+                this.fetchDeltaNeutralVault();
+            } else {
+                this.fetchArbitrageRadar();
+            }
             this.fetchEngineLogs();
             this.fetchPortfolio();
             this.fetchSentiment();
@@ -2314,16 +2375,28 @@ class DashboardController {
 
     switchArbSubTab(tab) {
         this.currentArbSubTab = tab;
-        if (tab === 'funding') {
+        if (tab === 'vault') {
             this.elements.arbSubtabSpot?.classList.remove('active');
+            this.elements.arbSubtabFunding?.classList.remove('active');
+            this.elements.arbSubtabVault?.classList.add('active');
+            this.elements.arbRadarContainer?.classList.add('hidden');
+            this.elements.arbFundingContainer?.classList.add('hidden');
+            this.elements.arbVaultContainer?.classList.remove('hidden');
+            this.fetchDeltaNeutralVault();
+        } else if (tab === 'funding') {
+            this.elements.arbSubtabSpot?.classList.remove('active');
+            this.elements.arbSubtabVault?.classList.remove('active');
             this.elements.arbSubtabFunding?.classList.add('active');
             this.elements.arbRadarContainer?.classList.add('hidden');
+            this.elements.arbVaultContainer?.classList.add('hidden');
             this.elements.arbFundingContainer?.classList.remove('hidden');
             this.fetchArbitrageFunding();
         } else {
             this.elements.arbSubtabFunding?.classList.remove('active');
+            this.elements.arbSubtabVault?.classList.remove('active');
             this.elements.arbSubtabSpot?.classList.add('active');
             this.elements.arbFundingContainer?.classList.add('hidden');
+            this.elements.arbVaultContainer?.classList.add('hidden');
             this.elements.arbRadarContainer?.classList.remove('hidden');
             this.fetchArbitrageRadar();
         }
@@ -2361,18 +2434,27 @@ class DashboardController {
             const bApy = typeof item.binance_apy === 'number' ? item.binance_apy : 0.0;
             const yApy = typeof item.bybit_apy === 'number' ? item.bybit_apy : 0.0;
             const netApy = typeof item.spot_futures_apy === 'number' ? item.spot_futures_apy : 0.0;
-            const spreadApy = typeof item.cross_exchange_spread_apy === 'number' ? item.cross_exchange_spread_apy : 0.0;
+            const bestRate8h = Math.max(bRate, yRate);
+
+            // Розрахунок окупності (Breakeven): Сумарна комісія ~0.20%
+            let beDaysText = 'н/д';
+            if (bestRate8h > 0) {
+                const dailyRatePct = bestRate8h * 3;
+                const daysToBe = 0.20 / dailyRatePct;
+                if (daysToBe < 1.0) {
+                    beDaysText = `<span class="px-2 py-0.5 rounded text-[10px] font-bold" style="background: var(--apple-green-bg); color: var(--apple-green-text);"><i class="fa-solid fa-bolt mr-1"></i>&lt; 24 год</span>`;
+                } else if (daysToBe <= 5.0) {
+                    beDaysText = `<span class="px-2 py-0.5 rounded text-[10px] font-bold" style="background: var(--apple-blue-bg); color: var(--apple-blue-text);">${daysToBe.toFixed(1)} дні</span>`;
+                } else {
+                    beDaysText = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold" style="color: var(--apple-text-secondary);">${daysToBe.toFixed(0)} днів</span>`;
+                }
+            } else {
+                beDaysText = `<span class="text-[10px] text-red-500 font-semibold">Не окупається (≤0)</span>`;
+            }
 
             let apyColor = 'var(--apple-text-secondary)';
             if (netApy >= 15.0) apyColor = 'var(--apple-green-text)';
             else if (netApy >= 8.0) apyColor = 'var(--apple-blue)';
-
-            let statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] border font-mono" style="background: var(--apple-subtle-bg); border-color: var(--apple-panel-border); color: var(--apple-text-secondary);">NORMAL</span>`;
-            if (isOpp) {
-                statusBadge = `<span class="px-2.5 py-0.5 rounded-full text-[10px] text-white font-extrabold animate-pulse shadow-sm" style="background: var(--apple-green);"><i class="fa-solid fa-coins mr-1"></i>HIGH APY +${netApy.toFixed(1)}%</span>`;
-            } else if (netApy > 5.0) {
-                statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border" style="background: var(--apple-blue-bg); color: var(--apple-blue-text); border-color: var(--apple-blue-border);">STEADY +${netApy.toFixed(1)}%</span>`;
-            }
 
             const bestEx = item.best_delta_neutral_exchange || 'Binance';
             const route = `<div class="flex items-center gap-1.5 font-semibold text-[11px]">
@@ -2380,6 +2462,15 @@ class DashboardController {
                 <i class="fa-solid fa-plus text-[9px]" style="color: var(--apple-text-secondary);"></i>
                 <span class="px-1.5 py-0.5 rounded text-[10px]" style="background: var(--apple-orange-bg); color: var(--apple-orange-text);">SHORT ${bestEx} PERP</span>
             </div>`;
+
+            const rawRate = (bestRate8h / 100.0);
+            const launchBtn = `
+                <button type="button" 
+                    onclick="window.dashboardApp?.openDeltaNeutral('${item.symbol}', ${rawRate})" 
+                    class="apple-btn-secondary px-2.5 py-1 text-[11px] font-bold rounded-lg flex items-center gap-1 ml-auto text-[#007AFF] hover:bg-[#007AFF] hover:text-white transition-all shadow-sm">
+                    <i class="fa-solid fa-play text-[10px]"></i> <span>Старт Vault</span>
+                </button>
+            `;
 
             return `
                 <tr class="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
@@ -2399,13 +2490,170 @@ class DashboardController {
                     <td class="px-4 py-3 font-mono font-bold text-sm" style="color: ${apyColor};">
                         +${netApy.toFixed(2)}% <span class="text-[10px] font-normal opacity-75 block">Річних (0 ризику)</span>
                     </td>
-                    <td class="px-4 py-3 font-mono font-semibold" style="color: var(--apple-text-secondary);">
-                        ${spreadApy.toFixed(2)}% APY
-                    </td>
-                    <td class="px-5 py-3 text-right">${statusBadge}</td>
+                    <td class="px-4 py-3 font-mono">${beDaysText}</td>
+                    <td class="px-5 py-3 text-right">${launchBtn}</td>
                 </tr>
             `;
         }).join('');
+    }
+
+    async fetchDeltaNeutralVault() {
+        try {
+            const res = await fetch(this.endpoints.deltaNeutralPositions);
+            if (!res.ok) return;
+            const data = await res.json();
+            this.updateDeltaNeutralVaultUI(data);
+        } catch (e) {
+            console.error("fetchDeltaNeutralVault error:", e);
+        }
+    }
+
+    updateDeltaNeutralVaultUI(data) {
+        if (!data) return;
+        const positions = data.positions || [];
+        const count = positions.length;
+
+        let totalNotional = 0;
+        let totalHarvested = 0;
+
+        positions.forEach(p => {
+            totalNotional += (p.notional_usdt || 0);
+            totalHarvested += (p.accrued_funding_usdt || 0);
+        });
+
+        if (this.elements.dnVaultCount) this.elements.dnVaultCount.innerText = count;
+        if (this.elements.dnVaultNotional) this.elements.dnVaultNotional.innerText = `$${totalNotional.toFixed(2)}`;
+        if (this.elements.dnVaultHarvested) {
+            this.elements.dnVaultHarvested.innerText = (totalHarvested >= 0 ? '+' : '') + `$${totalHarvested.toFixed(4)} USDT`;
+        }
+
+        if (this.elements.navVaultBadge) {
+            if (count > 0) {
+                this.elements.navVaultBadge.innerText = count;
+                this.elements.navVaultBadge.classList.remove('hidden');
+            } else {
+                this.elements.navVaultBadge.classList.add('hidden');
+            }
+        }
+
+        if (!this.elements.arbVaultTable) return;
+
+        if (count === 0) {
+            this.elements.arbVaultTable.innerHTML = `
+                <tr>
+                    <td colspan="8" class="px-5 py-8 text-center font-sans" style="color: var(--apple-text-muted);">
+                        <div class="flex flex-col items-center justify-center gap-2">
+                            <i class="fa-solid fa-vault text-2xl" style="color: var(--apple-text-muted);"></i>
+                            <span class="text-xs">Немає відкритих Cash & Carry сховищ. Перейдіть у вкладку "Фандинг APY" для запуску.</span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        this.elements.arbVaultTable.innerHTML = positions.map(pos => {
+            const basis = typeof pos.entry_basis_pct === 'number' ? pos.entry_basis_pct : 0.0;
+            const basisColor = basis >= 0 ? 'var(--apple-green-text)' : 'var(--apple-orange-text)';
+            const rate8h = typeof pos.current_8h_rate === 'number' ? (pos.current_8h_rate * 100) : 0.0;
+            const apy = typeof pos.projected_apy === 'number' ? pos.projected_apy : 0.0;
+            const accrued = typeof pos.accrued_funding_usdt === 'number' ? pos.accrued_funding_usdt : 0.0;
+            const cycles = pos.funding_cycles_collected || 0;
+
+            return `
+                <tr class="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                    <td class="px-5 py-3 font-bold">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full" style="background: var(--apple-blue);"></span>
+                            <span>${pos.symbol}</span>
+                        </div>
+                        <span class="text-[10px] block font-mono font-normal opacity-60">${pos.id}</span>
+                    </td>
+                    <td class="px-4 py-3">
+                        <div class="flex flex-col gap-1 text-[10px] font-mono">
+                            <div class="flex items-center gap-1">
+                                <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-green-bg); color: var(--apple-green-text);">BUY ${(pos.leg1_exchange || 'binance').toUpperCase()}</span>
+                                <span class="opacity-75">$${(pos.leg1_entry_price || 0).toFixed(2)}</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-orange-bg); color: var(--apple-orange-text);">SHORT ${(pos.leg2_exchange || 'binance').toUpperCase()}</span>
+                                <span class="opacity-75">$${(pos.leg2_entry_price || 0).toFixed(2)}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 font-mono font-semibold">
+                        $${(pos.notional_usdt || 0).toFixed(2)}
+                    </td>
+                    <td class="px-4 py-3 font-mono font-bold" style="color: ${basisColor};">
+                        ${basis >= 0 ? '+' : ''}${basis.toFixed(3)}%
+                        <span class="text-[9px] block font-normal opacity-70">${basis >= 0 ? 'Контанго (Yield)' : 'Беквордація'}</span>
+                    </td>
+                    <td class="px-4 py-3 font-mono">
+                        <span class="font-bold text-xs" style="color: var(--apple-green-text);">+${rate8h.toFixed(4)}%</span>
+                        <span class="text-[10px] block opacity-75">+${apy.toFixed(1)}% APY</span>
+                    </td>
+                    <td class="px-4 py-3 font-mono font-bold text-sm" style="color: var(--apple-green-text);">
+                        +${accrued.toFixed(4)} USDT
+                    </td>
+                    <td class="px-4 py-3 font-mono">
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold" style="background: var(--apple-blue-bg); color: var(--apple-blue-text);">
+                            ${cycles} (${cycles * 8} год)
+                        </span>
+                    </td>
+                    <td class="px-5 py-3 text-right">
+                        <button type="button" 
+                            onclick="window.dashboardApp?.closeDeltaNeutral('${pos.id}')"
+                            class="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm">
+                            <i class="fa-solid fa-stop text-[10px] mr-1"></i> Закрити
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async openDeltaNeutral(symbol, rate8h) {
+        if (!confirm(`Запустити Delta-Neutral Cash & Carry для ${symbol} на $100?`)) return;
+        try {
+            const res = await fetch(this.endpoints.deltaNeutralOpen, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: symbol, notional: 100.0, rate_8h: rate8h || 0.0003 })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                this.showToast(`🚀 Запит запуску Cash & Carry для ${symbol} надіслано!`, 'success');
+                this.switchArbSubTab('vault');
+                setTimeout(() => this.fetchDeltaNeutralVault(), 1500);
+            } else {
+                this.showToast(`❌ Помилка: ${data.message || 'Не вдалося відкрити сховище'}`, 'error');
+            }
+        } catch (e) {
+            console.error("openDeltaNeutral error:", e);
+            this.showToast(`❌ Помилка з'єднання з API`, 'error');
+        }
+    }
+
+    async closeDeltaNeutral(positionId) {
+        if (!confirm(`Закрити Cash & Carry сховище ${positionId} та розвантажити обидві ноги?`)) return;
+        try {
+            const res = await fetch(this.endpoints.deltaNeutralClose, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ position_id: positionId })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                this.showToast(`🛑 Запит закриття сховища ${positionId} надіслано!`, 'info');
+                setTimeout(() => this.fetchDeltaNeutralVault(), 1500);
+            } else {
+                this.showToast(`❌ Помилка: ${data.message || 'Не вдалося закрити сховище'}`, 'error');
+            }
+        } catch (e) {
+            console.error("closeDeltaNeutral error:", e);
+            this.showToast(`❌ Помилка з'єднання з API`, 'error');
+        }
+    }
     }
 
     updateArbitrageRadarUI(data) {

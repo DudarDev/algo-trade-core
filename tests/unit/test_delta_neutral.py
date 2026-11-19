@@ -20,8 +20,10 @@ class MockSettings:
     PERP_TAKER_FEE_PCT = 0.0005   # 0.05%
     MAX_FEE_BREAKEVEN_DAYS = 2.5
     MIN_FUNDING_APY_HURDLE = 10.0
-    MAX_ENTRY_BASIS_PCT = 0.20
+    MAX_ENTRY_BASIS_PCT = 0.80
+    MIN_ENTRY_BASIS_PCT = -0.05
     FORCE_FUNDING_ACCRUE = True
+
 
 
 @pytest.fixture
@@ -81,15 +83,16 @@ def test_fee_breakeven_guard_rejects_slow_amortization(trader):
 
 
 def test_basis_guard_rejects_dislocated_spread(trader):
-    # High APY (25%), but spot is 100 and perp is 101 (1.0% basis > 0.20% max)
+    # High APY (25%), but spot is 100 and perp is 101.5 (1.5% basis > 0.80% max contango)
     is_ok, reason, details = trader.evaluate_opportunity(
         symbol="SOL/USDT",
         rate_8h=0.0003,
         spot_price=100.0,
-        perp_price=101.0
+        perp_price=101.5
     )
     assert is_ok is False
-    assert "BASIS_DISLOCATION" in reason
+    assert "BASIS_DISLOCATION" in reason or "BASIS_EXTREME_CONTANGO" in reason
+
 
 
 def test_evaluate_opportunity_passes_for_high_quality_setup(trader):
@@ -213,3 +216,59 @@ async def test_close_delta_neutral_position(trader, mock_repo):
     assert "dn_close_test" not in trader.active_positions
     mock_repo.close_delta_neutral_position.assert_called_once_with("dn_close_test", "TARGET_REACHED")
     mock_repo.log_trade.assert_called_once()
+
+
+def test_asymmetric_basis_guard_contango_vs_backwardation(trader):
+    # 1. Беквордація: perp 99.85 при spot 100.0 (-0.15% < -0.05%) -> блокується
+    is_ok_back, reason_back, _ = trader.evaluate_opportunity(
+        symbol="ETH/USDT",
+        rate_8h=0.0003,
+        spot_price=100.0,
+        perp_price=99.85
+    )
+    assert is_ok_back is False
+    assert "BASIS_BACKWARDATION" in reason_back
+
+    # 2. Контанго: perp 100.25 при spot 100.0 (+0.25% contango) -> дозволяється (додатковий дохід)
+    is_ok_cont, reason_cont, details_cont = trader.evaluate_opportunity(
+        symbol="ETH/USDT",
+        rate_8h=0.0003,
+        spot_price=100.0,
+        perp_price=100.25
+    )
+    assert is_ok_cont is True
+    assert reason_cont == "QUALIFIED"
+    assert details_cont["basis_pct"] == 0.25
+
+
+@pytest.mark.asyncio
+async def test_funding_flip_auto_unwind(trader, mock_repo, mock_notifier):
+    # Позиція відкрита з позитивним фандингом
+    pos = DeltaNeutralPosition(
+        position_id="dn_flip_test",
+        symbol="SOL/USDT",
+        mode=DeltaNeutralMode.SPOT_PERP,
+        leg1_exchange="binance",
+        leg1_symbol="SOL/USDT",
+        leg1_side=TradeSide.BUY,
+        leg1_entry_price=150.0,
+        leg1_amount=0.66,
+        leg2_exchange="binance",
+        leg2_symbol="SOL/USDT:USDT",
+        leg2_side=TradeSide.SELL,
+        leg2_entry_price=150.0,
+        leg2_amount=0.66,
+        notional_usdt=100.0,
+        accrued_funding_usdt=0.10,
+        funding_cycles_collected=1
+    )
+    trader.active_positions[pos.position_id] = pos
+
+    # Ставка розвертається в мінус (-0.01%)
+    unwound = await trader.check_and_auto_unwind_flipped_positions(rates_map={"SOL/USDT": -0.0001})
+    assert len(unwound) == 1
+    assert "dn_flip_test" not in trader.active_positions
+    assert "Funding Flip Guard" in unwound[0]["close_reason"]
+    mock_notifier.notify.assert_called_once()
+    assert "FUNDING FLIP" in mock_notifier.notify.call_args[0][0]
+

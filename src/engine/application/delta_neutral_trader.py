@@ -54,8 +54,12 @@ class DeltaNeutralTrader:
         self.max_breakeven_days = float(getattr(settings, 'MAX_FEE_BREAKEVEN_DAYS', 2.5))
         # Мінімальний APY для розгляду входу
         self.min_apy_hurdle = float(getattr(settings, 'MIN_FUNDING_APY_HURDLE', 10.0))
-        # Максимальний допустимий базис (розбіжність цін) при вході
-        self.max_entry_basis_pct = float(getattr(settings, 'MAX_ENTRY_BASIS_PCT', 0.20))
+        # Асиметричний базис-контроль:
+        # Контанго (ф'ючерс дорожчий за спот) вигідне для C&C (додатковий roll yield при зближенні)
+        self.max_entry_basis_pct = float(getattr(settings, 'MAX_ENTRY_BASIS_PCT', 0.80))
+        # Беквордація (ф'ючерс дешевший за спот) небезпечна, бо збільшує збиток на спреді
+        self.min_entry_basis_pct = float(getattr(settings, 'MIN_ENTRY_BASIS_PCT', -0.05))
+
         
         self.active_positions: Dict[str, DeltaNeutralPosition] = {}
         self._load_positions_from_db()
@@ -144,15 +148,28 @@ class DeltaNeutralTrader:
                 "apy": apy, "breakeven_days": be_days, "roundtrip_fee_pct": fee_pct
             }
 
-        # 3. Базис-контроль (Basis Convergence Guard)
+        # 3. Асиметричний базис-контроль (Asymmetric Basis Guard)
         if spot_price > 0 and perp_price > 0:
-            basis_pct = abs((perp_price - spot_price) / spot_price) * 100.0
-            if basis_pct > self.max_entry_basis_pct:
-                return False, f"BASIS_DISLOCATION ({basis_pct:.2f}% > {self.max_entry_basis_pct:.2f}%)", {
-                    "apy": apy, "basis_pct": basis_pct
-                }
+            basis_pct = ((perp_price - spot_price) / spot_price) * 100.0
+            if mode == DeltaNeutralMode.SPOT_PERP:
+                # Беквордація: ф'ючерс дешевший за спот. Небезпечно для Cash & Carry!
+                if basis_pct < self.min_entry_basis_pct:
+                    return False, f"BASIS_BACKWARDATION ({basis_pct:+.2f}% < {self.min_entry_basis_pct:+.2f}%)", {
+                        "apy": apy, "basis_pct": basis_pct
+                    }
+                # Контанго: ф'ючерс дорожчий. Дозволяємо до розумної межі (до +0.80%)
+                if basis_pct > self.max_entry_basis_pct:
+                    return False, f"BASIS_EXTREME_CONTANGO ({basis_pct:+.2f}% > {self.max_entry_basis_pct:+.2f}%)", {
+                        "apy": apy, "basis_pct": basis_pct
+                    }
+            else:
+                if abs(basis_pct) > self.max_entry_basis_pct:
+                    return False, f"BASIS_DISLOCATION ({abs(basis_pct):.2f}% > {self.max_entry_basis_pct:.2f}%)", {
+                        "apy": apy, "basis_pct": basis_pct
+                    }
         else:
             basis_pct = 0.0
+
 
         details = {
             "symbol": symbol,
@@ -443,7 +460,52 @@ class DeltaNeutralTrader:
 
         return harvested_events
 
+    async def check_and_auto_unwind_flipped_positions(
+        self,
+        rates_map: Dict[str, float]
+    ) -> List[Dict[str, Any]]:
+        """
+        Автоматичний моніторинг розвороту фандингу (Funding Flip Guard).
+        Якщо ставка для відкритої позиції розвернулася у мінус (або <= 0.0),
+        бот автоматично закриває обидві ноги, щоб не сплачувати фандинг з власного депозиту.
+        """
+        unwound = []
+        for pos_id, pos in list(self.active_positions.items()):
+            if pos.status != DeltaNeutralStatus.OPEN:
+                continue
+
+            current_rate = rates_map.get(pos.symbol)
+            if current_rate is None:
+                continue
+
+            # Якщо ставка впала до нуля або стала негативною (Funding Flip!)
+            if current_rate <= 0.0:
+                logger.warning(
+                    f"🚨 [FUNDING FLIP DETECTED]: {pos.symbol} ставка розвернулася в мінус "
+                    f"({current_rate*100:+.4f}%). Автоматичне розвантаження обох ніг Cash & Carry!"
+                )
+                close_res = await self.close_delta_neutral_position(
+                    pos_id,
+                    reason=f"Funding Flip Guard ({current_rate*100:+.4f}%)"
+                )
+                if close_res:
+                    unwound.append(close_res)
+                    if self.notifier:
+                        try:
+                            self.notifier.notify(
+                                f"🚨 <b>[FUNDING FLIP: АВТО-ЗАКРИТТЯ]</b>\n\n"
+                                f"Пара: <b>{pos.symbol}</b>\n"
+                                f"Ставка: <b>{current_rate*100:+.4f}%</b> (розворот проти позиції)\n"
+                                f"Зібрано фандингу: <b>+{close_res['accrued_funding_usdt']:.3f} USDT</b>\n"
+                                f"Чистий результат: <b>{close_res['net_profit_usdt']:+.3f} USDT</b>\n"
+                                f"Статус: <i>🛡️ Обидві ноги закриті. Депозит захищено!</i>"
+                            )
+                        except Exception:
+                            pass
+        return unwound
+
     async def close_delta_neutral_position(
+
         self,
         position_id: str,
         reason: str = "MANUAL_OR_PROFIT"

@@ -26,17 +26,18 @@ except Exception:
 from src.shared.config import settings
 
 try:
-    from bot_monitor.models import Trade, Wallet, ActivePosition, BotConfig
+    from bot_monitor.models import Trade, Wallet, ActivePosition, BotConfig, DeltaNeutralPosition
     from bot_monitor.services import BotControlService
 except Exception:
     try:
-        from src.bot_monitor.models import Trade, Wallet, ActivePosition, BotConfig
+        from src.bot_monitor.models import Trade, Wallet, ActivePosition, BotConfig, DeltaNeutralPosition
         from src.bot_monitor.services import BotControlService
     except Exception:
         Trade = None
         Wallet = None
         ActivePosition = None
         BotConfig = None
+        DeltaNeutralPosition = None
         BotControlService = None
 
 logger = logging.getLogger("TelegramBot")
@@ -83,7 +84,8 @@ class InteractiveTelegramBot:
         return {
             "keyboard": [
                 [{"text": "📊 Статус"}, {"text": "💰 PnL"}],
-                [{"text": "📜 Позиції"}, {"text": "⚙️ Конфіг"}],
+                [{"text": "📜 Позиції"}, {"text": "🛡️ Vault"}],
+                [{"text": "⚙️ Конфіг"}, {"text": "🧠 AI Sentinel"}],
                 [{"text": "⏸ Пауза"}, {"text": "▶️ Старт"}],
                 [{"text": "🚨 PANIC CLOSE ALL"}]
             ],
@@ -105,15 +107,34 @@ class InteractiveTelegramBot:
                     {"text": "💰 Детальний PnL", "callback_data": "cmd_pnl"}
                 ],
                 [
-                    {"text": "📜 Активні позиції", "callback_data": "cmd_positions"},
-                    {"text": "🧠 AI Sentinel", "callback_data": "cmd_ai"}
+                    {"text": "📜 Скальпер", "callback_data": "cmd_positions"},
+                    {"text": "🛡️ Vault C&C", "callback_data": "cmd_vault"}
                 ],
                 [
-                    toggle_btn,
+                    {"text": "🧠 AI Sentinel", "callback_data": "cmd_ai"},
+                    toggle_btn
+                ],
+                [
                     {"text": "🚨 ПАНІКА: Закрити ВСЕ 🚨", "callback_data": "cmd_close_all"}
                 ]
             ]
         }
+
+    def get_vault_keyboard(self, vaults: list) -> Dict[str, Any]:
+        """Інтерактивні кнопки для Cash & Carry сховищ."""
+        rows = []
+        for v in vaults[:5]:
+            v_id = getattr(v, 'id', '')
+            sym = getattr(v, 'symbol', '')
+            clean = sym.replace("/USDT", "").replace("USDT", "")
+            rows.append([
+                {"text": f"🛑 Закрити Vault {clean}", "callback_data": f"cmd_close_vault:{v_id}"}
+            ])
+        rows.append([
+            {"text": "🔄 Оновити", "callback_data": "cmd_vault"},
+            {"text": "⬅️ Назад до меню", "callback_data": "cmd_status"}
+        ])
+        return {"inline_keyboard": rows}
 
     def get_positions_keyboard(self, positions: list) -> Dict[str, Any]:
         """Інтерактивні кнопки безпосереднього керування відкритими угодами."""
@@ -242,6 +263,16 @@ class InteractiveTelegramBot:
             except Exception:
                 pass
 
+        dn_count = 0
+        dn_funding = 0.0
+        if DeltaNeutralPosition:
+            try:
+                active_vaults = list(DeltaNeutralPosition.objects.filter(status='OPEN'))
+                dn_count = len(active_vaults)
+                dn_funding = sum(getattr(v, 'accrued_funding_usdt', 0.0) for v in active_vaults)
+            except Exception:
+                pass
+
         max_positions = getattr(settings, 'MAX_CONCURRENT_POSITIONS', 3)
         text = (
             f"⚡ <b>Quantum Scalper Pro v4.2</b>\n"
@@ -250,7 +281,8 @@ class InteractiveTelegramBot:
             f"🎯 <b>Режим:</b> {mode_badge}\n"
             f"💵 <b>Вільний кеш:</b> <code>{free_bal:.2f} USDT</code>\n"
             f"💼 <b>Загальний капітал:</b> <code>{total_equity:.2f} USDT</code>\n"
-            f"📦 <b>Відкритих позицій:</b> <code>{pos_count} / {max_positions}</code>\n"
+            f"📦 <b>Скальпер позиції:</b> <code>{pos_count} / {max_positions}</code>\n"
+            f"🛡️ <b>Delta-Neutral Vaults:</b> <code>{dn_count} активних (+${dn_funding:.4f} фандинг)</code>\n"
             f"📈 <b>Чистий PnL:</b> <code>{total_pnl:+.2f} USDT</code> (Вінрейт: <b>{win_rate:.1f}%</b>)\n"
             f"🛡️ <b>Circuit Breaker:</b> <code>-3.0% Max Daily Loss Guard</code>\n"
             f"━━━━━━━━━━━━━━━━━━"
@@ -327,6 +359,51 @@ class InteractiveTelegramBot:
         except Exception as e:
             return f"⚠️ Помилка зчитування позицій: {e}"
 
+    def format_vault_message(self) -> Tuple[str, list]:
+        """Форматування статусу Cash & Carry сховищ."""
+        if not DeltaNeutralPosition:
+            return "🛡️ <b>Delta-Neutral Vaults:</b> Модуль не ініціалізовано.", []
+
+        try:
+            vaults = list(DeltaNeutralPosition.objects.filter(status='OPEN'))
+            if not vaults:
+                text = (
+                    "🛡️ <b>Delta-Neutral Cash & Carry Vaults:</b>\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    "Немає відкритих сховищ.\n\n"
+                    "💡 <i>Використовуйте веб-дашборд у вкладці 'Фандинг APY', щоб розгорнути дельта-нейтральну позицію з нульовим ризиком ліквідації.</i>"
+                )
+                return text, []
+
+            total_notional = sum(getattr(v, 'notional_usdt', 0.0) for v in vaults)
+            total_funding = sum(getattr(v, 'accrued_funding_usdt', 0.0) for v in vaults)
+
+            lines = [
+                f"🛡️ <b>Delta-Neutral Vaults ({len(vaults)}):</b>",
+                f"💵 Загальний Notional: <b>${total_notional:.2f} USDT</b>",
+                f"💰 Нараховано фандингу: <b>+${total_funding:.4f} USDT</b>",
+                "━━━━━━━━━━━━━━━━━━"
+            ]
+
+            for v in vaults:
+                rate_8h_pct = getattr(v, 'current_8h_rate', 0.0) * 100.0
+                basis = getattr(v, 'entry_basis_pct', 0.0)
+                basis_sign = "+" if basis >= 0 else ""
+                lines.append(
+                    f"💎 <b>{v.symbol}</b> (<code>{v.id}</code>)\n"
+                    f"   ├ Нога 1: BUY {v.leg1_exchange.upper()} (${v.leg1_entry_price:.2f})\n"
+                    f"   ├ Нога 2: SHORT {v.leg2_exchange.upper()} (${v.leg2_entry_price:.2f})\n"
+                    f"   ├ Базис: <code>{basis_sign}{basis:.3f}%</code>\n"
+                    f"   ├ Ставка 8h: <code>+{rate_8h_pct:.4f}%</code> (<b>+{v.projected_apy:.1f}% APY</b>)\n"
+                    f"   ├ Зібрано: <b>+${v.accrued_funding_usdt:.4f} USDT</b> ({v.funding_cycles_collected} циклів)\n"
+                    f"   └ Об'єм: <b>${v.notional_usdt:.1f} USDT</b>"
+                )
+            lines.append("━━━━━━━━━━━━━━━━━━")
+            return "\n".join(lines), vaults
+        except Exception as e:
+            logger.error(f"Помилка генерації vault повідомлення: {e}")
+            return f"❌ Помилка зчитування сховищ: {e}", []
+
     def trigger_panic_close_all(self) -> str:
         """Надсилання команди екстреної ліквідації в чергу."""
         try:
@@ -369,6 +446,24 @@ class InteractiveTelegramBot:
                 kb = self.get_positions_keyboard(positions) if positions else self.get_inline_keyboard(True)
                 await self.edit_message(session, chat_id, msg_id, text, kb)
                 await self.answer_callback(session, cb_id)
+
+            elif action == "cmd_vault":
+                text, vaults = await asyncio.to_thread(self.format_vault_message)
+                kb = self.get_vault_keyboard(vaults)
+                await self.edit_message(session, chat_id, msg_id, text, kb)
+                await self.answer_callback(session, cb_id, "Vault оновлено!")
+
+            elif action.startswith("cmd_close_vault:"):
+                pos_id = action.split(":", 1)[1]
+                try:
+                    with open(self.cmd_file, "w", encoding="utf-8") as f:
+                        json.dump({"action": "close_delta_neutral", "position_id": pos_id}, f)
+                    await self.answer_callback(session, cb_id, f"🛑 Запит закриття Vault надіслано!")
+                except Exception as e:
+                    await self.answer_callback(session, cb_id, f"❌ Помилка: {e}")
+                text, vaults = await asyncio.to_thread(self.format_vault_message)
+                kb = self.get_vault_keyboard(vaults)
+                await self.edit_message(session, chat_id, msg_id, text, kb)
 
             elif action.startswith("cmd_be:"):
                 sym = action.split(":", 1)[1]
@@ -511,6 +606,16 @@ class InteractiveTelegramBot:
                     "chat_id": chat_id,
                     "text": pos_text,
                     "reply_markup": self.get_inline_keyboard(is_active),
+                    "parse_mode": "HTML"
+                })
+
+            elif text in ["/vault", "/dn", "🛡️ Vault"]:
+                vault_text, vaults = await asyncio.to_thread(self.format_vault_message)
+                kb = self.get_vault_keyboard(vaults)
+                await self._send_request(session, "sendMessage", {
+                    "chat_id": chat_id,
+                    "text": vault_text,
+                    "reply_markup": kb,
                     "parse_mode": "HTML"
                 })
 

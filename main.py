@@ -629,6 +629,8 @@ class CryptoBot:
                                 for item in f_res.get('funding_rates', [])
                             }
                             self.delta_neutral_trader.accrue_funding(rates_map)
+                            await self.delta_neutral_trader.check_and_auto_unwind_flipped_positions(rates_map)
+
                     except Exception as fe:
                         logger.debug(f"Funding radar error: {fe}")
 

@@ -60,7 +60,13 @@ class DeltaNeutralTrader:
         # Беквордація (ф'ючерс дешевший за спот) небезпечна, бо збільшує збиток на спреді
         self.min_entry_basis_pct = float(getattr(settings, 'MIN_ENTRY_BASIS_PCT', -0.05))
 
-        
+        # Дворівневий захист від негативного фандингу:
+        # 1. Миттєвий вихід при падінні нижче hard_negative_threshold (-0.01% за 8h)
+        # 2. Підтверджений вихід при rate_8h <= 0.0 протягом max_negative_strikes (2 перевірки поспіль)
+        self._negative_funding_strikes: Dict[str, int] = {}
+        self.max_negative_strikes: int = int(getattr(settings, 'MAX_NEGATIVE_FUNDING_STRIKES', 2))
+        self.hard_negative_threshold: float = float(getattr(settings, 'HARD_NEGATIVE_FUNDING_THRESHOLD', -0.0001))
+
         self.active_positions: Dict[str, DeltaNeutralPosition] = {}
         self._load_positions_from_db()
         logger.info(f"💎 [Delta-Neutral Engine] Ініціалізовано. Режим: {'PAPER' if is_paper else 'LIVE'} | Активних позицій: {len(self.active_positions)}")
@@ -460,49 +466,104 @@ class DeltaNeutralTrader:
 
         return harvested_events
 
-    async def check_and_auto_unwind_flipped_positions(
+    async def evaluate_auto_exits(
         self,
-        rates_map: Dict[str, float]
+        current_rates: Dict[str, float]
     ) -> List[Dict[str, Any]]:
         """
-        Автоматичний моніторинг розвороту фандингу (Funding Flip Guard).
-        Якщо ставка для відкритої позиції розвернулася у мінус (або <= 0.0),
-        бот автоматично закриває обидві ноги, щоб не сплачувати фандинг з власного депозиту.
+        Дворівневий захист від негативного фандингу (Funding Flip Auto-Exit Guard):
+        1. Миттєвий вихід (Hard Threshold): якщо rate_8h <= hard_negative_threshold (-0.01%),
+           закриття відбувається миттєво з reason="FUNDING_FLIP_HARD".
+        2. Підтверджений вихід (Soft Threshold): якщо rate_8h <= 0.0 протягом max_negative_strikes (2 перевірки поспіль),
+           закриття відбувається з reason="FUNDING_FLIP_CONFIRMED".
+        3. Скидання лічильника страйків, якщо ставка знову додатна (> 0.0%).
         """
-        unwound = []
+        closed_results = []
         for pos_id, pos in list(self.active_positions.items()):
             if pos.status != DeltaNeutralStatus.OPEN:
                 continue
 
-            current_rate = rates_map.get(pos.symbol)
-            if current_rate is None:
+            rate_8h = current_rates.get(pos.symbol)
+            if rate_8h is None:
                 continue
 
-            # Якщо ставка впала до нуля або стала негативною (Funding Flip!)
-            if current_rate <= 0.0:
+            # Рівень 1: Миттєвий вихід при критично низькому / різкому негативному фандингу
+            if rate_8h <= self.hard_negative_threshold:
                 logger.warning(
-                    f"🚨 [FUNDING FLIP DETECTED]: {pos.symbol} ставка розвернулася в мінус "
-                    f"({current_rate*100:+.4f}%). Автоматичне розвантаження обох ніг Cash & Carry!"
+                    f"🚨 [AUTO-EXIT HARD] {pos.symbol}: критично негативна ставка "
+                    f"({rate_8h*100:+.4f}% <= {self.hard_negative_threshold*100:+.4f}%). Миттєвий вихід!"
                 )
                 close_res = await self.close_delta_neutral_position(
                     pos_id,
-                    reason=f"Funding Flip Guard ({current_rate*100:+.4f}%)"
+                    reason=f"FUNDING_FLIP_HARD ({rate_8h*100:+.4f}%)"
                 )
                 if close_res:
-                    unwound.append(close_res)
+                    closed_results.append(close_res)
+                    self._negative_funding_strikes.pop(pos_id, None)
                     if self.notifier:
                         try:
                             self.notifier.notify(
-                                f"🚨 <b>[FUNDING FLIP: АВТО-ЗАКРИТТЯ]</b>\n\n"
+                                f"🚨 <b>[FUNDING FLIP: МИТТЄВИЙ АВТО-ВИХІД]</b>\n\n"
                                 f"Пара: <b>{pos.symbol}</b>\n"
-                                f"Ставка: <b>{current_rate*100:+.4f}%</b> (розворот проти позиції)\n"
+                                f"Ставка: <b>{rate_8h*100:+.4f}%</b> (нижче порогу {self.hard_negative_threshold*100:+.4f}%)\n"
                                 f"Зібрано фандингу: <b>+{close_res['accrued_funding_usdt']:.3f} USDT</b>\n"
                                 f"Чистий результат: <b>{close_res['net_profit_usdt']:+.3f} USDT</b>\n"
-                                f"Статус: <i>🛡️ Обидві ноги закриті. Депозит захищено!</i>"
+                                f"Статус: <i>🛡️ Обидві ноги закриті миттєво. Депозит захищено!</i>"
                             )
                         except Exception:
                             pass
-        return unwound
+                continue
+
+            # Рівень 2: Підтверджений вихід при нульовій або слабонегативній ставці
+            if rate_8h <= 0.0:
+                strikes = self._negative_funding_strikes.get(pos_id, 0) + 1
+                self._negative_funding_strikes[pos_id] = strikes
+                logger.warning(
+                    f"⚠️ [AUTO-EXIT SOFT] {pos.symbol}: ставка {rate_8h*100:+.4f}% <= 0.0 "
+                    f"(страйк {strikes}/{self.max_negative_strikes})"
+                )
+                if strikes >= self.max_negative_strikes:
+                    logger.warning(
+                        f"🚨 [AUTO-EXIT CONFIRMED] {pos.symbol}: підтверджено негативний фандинг "
+                        f"({strikes} страйки поспіль). Автоматичне закриття!"
+                    )
+                    close_res = await self.close_delta_neutral_position(
+                        pos_id,
+                        reason=f"FUNDING_FLIP_CONFIRMED ({rate_8h*100:+.4f}%)"
+                    )
+                    if close_res:
+                        closed_results.append(close_res)
+                        self._negative_funding_strikes.pop(pos_id, None)
+                        if self.notifier:
+                            try:
+                                self.notifier.notify(
+                                    f"🚨 <b>[FUNDING FLIP: ПІДТВЕРДЖЕНИЙ АВТО-ВИХІД]</b>\n\n"
+                                    f"Пара: <b>{pos.symbol}</b>\n"
+                                    f"Ставка: <b>{rate_8h*100:+.4f}%</b> ({strikes} перевірки поспіль <= 0)\n"
+                                    f"Зібрано фандингу: <b>+{close_res['accrued_funding_usdt']:.3f} USDT</b>\n"
+                                    f"Чистий результат: <b>{close_res['net_profit_usdt']:+.3f} USDT</b>\n"
+                                    f"Статус: <i>🛡️ Обидві ноги закриті після підтвердження.</i>"
+                                )
+                            except Exception:
+                                pass
+            else:
+                # Ставка знову позитивна - скидаємо страйки
+                if pos_id in self._negative_funding_strikes:
+                    logger.info(f"✅ [AUTO-EXIT RESET] {pos.symbol}: ставка відновилася до {rate_8h*100:+.4f}%. Страйки скинуто.")
+                    self._negative_funding_strikes.pop(pos_id, None)
+
+        return closed_results
+
+    async def check_and_auto_unwind_flipped_positions(
+        self,
+        rates_map: Dict[str, float]
+    ) -> List[Dict[str, Any]]:
+        """Аліас для зворотної сумісності."""
+        return await self.evaluate_auto_exits(rates_map)
+
+    async def close_position(self, group_id: str, reason: str = "MANUAL_OR_PROFIT") -> bool:
+        """Аліас для закриття дельта-нейтральної позиції за group_id/position_id."""
+        return bool(await self.close_delta_neutral_position(group_id, reason=reason))
 
     async def close_delta_neutral_position(
 

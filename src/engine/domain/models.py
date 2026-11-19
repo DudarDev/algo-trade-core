@@ -91,4 +91,8 @@ class DeltaNeutralPosition(BaseModel):
     status: DeltaNeutralStatus = DeltaNeutralStatus.OPEN
     close_reason: str = Field(default="")
 
+    @property
+    def group_id(self) -> str:
+        return self.position_id
+
     model_config = ConfigDict(strict=False, validate_assignment=True)

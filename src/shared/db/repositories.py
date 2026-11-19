@@ -131,6 +131,10 @@ class TradingRepository:
         with SessionLocal() as session:
             return session.query(DeltaNeutralPositionModel).filter_by(status="OPEN").all()
 
+    def get_active_positions(self) -> List[DeltaNeutralPositionModel]:
+        """Аліас для сумісності з модулями управління портфелем та C&C."""
+        return self.get_active_delta_neutral_positions()
+
     def save_delta_neutral_position(self, pos_model: DeltaNeutralPositionModel) -> None:
         with SessionLocal() as session:
             existing = session.query(DeltaNeutralPositionModel).filter_by(id=pos_model.id).first()

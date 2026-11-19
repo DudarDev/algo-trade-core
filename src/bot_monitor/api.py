@@ -117,7 +117,8 @@ class OpenDeltaNeutralRequest(BaseModel):
     rate_8h: float = 0.0003
 
 class CloseDeltaNeutralRequest(BaseModel):
-    position_id: str
+    position_id: Optional[str] = None
+    group_id: Optional[str] = None
 
 
 
@@ -514,15 +515,18 @@ def open_delta_neutral(request, payload: OpenDeltaNeutralRequest):
 
 @router.post("/delta_neutral/close")
 def close_delta_neutral(request, payload: CloseDeltaNeutralRequest):
-    """Ручне закриття Cash & Carry позиції з дашборду."""
+    """Ручне закриття Cash & Carry позиції з дашборду (підтримка position_id та group_id)."""
+    target_id = payload.position_id or payload.group_id
+    if not target_id:
+        return {"status": "error", "message": "position_id або group_id обов'язковий"}
     cmd_file = DATA_DIR / "command_queue.json"
     try:
         with open(cmd_file, "w", encoding="utf-8") as f:
             json.dump({
                 "action": "close_delta_neutral",
-                "position_id": payload.position_id
+                "position_id": target_id
             }, f)
-        return {"status": "success", "message": f"Команду закриття Cash & Carry ({payload.position_id}) надіслано рушію"}
+        return {"status": "success", "message": f"Команду закриття Cash & Carry ({target_id}) надіслано рушію"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -596,41 +600,60 @@ def get_arbitrage_radar(request):
 @router.get("/v1/arbitrage/funding")
 def get_arbitrage_funding(request):
     """Дельта-нейтральний радар ставок фінансування (Funding Rates) Binance & Bybit."""
+    res_data = None
     try:
         import redis
         from src.shared.config import settings
         r = redis.Redis.from_url(getattr(settings, 'REDIS_URL', 'redis://127.0.0.1:6379/0'))
         cached = r.get("arbitrage:funding")
         if cached:
-            return json.loads(cached)
+            res_data = json.loads(cached)
     except Exception:
         pass
 
-    res_data = {
-        "status": "initializing",
-        "updated_at": 0,
-        "updated_time": "Синхронізація...",
-        "pairs_scanned": 0,
-        "max_funding_apy": 0.0,
-        "top_opportunity": None,
-        "funding_rates": []
-    }
-    funding_file = DATA_DIR / "funding_radar.json"
-    if funding_file.exists():
-        try:
-            with open(funding_file, "r", encoding="utf-8") as f:
-                res_data = json.load(f)
-        except Exception:
-            pass
+    if not res_data or not isinstance(res_data, dict):
+        res_data = {
+            "status": "initializing",
+            "updated_at": 0,
+            "updated_time": "Синхронізація...",
+            "pairs_scanned": 0,
+            "max_funding_apy": 0.0,
+            "top_opportunity": None,
+            "funding_rates": []
+        }
+        funding_file = DATA_DIR / "funding_radar.json"
+        if funding_file.exists():
+            try:
+                with open(funding_file, "r", encoding="utf-8") as f:
+                    res_data = json.load(f)
+            except Exception:
+                pass
 
     # Додаємо активні дельта-нейтральні позиції з бази даних
     try:
         active_dn = list(DeltaNeutralPosition.objects.filter(status='OPEN').values())
-        res_data["active_delta_neutral_positions"] = active_dn
-        res_data["total_accrued_funding"] = round(sum(p.get("accrued_funding_usdt", 0.0) for p in active_dn), 4)
+        enriched = []
+        for p in active_dn:
+            item = dict(p)
+            item["group_id"] = str(p.get("id", ""))
+            item["position_id"] = str(p.get("id", ""))
+            item["notional_value_usdt"] = float(p.get("notional_usdt", 0.0))
+            item["accumulated_funding_usdt"] = float(p.get("accrued_funding_usdt", 0.0))
+            # APY розрахунок зі ставок або збереженого
+            rate_8h = float(p.get("entry_basis_pct", 0.0)) # fallback або з live_rates
+            item["current_apy_pct"] = round(float(p.get("current_apy_pct", 0.0) or (rate_8h * 3 * 365 * 100)), 2)
+            enriched.append(item)
+
+        res_data["active_delta_neutral_positions"] = enriched
+        res_data["active_positions"] = enriched
+        tot_funding = round(sum(p.get("accumulated_funding_usdt", 0.0) for p in enriched), 4)
+        res_data["total_accrued_funding"] = tot_funding
+        res_data["total_accumulated_funding"] = tot_funding
     except Exception:
         res_data["active_delta_neutral_positions"] = []
+        res_data["active_positions"] = []
         res_data["total_accrued_funding"] = 0.0
+        res_data["total_accumulated_funding"] = 0.0
 
     return res_data
 
@@ -639,12 +662,25 @@ def get_arbitrage_funding(request):
 def get_delta_neutral_positions(request):
     """Отримання списку активних Cash & Carry позицій."""
     try:
+        raw_positions = list(DeltaNeutralPosition.objects.filter(status='OPEN').values())
+        positions = []
+        for p in raw_positions:
+            item = dict(p)
+            item["group_id"] = str(p.get("id", ""))
+            item["position_id"] = str(p.get("id", ""))
+            item["notional_value_usdt"] = float(p.get("notional_usdt", 0.0))
+            item["accumulated_funding_usdt"] = float(p.get("accrued_funding_usdt", 0.0))
+            rate_8h = float(p.get("entry_basis_pct", 0.0))
+            item["current_apy_pct"] = round(float(p.get("current_apy_pct", 0.0) or (rate_8h * 3 * 365 * 100)), 2)
+            positions.append(item)
         return {
-            "positions": list(DeltaNeutralPosition.objects.filter(status='OPEN').values()),
+            "positions": positions,
+            "active_positions": positions,
+            "total_accumulated_funding": round(sum(p.get("accumulated_funding_usdt", 0.0) for p in positions), 4),
             "history": list(DeltaNeutralPosition.objects.filter(status='CLOSED').order_by('-last_funding_time')[:10].values())
         }
     except Exception as e:
-        return {"positions": [], "history": [], "error": str(e)}
+        return {"positions": [], "active_positions": [], "total_accumulated_funding": 0.0, "history": [], "error": str(e)}
 
 
 

@@ -264,11 +264,109 @@ async def test_funding_flip_auto_unwind(trader, mock_repo, mock_notifier):
     )
     trader.active_positions[pos.position_id] = pos
 
-    # Ставка розвертається в мінус (-0.01%)
+    # Ставка розвертається в жорсткий мінус (-0.01%)
     unwound = await trader.check_and_auto_unwind_flipped_positions(rates_map={"SOL/USDT": -0.0001})
     assert len(unwound) == 1
     assert "dn_flip_test" not in trader.active_positions
-    assert "Funding Flip Guard" in unwound[0]["close_reason"]
+    assert "FUNDING_FLIP" in unwound[0]["close_reason"]
     mock_notifier.notify.assert_called_once()
     assert "FUNDING FLIP" in mock_notifier.notify.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_auto_exits_hard_threshold_instant(trader):
+    pos = DeltaNeutralPosition(
+        position_id="dn_hard_exit",
+        symbol="BTC/USDT",
+        mode=DeltaNeutralMode.SPOT_PERP,
+        leg1_exchange="binance",
+        leg1_symbol="BTC/USDT",
+        leg1_side=TradeSide.BUY,
+        leg1_entry_price=65000.0,
+        leg1_amount=0.0015,
+        leg2_exchange="binance",
+        leg2_symbol="BTC/USDT:USDT",
+        leg2_side=TradeSide.SELL,
+        leg2_entry_price=65000.0,
+        leg2_amount=0.0015,
+        notional_usdt=100.0
+    )
+    trader.active_positions[pos.position_id] = pos
+
+    # Миттєвий вихід при ставці <= -0.0001 (-0.01%)
+    closed = await trader.evaluate_auto_exits({"BTC/USDT": -0.00015})
+    assert len(closed) == 1
+    assert "FUNDING_FLIP_HARD" in closed[0]["close_reason"]
+    assert "dn_hard_exit" not in trader.active_positions
+
+
+@pytest.mark.asyncio
+async def test_evaluate_auto_exits_soft_threshold_two_strikes(trader):
+    pos = DeltaNeutralPosition(
+        position_id="dn_soft_exit",
+        symbol="ETH/USDT",
+        mode=DeltaNeutralMode.SPOT_PERP,
+        leg1_exchange="binance",
+        leg1_symbol="ETH/USDT",
+        leg1_side=TradeSide.BUY,
+        leg1_entry_price=3500.0,
+        leg1_amount=0.03,
+        leg2_exchange="binance",
+        leg2_symbol="ETH/USDT:USDT",
+        leg2_side=TradeSide.SELL,
+        leg2_entry_price=3500.0,
+        leg2_amount=0.03,
+        notional_usdt=100.0
+    )
+    trader.active_positions[pos.position_id] = pos
+
+    # Перевірка 1: легкий нуль/мінус (-0.00005 > -0.0001) -> 1 страйк, ще не закриваємо
+    closed_1 = await trader.evaluate_auto_exits({"ETH/USDT": -0.00005})
+    assert len(closed_1) == 0
+    assert "dn_soft_exit" in trader.active_positions
+    assert trader._negative_funding_strikes.get("dn_soft_exit") == 1
+
+    # Перевірка 2: ставка досі нульова -> 2 страйк -> авто-вихід!
+    closed_2 = await trader.evaluate_auto_exits({"ETH/USDT": 0.0})
+    assert len(closed_2) == 1
+    assert "FUNDING_FLIP_CONFIRMED" in closed_2[0]["close_reason"]
+    assert "dn_soft_exit" not in trader.active_positions
+    assert "dn_soft_exit" not in trader._negative_funding_strikes
+
+
+@pytest.mark.asyncio
+async def test_evaluate_auto_exits_strike_reset_on_recovery(trader):
+    pos = DeltaNeutralPosition(
+        position_id="dn_recovery_exit",
+        symbol="BNB/USDT",
+        mode=DeltaNeutralMode.SPOT_PERP,
+        leg1_exchange="binance",
+        leg1_symbol="BNB/USDT",
+        leg1_side=TradeSide.BUY,
+        leg1_entry_price=600.0,
+        leg1_amount=0.16,
+        leg2_exchange="binance",
+        leg2_symbol="BNB/USDT:USDT",
+        leg2_side=TradeSide.SELL,
+        leg2_entry_price=600.0,
+        leg2_amount=0.16,
+        notional_usdt=100.0
+    )
+    trader.active_positions[pos.position_id] = pos
+
+    # Перевірка 1: мінус -> 1 страйк
+    await trader.evaluate_auto_exits({"BNB/USDT": -0.00002})
+    assert trader._negative_funding_strikes.get("dn_recovery_exit") == 1
+
+    # Перевірка 2: ринок розвернувся назад у плюс (+0.0001) -> страйки скидаються
+    await trader.evaluate_auto_exits({"BNB/USDT": 0.0001})
+    assert "dn_recovery_exit" not in trader._negative_funding_strikes
+    assert "dn_recovery_exit" in trader.active_positions
+
+    # Перевірка 3: повторний спайк починається знову з 1 страйку, не закриваючи позицію завчасно
+    closed_3 = await trader.evaluate_auto_exits({"BNB/USDT": -0.00002})
+    assert len(closed_3) == 0
+    assert trader._negative_funding_strikes.get("dn_recovery_exit") == 1
+    assert "dn_recovery_exit" in trader.active_positions
+
 

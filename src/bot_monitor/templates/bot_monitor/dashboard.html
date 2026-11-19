@@ -426,6 +426,48 @@
     </div>
 </section>
 
+<!-- 🛡️ 4.5 ДЕЛЬТА-НЕЙТРАЛЬНИЙ СЕЙФ (CASH & CARRY VAULT) -->
+<section class="glass-panel p-5 mb-5" id="delta-neutral-section">
+    <div class="flex justify-between items-center mb-4 pb-3 border-b" style="border-color: var(--apple-divider);">
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full animate-pulse" style="background: var(--apple-green);"></span>
+            <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--apple-text);">
+                Дельта-Нейтральний Сейф (Cash & Carry Vault)
+            </h2>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs font-mono px-2.5 py-0.5 rounded-full border" style="background: var(--apple-panel-bg); border-color: var(--apple-panel-border); color: var(--apple-text);">
+                Фандинг: <span id="dn-total-funding" class="font-bold text-emerald-400">+0.0000 USDT</span>
+            </span>
+        </div>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+            <thead>
+                <tr class="border-b text-[11px] font-semibold tracking-wider uppercase" style="border-color: var(--apple-divider); color: var(--apple-text-muted);">
+                    <th class="px-5 py-2.5">Група / Пара</th>
+                    <th class="px-4 py-2.5">Конструкція Ніг</th>
+                    <th class="px-4 py-2.5">Обсяг (Notional)</th>
+                    <th class="px-4 py-2.5">Поточний APY</th>
+                    <th class="px-4 py-2.5">Зібраний Фандинг</th>
+                    <th class="px-4 py-2.5">Цикли</th>
+                    <th class="px-5 py-2.5 text-right">Дії</th>
+                </tr>
+            </thead>
+            <tbody id="dn-positions-body" class="divide-y mono-num" style="divide-color: var(--apple-divider); color: var(--apple-text);">
+                <tr>
+                    <td colspan="7" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
+                        <div class="flex flex-col items-center justify-center gap-2">
+                            <i class="fa-solid fa-vault text-xl" style="color: var(--apple-text-muted);"></i>
+                            <span class="text-xs">Немає відкритих дельта-нейтральних позицій. Сканер фандингу очікує сприятливого спреду.</span>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
 <!-- 📈 5. ГРАФІЧНИЙ ЦЕНТР: TRADINGVIEW ТА CUMULATIVE PNL -->
 <section class="glass-panel p-4 mb-5">
     <div class="border-b pb-3 mb-3.5 flex flex-wrap justify-between items-center gap-3" style="border-color: var(--apple-divider);">
@@ -2510,21 +2552,32 @@ class DashboardController {
 
     updateDeltaNeutralVaultUI(data) {
         if (!data) return;
-        const positions = data.positions || [];
+        const positions = data.positions || data.active_positions || data.active_delta_neutral_positions || [];
         const count = positions.length;
 
         let totalNotional = 0;
         let totalHarvested = 0;
 
         positions.forEach(p => {
-            totalNotional += (p.notional_usdt || 0);
-            totalHarvested += (p.accrued_funding_usdt || 0);
+            totalNotional += (p.notional_value_usdt || p.notional_usdt || 0);
+            totalHarvested += (p.accumulated_funding_usdt !== undefined ? p.accumulated_funding_usdt : (p.accrued_funding_usdt || 0));
         });
+
+        if (data.total_accumulated_funding !== undefined) {
+            totalHarvested = data.total_accumulated_funding;
+        } else if (data.total_accrued_funding !== undefined) {
+            totalHarvested = data.total_accrued_funding;
+        }
 
         if (this.elements.dnVaultCount) this.elements.dnVaultCount.innerText = count;
         if (this.elements.dnVaultNotional) this.elements.dnVaultNotional.innerText = `$${totalNotional.toFixed(2)}`;
         if (this.elements.dnVaultHarvested) {
             this.elements.dnVaultHarvested.innerText = (totalHarvested >= 0 ? '+' : '') + `$${totalHarvested.toFixed(4)} USDT`;
+        }
+
+        const dnTotalFundingElem = document.getElementById('dn-total-funding');
+        if (dnTotalFundingElem) {
+            dnTotalFundingElem.innerText = (totalHarvested >= 0 ? '+' : '') + `${totalHarvested.toFixed(4)} USDT`;
         }
 
         if (this.elements.navVaultBadge) {
@@ -2536,80 +2589,152 @@ class DashboardController {
             }
         }
 
-        if (!this.elements.arbVaultTable) return;
+        // 1. Оновлюємо віджет Сейфу у вкладці арбітражу (arbVaultTable)
+        if (this.elements.arbVaultTable) {
+            if (count === 0) {
+                this.elements.arbVaultTable.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="px-5 py-8 text-center font-sans" style="color: var(--apple-text-muted);">
+                            <div class="flex flex-col items-center justify-center gap-2">
+                                <i class="fa-solid fa-vault text-2xl" style="color: var(--apple-text-muted);"></i>
+                                <span class="text-xs">Немає відкритих Cash & Carry сховищ. Перейдіть у вкладку "Фандинг APY" для запуску.</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            } else {
+                this.elements.arbVaultTable.innerHTML = positions.map(pos => {
+                    const posId = pos.group_id || pos.id;
+                    const basis = typeof pos.entry_basis_pct === 'number' ? pos.entry_basis_pct : 0.0;
+                    const basisColor = basis >= 0 ? 'var(--apple-green-text)' : 'var(--apple-orange-text)';
+                    const rate8h = typeof pos.current_8h_rate === 'number' ? (pos.current_8h_rate * 100) : (pos.rate_8h ? pos.rate_8h * 100 : 0.0);
+                    const apy = typeof pos.projected_apy === 'number' ? pos.projected_apy : (pos.current_apy_pct || 0.0);
+                    const accrued = pos.accumulated_funding_usdt !== undefined ? pos.accumulated_funding_usdt : (pos.accrued_funding_usdt || 0.0);
+                    const notional = pos.notional_value_usdt || pos.notional_usdt || 0.0;
+                    const cycles = pos.funding_cycles_collected || 0;
 
-        if (count === 0) {
-            this.elements.arbVaultTable.innerHTML = `
-                <tr>
-                    <td colspan="8" class="px-5 py-8 text-center font-sans" style="color: var(--apple-text-muted);">
-                        <div class="flex flex-col items-center justify-center gap-2">
-                            <i class="fa-solid fa-vault text-2xl" style="color: var(--apple-text-muted);"></i>
-                            <span class="text-xs">Немає відкритих Cash & Carry сховищ. Перейдіть у вкладку "Фандинг APY" для запуску.</span>
-                        </div>
-                    </td>
-                </tr>
-            `;
-            return;
+                    return `
+                        <tr class="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                            <td class="px-5 py-3 font-bold">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="w-1.5 h-1.5 rounded-full" style="background: var(--apple-blue);"></span>
+                                    <span>${pos.symbol}</span>
+                                </div>
+                                <span class="text-[10px] block font-mono font-normal opacity-60">${posId}</span>
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="flex flex-col gap-1 text-[10px] font-mono">
+                                    <div class="flex items-center gap-1">
+                                        <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-green-bg); color: var(--apple-green-text);">BUY ${(pos.leg1_exchange || 'binance').toUpperCase()}</span>
+                                        <span class="opacity-75">$${(pos.leg1_entry_price || 0).toFixed(2)}</span>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-orange-bg); color: var(--apple-orange-text);">SHORT ${(pos.leg2_exchange || 'binance').toUpperCase()}</span>
+                                        <span class="opacity-75">$${(pos.leg2_entry_price || 0).toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 font-mono font-semibold">
+                                $${notional.toFixed(2)}
+                            </td>
+                            <td class="px-4 py-3 font-mono font-bold" style="color: ${basisColor};">
+                                ${basis >= 0 ? '+' : ''}${basis.toFixed(3)}%
+                                <span class="text-[9px] block font-normal opacity-70">${basis >= 0 ? 'Контанго (Yield)' : 'Беквордація'}</span>
+                            </td>
+                            <td class="px-4 py-3 font-mono">
+                                <span class="font-bold text-xs" style="color: var(--apple-green-text);">+${rate8h.toFixed(4)}%</span>
+                                <span class="text-[10px] block opacity-75">+${apy.toFixed(1)}% APY</span>
+                            </td>
+                            <td class="px-4 py-3 font-mono font-bold text-sm" style="color: var(--apple-green-text);">
+                                +${accrued.toFixed(4)} USDT
+                            </td>
+                            <td class="px-4 py-3 font-mono">
+                                <span class="px-2 py-0.5 rounded text-[11px] font-bold" style="background: var(--apple-blue-bg); color: var(--apple-blue-text);">
+                                    ${cycles} (${cycles * 8} год)
+                                </span>
+                            </td>
+                            <td class="px-5 py-3 text-right">
+                                <button type="button" 
+                                    onclick="window.closeDeltaNeutral('${posId}')"
+                                    class="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm">
+                                    <i class="fa-solid fa-stop text-[10px] mr-1"></i> Закрити
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
         }
 
-        this.elements.arbVaultTable.innerHTML = positions.map(pos => {
-            const basis = typeof pos.entry_basis_pct === 'number' ? pos.entry_basis_pct : 0.0;
-            const basisColor = basis >= 0 ? 'var(--apple-green-text)' : 'var(--apple-orange-text)';
-            const rate8h = typeof pos.current_8h_rate === 'number' ? (pos.current_8h_rate * 100) : 0.0;
-            const apy = typeof pos.projected_apy === 'number' ? pos.projected_apy : 0.0;
-            const accrued = typeof pos.accrued_funding_usdt === 'number' ? pos.accrued_funding_usdt : 0.0;
-            const cycles = pos.funding_cycles_collected || 0;
+        // 2. Оновлюємо окремий віджет на головній (dn-positions-body)
+        const dnPositionsBodyElem = document.getElementById('dn-positions-body');
+        if (dnPositionsBodyElem) {
+            if (count === 0) {
+                dnPositionsBodyElem.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="px-5 py-6 text-center font-sans" style="color: var(--apple-text-muted);">
+                            <div class="flex flex-col items-center justify-center gap-2">
+                                <i class="fa-solid fa-vault text-xl" style="color: var(--apple-text-muted);"></i>
+                                <span class="text-xs">Немає відкритих дельта-нейтральних позицій. Сканер фандингу очікує сприятливого спреду.</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            } else {
+                dnPositionsBodyElem.innerHTML = positions.map(pos => {
+                    const posId = pos.group_id || pos.id;
+                    const notional = pos.notional_value_usdt || pos.notional_usdt || 0.0;
+                    const apy = pos.current_apy_pct || (pos.rate_8h ? pos.rate_8h * 3 * 365 * 100 : 0.0);
+                    const accrued = pos.accumulated_funding_usdt !== undefined ? pos.accumulated_funding_usdt : (pos.accrued_funding_usdt || 0.0);
+                    const cycles = pos.funding_cycles_collected || 0;
 
-            return `
-                <tr class="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                    <td class="px-5 py-3 font-bold">
-                        <div class="flex items-center gap-1.5">
-                            <span class="w-1.5 h-1.5 rounded-full" style="background: var(--apple-blue);"></span>
-                            <span>${pos.symbol}</span>
-                        </div>
-                        <span class="text-[10px] block font-mono font-normal opacity-60">${pos.id}</span>
-                    </td>
-                    <td class="px-4 py-3">
-                        <div class="flex flex-col gap-1 text-[10px] font-mono">
-                            <div class="flex items-center gap-1">
-                                <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-green-bg); color: var(--apple-green-text);">BUY ${(pos.leg1_exchange || 'binance').toUpperCase()}</span>
-                                <span class="opacity-75">$${(pos.leg1_entry_price || 0).toFixed(2)}</span>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-orange-bg); color: var(--apple-orange-text);">SHORT ${(pos.leg2_exchange || 'binance').toUpperCase()}</span>
-                                <span class="opacity-75">$${(pos.leg2_entry_price || 0).toFixed(2)}</span>
-                            </div>
-                        </div>
-                    </td>
-                    <td class="px-4 py-3 font-mono font-semibold">
-                        $${(pos.notional_usdt || 0).toFixed(2)}
-                    </td>
-                    <td class="px-4 py-3 font-mono font-bold" style="color: ${basisColor};">
-                        ${basis >= 0 ? '+' : ''}${basis.toFixed(3)}%
-                        <span class="text-[9px] block font-normal opacity-70">${basis >= 0 ? 'Контанго (Yield)' : 'Беквордація'}</span>
-                    </td>
-                    <td class="px-4 py-3 font-mono">
-                        <span class="font-bold text-xs" style="color: var(--apple-green-text);">+${rate8h.toFixed(4)}%</span>
-                        <span class="text-[10px] block opacity-75">+${apy.toFixed(1)}% APY</span>
-                    </td>
-                    <td class="px-4 py-3 font-mono font-bold text-sm" style="color: var(--apple-green-text);">
-                        +${accrued.toFixed(4)} USDT
-                    </td>
-                    <td class="px-4 py-3 font-mono">
-                        <span class="px-2 py-0.5 rounded text-[11px] font-bold" style="background: var(--apple-blue-bg); color: var(--apple-blue-text);">
-                            ${cycles} (${cycles * 8} год)
-                        </span>
-                    </td>
-                    <td class="px-5 py-3 text-right">
-                        <button type="button" 
-                            onclick="window.dashboardApp?.closeDeltaNeutral('${pos.id}')"
-                            class="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm">
-                            <i class="fa-solid fa-stop text-[10px] mr-1"></i> Закрити
-                        </button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
+                    return `
+                        <tr class="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                            <td class="px-5 py-3 font-bold">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="w-1.5 h-1.5 rounded-full" style="background: var(--apple-green);"></span>
+                                    <span>${pos.symbol}</span>
+                                </div>
+                                <span class="text-[10px] block font-mono font-normal opacity-60">${posId}</span>
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="flex flex-col gap-1 text-[10px] font-mono">
+                                    <div class="flex items-center gap-1">
+                                        <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-green-bg); color: var(--apple-green-text);">BUY ${(pos.leg1_exchange || 'binance').toUpperCase()}</span>
+                                        <span class="opacity-75">$${(pos.leg1_entry_price || 0).toFixed(2)}</span>
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <span class="px-1.5 py-0.2 rounded font-bold" style="background: var(--apple-orange-bg); color: var(--apple-orange-text);">SHORT ${(pos.leg2_exchange || 'binance').toUpperCase()}</span>
+                                        <span class="opacity-75">$${(pos.leg2_entry_price || 0).toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 font-mono font-semibold">
+                                $${notional.toFixed(2)}
+                            </td>
+                            <td class="px-4 py-3 font-mono font-bold text-emerald-400">
+                                +${apy.toFixed(2)}% APY
+                            </td>
+                            <td class="px-4 py-3 font-mono font-bold text-sm text-emerald-400">
+                                +${accrued.toFixed(4)} USDT
+                            </td>
+                            <td class="px-4 py-3 font-mono">
+                                <span class="px-2 py-0.5 rounded text-[11px] font-bold" style="background: var(--apple-blue-bg); color: var(--apple-blue-text);">
+                                    ${cycles} (${cycles * 8} год)
+                                </span>
+                            </td>
+                            <td class="px-5 py-3 text-right">
+                                <button type="button" 
+                                    onclick="window.closeDeltaNeutral('${posId}')"
+                                    class="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm">
+                                    <i class="fa-solid fa-stop text-[10px] mr-1"></i> Закрити
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
     }
 
     async openDeltaNeutral(symbol, rate8h) {
@@ -2640,7 +2765,7 @@ class DashboardController {
             const res = await fetch(this.endpoints.deltaNeutralClose, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ position_id: positionId })
+                body: JSON.stringify({ position_id: positionId, group_id: positionId })
             });
             const data = await res.json();
             if (data.status === 'success') {
@@ -2653,7 +2778,6 @@ class DashboardController {
             console.error("closeDeltaNeutral error:", e);
             this.showToast(`❌ Помилка з'єднання з API`, 'error');
         }
-    }
     }
 
     updateArbitrageRadarUI(data) {
@@ -3833,6 +3957,8 @@ class DashboardController {
 
 document.addEventListener('DOMContentLoaded', () => {
     window.dashboardApp = new DashboardController();
+    window.closeDeltaNeutral = (groupId) => window.dashboardApp.closeDeltaNeutral(groupId);
+    window.fetchDeltaNeutralVault = () => window.dashboardApp.fetchDeltaNeutralVault();
 });
 </script>
 {% endblock %}

@@ -109,8 +109,16 @@ class ActivePositionSchema(BaseModel):
 
 
 class ClosePositionRequest(BaseModel):
-
     symbol: str
+
+class OpenDeltaNeutralRequest(BaseModel):
+    symbol: str
+    notional: float = 100.0
+    rate_8h: float = 0.0003
+
+class CloseDeltaNeutralRequest(BaseModel):
+    position_id: str
+
 
 
 
@@ -483,10 +491,41 @@ def close_all_positions(request):
             json.dump({"action": "close_all"}, f)
 
         return {"status": "success", "message": "Команду екстреного закриття всіх позицій надіслано рушію"}
-
     except Exception as e:
-
         return {"status": "error", "message": str(e)}
+
+
+@router.post("/delta_neutral/open")
+def open_delta_neutral(request, payload: OpenDeltaNeutralRequest):
+    """Ручне відкриття Cash & Carry позиції з дашборду."""
+    cmd_file = DATA_DIR / "command_queue.json"
+    try:
+        with open(cmd_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "action": "open_delta_neutral",
+                "symbol": payload.symbol,
+                "notional": payload.notional,
+                "rate_8h": payload.rate_8h
+            }, f)
+        return {"status": "success", "message": f"Команду відкриття Cash & Carry для {payload.symbol} надіслано рушію"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/delta_neutral/close")
+def close_delta_neutral(request, payload: CloseDeltaNeutralRequest):
+    """Ручне закриття Cash & Carry позиції з дашборду."""
+    cmd_file = DATA_DIR / "command_queue.json"
+    try:
+        with open(cmd_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "action": "close_delta_neutral",
+                "position_id": payload.position_id
+            }, f)
+        return {"status": "success", "message": f"Команду закриття Cash & Carry ({payload.position_id}) надіслано рушію"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 
 
 
@@ -567,15 +606,7 @@ def get_arbitrage_funding(request):
     except Exception:
         pass
 
-    funding_file = DATA_DIR / "funding_radar.json"
-    if funding_file.exists():
-        try:
-            with open(funding_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-
-    return {
+    res_data = {
         "status": "initializing",
         "updated_at": 0,
         "updated_time": "Синхронізація...",
@@ -584,6 +615,39 @@ def get_arbitrage_funding(request):
         "top_opportunity": None,
         "funding_rates": []
     }
+    funding_file = DATA_DIR / "funding_radar.json"
+    if funding_file.exists():
+        try:
+            with open(funding_file, "r", encoding="utf-8") as f:
+                res_data = json.load(f)
+        except Exception:
+            pass
+
+    # Додаємо активні дельта-нейтральні позиції з бази даних
+    try:
+        from src.bot_monitor.models import DeltaNeutralPosition
+        active_dn = list(DeltaNeutralPosition.objects.filter(status='OPEN').values())
+        res_data["active_delta_neutral_positions"] = active_dn
+        res_data["total_accrued_funding"] = round(sum(p.get("accrued_funding_usdt", 0.0) for p in active_dn), 4)
+    except Exception:
+        res_data["active_delta_neutral_positions"] = []
+        res_data["total_accrued_funding"] = 0.0
+
+    return res_data
+
+
+@router.get("/delta_neutral/positions")
+def get_delta_neutral_positions(request):
+    """Отримання списку активних Cash & Carry позицій."""
+    try:
+        from src.bot_monitor.models import DeltaNeutralPosition
+        return {
+            "positions": list(DeltaNeutralPosition.objects.filter(status='OPEN').values()),
+            "history": list(DeltaNeutralPosition.objects.filter(status='CLOSED').order_by('-last_funding_time')[:10].values())
+        }
+    except Exception as e:
+        return {"positions": [], "history": [], "error": str(e)}
+
 
 
 

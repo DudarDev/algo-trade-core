@@ -58,6 +58,8 @@ from src.engine.application.paper_trader import PaperTrader
 from src.engine.application.live_trader import LiveBinanceTrader
 from src.engine.application.adaptive_risk_controller import AdaptiveRiskController
 from src.engine.application.arbitrage import ArbitrageEngine
+from src.engine.application.delta_neutral_trader import DeltaNeutralTrader
+
 from src.engine.infrastructure.order_book_analyzer import OrderBookAnalyzer
 from src.engine.infrastructure.market_sentiment import MarketSentimentAnalyzer
 from src.engine.infrastructure.news_analyzer import NewsAnalyzer
@@ -85,6 +87,14 @@ class CryptoBot:
         self.news_analyzer = NewsAnalyzer()
         self.pair_cooldowns = {}
         self.arbitrage_engine = ArbitrageEngine(settings=settings, exchanges={'binance': self.exchange, 'bybit': ExchangeManager(settings, exchange_id='bybit')}, data_dir=self.data_dir)
+        self.delta_neutral_trader = DeltaNeutralTrader(
+            settings=settings,
+            repo=TradingRepository(session=self.db_session),
+            notifier=TelegramNotifier() if settings.ENABLE_TELEGRAM else None,
+            exchange_manager=self.exchange,
+            is_paper=getattr(settings, 'PAPER_TRADING', True)
+        )
+
         if getattr(settings, 'WS_STREAM_ENABLED', True):
             from src.engine.infrastructure.websocket_feed import ws_feed
             self.ws_feed = ws_feed
@@ -237,6 +247,25 @@ class CryptoBot:
                         current_price = (pos.highest_price or pos.entry_price) if pos else 0
                     if current_price > 0:
                         await self.trader._close_position(symbol, current_price, reason="Panic Exit All")
+            elif action == 'open_delta_neutral':
+                symbol = cmd_data.get('symbol')
+                notional = float(cmd_data.get('notional', 100.0))
+                rate_8h = float(cmd_data.get('rate_8h', 0.0003))
+                spot_p = await self.exchange.fetch_current_price(symbol)
+                perp_p = spot_p
+                if spot_p and spot_p > 0 and hasattr(self, 'delta_neutral_trader'):
+                    await self.delta_neutral_trader.open_delta_neutral_position(
+                        symbol=symbol,
+                        notional_usdt=notional,
+                        rate_8h=rate_8h,
+                        spot_price=spot_p,
+                        perp_price=perp_p
+                    )
+            elif action == 'close_delta_neutral':
+                pos_id = cmd_data.get('position_id')
+                if pos_id and hasattr(self, 'delta_neutral_trader'):
+                    await self.delta_neutral_trader.close_delta_neutral_position(pos_id, reason="Ручна команда з інтерфейсу")
+
         except Exception as e:
             logger.error(f"❌ Помилка обробки command_queue: {e}")
 
@@ -594,6 +623,12 @@ class CryptoBot:
                     try:
                         f_res = await self.arbitrage_engine.scan_funding_rates(symbols)
                         logger.info(f"📊 [Funding Radar] Ставки оновлено | Топ APY: {f_res.get('max_funding_apy', 0.0):.1f}%")
+                        if hasattr(self, 'delta_neutral_trader') and self.delta_neutral_trader:
+                            rates_map = {
+                                item['symbol']: float(item.get('binance_8h_pct', 0.0)) / 100.0
+                                for item in f_res.get('funding_rates', [])
+                            }
+                            self.delta_neutral_trader.accrue_funding(rates_map)
                     except Exception as fe:
                         logger.debug(f"Funding radar error: {fe}")
 

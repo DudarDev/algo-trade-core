@@ -1,6 +1,7 @@
 from typing import List, Optional
+from datetime import datetime, timezone
 from .session import SessionLocal, init_db
-from .models import ActivePosition, Wallet, Trade
+from .models import ActivePosition, Wallet, Trade, DeltaNeutralPositionModel
 
 class TradingRepository:
     def __init__(self, session=None):
@@ -123,3 +124,48 @@ class TradingRepository:
             if limit:
                 query = query.limit(limit)
             return query.all()
+
+    # --- Delta-Neutral Cash & Carry Repository Methods ---
+
+    def get_active_delta_neutral_positions(self) -> List[DeltaNeutralPositionModel]:
+        with SessionLocal() as session:
+            return session.query(DeltaNeutralPositionModel).filter_by(status="OPEN").all()
+
+    def save_delta_neutral_position(self, pos_model: DeltaNeutralPositionModel) -> None:
+        with SessionLocal() as session:
+            existing = session.query(DeltaNeutralPositionModel).filter_by(id=pos_model.id).first()
+            if existing:
+                for col in DeltaNeutralPositionModel.__table__.columns:
+                    setattr(existing, col.name, getattr(pos_model, col.name))
+            else:
+                session.add(pos_model)
+            session.commit()
+
+    def update_delta_neutral_funding(
+        self,
+        position_id: str,
+        funding_payment: float,
+        current_8h_rate: float,
+        projected_apy: float
+    ) -> Optional[DeltaNeutralPositionModel]:
+        with SessionLocal() as session:
+            pos = session.query(DeltaNeutralPositionModel).filter_by(id=position_id).first()
+            if pos:
+                pos.accrued_funding_usdt += funding_payment
+                pos.funding_cycles_collected += 1
+                pos.current_8h_rate = current_8h_rate
+                pos.projected_apy = projected_apy
+                pos.last_funding_time = datetime.now(timezone.utc)
+                session.commit()
+                session.refresh(pos)
+                return pos
+            return None
+
+    def close_delta_neutral_position(self, position_id: str, close_reason: str) -> None:
+        with SessionLocal() as session:
+            pos = session.query(DeltaNeutralPositionModel).filter_by(id=position_id).first()
+            if pos:
+                pos.status = "CLOSED"
+                pos.close_reason = close_reason
+                session.commit()
+

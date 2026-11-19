@@ -60,3 +60,44 @@ class BotConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+class DeltaNeutralPositionModel(Base):
+    __tablename__ = "delta_neutral_positions"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(20), index=True)
+    mode: Mapped[str] = mapped_column(String(30), default="SPOT_PERP")
+    
+    # Нога 1
+    leg1_exchange: Mapped[str] = mapped_column(String(20))
+    leg1_symbol: Mapped[str] = mapped_column(String(30))
+    leg1_side: Mapped[str] = mapped_column(String(10), default="BUY")
+    leg1_entry_price: Mapped[float] = mapped_column(Float)
+    leg1_amount: Mapped[float] = mapped_column(Float)
+    
+    # Нога 2
+    leg2_exchange: Mapped[str] = mapped_column(String(20))
+    leg2_symbol: Mapped[str] = mapped_column(String(30))
+    leg2_side: Mapped[str] = mapped_column(String(10), default="SELL")
+    leg2_entry_price: Mapped[float] = mapped_column(Float)
+    leg2_amount: Mapped[float] = mapped_column(Float)
+    
+    notional_usdt: Mapped[float] = mapped_column(Float)
+    entry_basis_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    accrued_funding_usdt: Mapped[float] = mapped_column(Float, default=0.0)
+    funding_cycles_collected: Mapped[int] = mapped_column(Integer, default=0)
+    entry_fees_usdt: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    current_8h_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    projected_apy: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    status: Mapped[str] = mapped_column(String(20), default="OPEN")
+    close_reason: Mapped[str] = mapped_column(String(100), default="")
+    
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    last_funding_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+

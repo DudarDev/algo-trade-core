@@ -45,3 +45,50 @@ class ArbitrageOpportunity(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
     model_config = ConfigDict(strict=True)
+
+
+class DeltaNeutralMode(str, Enum):
+    SPOT_PERP = "SPOT_PERP"
+    SYNTHETIC_PERP_PERP = "SYNTHETIC_PERP_PERP"
+
+
+class DeltaNeutralStatus(str, Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    ROLLBACK = "ROLLBACK"
+
+
+class DeltaNeutralPosition(BaseModel):
+    position_id: str
+    symbol: str
+    mode: DeltaNeutralMode = DeltaNeutralMode.SPOT_PERP
+    
+    # Нога 1 (Spot Long або Bybit Perp Long)
+    leg1_exchange: str
+    leg1_symbol: str
+    leg1_side: TradeSide = TradeSide.BUY
+    leg1_entry_price: float = Field(..., gt=0)
+    leg1_amount: float = Field(..., gt=0)
+    
+    # Нога 2 (Binance Perp Short)
+    leg2_exchange: str
+    leg2_symbol: str
+    leg2_side: TradeSide = TradeSide.SELL
+    leg2_entry_price: float = Field(..., gt=0)
+    leg2_amount: float = Field(..., gt=0)
+    
+    notional_usdt: float = Field(..., gt=0)
+    entry_basis_pct: float = Field(default=0.0)
+    accrued_funding_usdt: float = Field(default=0.0)
+    funding_cycles_collected: int = Field(default=0)
+    entry_fees_usdt: float = Field(default=0.0)
+    
+    current_8h_rate: float = Field(default=0.0)
+    projected_apy: float = Field(default=0.0)
+    
+    opened_at: float = Field(default_factory=time.time)
+    last_funding_time: float = Field(default_factory=time.time)
+    status: DeltaNeutralStatus = DeltaNeutralStatus.OPEN
+    close_reason: str = Field(default="")
+
+    model_config = ConfigDict(strict=False, validate_assignment=True)

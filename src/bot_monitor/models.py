@@ -95,3 +95,50 @@ class BotConfig(models.Model):
 
     def __str__(self) -> str:
         return f"System Status: {self.status.upper()}"
+
+
+class DeltaNeutralPosition(models.Model):
+    """
+    Таблиця для дельта-нейтральних Cash & Carry арбітражних позицій.
+    """
+    id = models.CharField(max_length=50, primary_key=True)
+    symbol = models.CharField(max_length=20)
+    mode = models.CharField(max_length=30, default="SPOT_PERP")
+    
+    # Нога 1
+    leg1_exchange = models.CharField(max_length=20)
+    leg1_symbol = models.CharField(max_length=30)
+    leg1_side = models.CharField(max_length=10, default="BUY")
+    leg1_entry_price = models.FloatField()
+    leg1_amount = models.FloatField()
+    
+    # Нога 2
+    leg2_exchange = models.CharField(max_length=20)
+    leg2_symbol = models.CharField(max_length=30)
+    leg2_side = models.CharField(max_length=10, default="SELL")
+    leg2_entry_price = models.FloatField()
+    leg2_amount = models.FloatField()
+    
+    notional_usdt = models.FloatField()
+    entry_basis_pct = models.FloatField(default=0.0)
+    accrued_funding_usdt = models.FloatField(default=0.0)
+    funding_cycles_collected = models.IntegerField(default=0)
+    entry_fees_usdt = models.FloatField(default=0.0)
+    
+    current_8h_rate = models.FloatField(default=0.0)
+    projected_apy = models.FloatField(default=0.0)
+    
+    status = models.CharField(max_length=20, default="OPEN")
+    close_reason = models.CharField(max_length=100, default="", blank=True)
+    
+    opened_at = models.DateTimeField()
+    last_funding_time = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = 'delta_neutral_positions'
+        verbose_name = 'Дельта-нейтральна позиція'
+        verbose_name_plural = 'Дельта-нейтральні позиції'
+
+    def __str__(self) -> str:
+        return f"DeltaNeutral {self.symbol} [{self.mode}] APY: {self.projected_apy:.1f}% | Accrued: +{self.accrued_funding_usdt:.3f}$"

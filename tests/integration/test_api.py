@@ -184,3 +184,29 @@ def test_ai_trigger_feedback_loop_endpoint():
     assert response.status_code == 200
     data = json.loads(response.content)
     assert 'status' in data
+
+
+def test_delta_neutral_funding_and_positions_endpoints():
+    client = Client()
+    # 1. Тест /arbitrage/funding
+    res_funding = client.get('/api/monitor/arbitrage/funding')
+    assert res_funding.status_code == 200
+    data_f = json.loads(res_funding.content)
+    assert 'active_delta_neutral_positions' in data_f
+    assert 'total_accrued_funding' in data_f
+
+    # 2. Тест /delta_neutral/positions
+    res_pos = client.get('/api/monitor/delta_neutral/positions')
+    assert res_pos.status_code == 200
+    data_p = json.loads(res_pos.content)
+    assert 'positions' in data_p
+
+    # 3. Тест /delta_neutral/open
+    res_open = client.post(
+        '/api/monitor/delta_neutral/open',
+        data=json.dumps({'symbol': 'NEAR/USDT', 'notional': 100.0, 'rate_8h': 0.0003}),
+        content_type='application/json'
+    )
+    assert res_open.status_code == 200
+    assert json.loads(res_open.content)['status'] == 'success'
+

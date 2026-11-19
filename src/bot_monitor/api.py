@@ -22,7 +22,7 @@ from django.http import HttpResponse
 
 
 
-from .models import Trade, Wallet, ActivePosition
+from .models import Trade, Wallet, ActivePosition, DeltaNeutralPosition
 
 from .services import BotControlService
 
@@ -625,7 +625,6 @@ def get_arbitrage_funding(request):
 
     # Додаємо активні дельта-нейтральні позиції з бази даних
     try:
-        from src.bot_monitor.models import DeltaNeutralPosition
         active_dn = list(DeltaNeutralPosition.objects.filter(status='OPEN').values())
         res_data["active_delta_neutral_positions"] = active_dn
         res_data["total_accrued_funding"] = round(sum(p.get("accrued_funding_usdt", 0.0) for p in active_dn), 4)
@@ -640,7 +639,6 @@ def get_arbitrage_funding(request):
 def get_delta_neutral_positions(request):
     """Отримання списку активних Cash & Carry позицій."""
     try:
-        from src.bot_monitor.models import DeltaNeutralPosition
         return {
             "positions": list(DeltaNeutralPosition.objects.filter(status='OPEN').values()),
             "history": list(DeltaNeutralPosition.objects.filter(status='CLOSED').order_by('-last_funding_time')[:10].values())

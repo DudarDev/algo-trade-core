@@ -53,7 +53,6 @@ def dashboard_view(request):
         chart_data.append(round(cumulative_pnl, 2))
 
     # Розрахунок Max Drawdown на основі кривої капіталу
-    from src.shared.config import settings
     from datetime import datetime
     initial_balance = getattr(settings, 'INITIAL_BALANCE', 1000.0)
     current_equity = initial_balance
@@ -118,7 +117,6 @@ def export_report_view(request):
         from django.shortcuts import redirect
         return redirect(f"/admin/login/?next={request.path}")
 
-    from src.shared.config import settings
     from datetime import datetime
     wallet = Wallet.objects.first()
     all_trades = Trade.objects.all().order_by('timestamp')

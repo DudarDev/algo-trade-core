@@ -10,6 +10,13 @@ from src.engine.domain.models import (
     DeltaNeutralStatus,
     TradeSide
 )
+from src.engine.domain.services import (
+    AsymmetricBasisGuard,
+    BasisCheckResult,
+    MarginHealthMonitor,
+    MarginAction,
+    MarginTransferPort
+)
 from src.engine.application.delta_neutral_trader import DeltaNeutralTrader
 
 
@@ -368,5 +375,187 @@ async def test_evaluate_auto_exits_strike_reset_on_recovery(trader):
     assert len(closed_3) == 0
     assert trader._negative_funding_strikes.get("dn_recovery_exit") == 1
     assert "dn_recovery_exit" in trader.active_positions
+
+
+# =====================================================================
+# ТЕСТИ ASYMMETRIC BASIS GUARD ТА MARGIN HEALTH MONITOR (АНТИ-ЛІКВІДАТОР)
+# =====================================================================
+
+def test_asymmetric_basis_guard_standalone_rules():
+    guard = AsymmetricBasisGuard(max_backwardation_pct=-0.10, max_contango_sanity_pct=1.50)
+
+    # 1. Невалідні ціни
+    inv = guard.evaluate(-10.0, 100.0)
+    assert inv.is_valid is False
+    assert inv.reason == "INVALID_PRICES"
+
+    # 2. Глибока беквордація (perp 99.8 при spot 100 -> -0.20% < -0.10%) -> блокується
+    res_back = guard.evaluate(100.0, 99.80)
+    assert res_back.is_valid is False
+    assert "BACKWARDATION_EXCEEDED" in res_back.reason
+    assert res_back.basis_pct == -0.2
+
+    # 3. Екстремальне контанго / аномалія (perp 102.0 при spot 100 -> +2.0% > 1.50%) -> блокується
+    res_contango_extreme = guard.evaluate(100.0, 102.0)
+    assert res_contango_extreme.is_valid is False
+    assert "CONTANGO_ANOMALY" in res_contango_extreme.reason
+    assert res_contango_extreme.basis_pct == 2.0
+
+    # 4. Здорове контанго (perp 100.4 при spot 100 -> +0.40%) -> схвалено з попутним вітром
+    res_tailwind = guard.evaluate(100.0, 100.40)
+    assert res_tailwind.is_valid is True
+    assert res_tailwind.reason == "CONTANGO_TAILWIND"
+    assert res_tailwind.basis_pct == 0.4
+
+    # 5. Нейтральний базис або мікро-беквордація в допуску (perp 99.95 при spot 100 -> -0.05%) -> схвалено
+    res_neutral = guard.evaluate(100.0, 99.95)
+    assert res_neutral.is_valid is True
+    assert res_neutral.reason == "NEUTRAL_BASIS"
+    assert res_neutral.basis_pct == -0.05
+
+
+def test_margin_health_monitor_paper_estimation():
+    monitor = MarginHealthMonitor(
+        warning_threshold=60.0,
+        rebalance_threshold=75.0,
+        unwind_threshold=85.0,
+        maintenance_margin_rate=0.005
+    )
+
+    # 1. Позиція без просідання (ціна не змінилась) -> Margin Ratio мінімальний
+    ratio_flat = monitor.estimate_paper_margin_ratio(
+        entry_price=100.0,
+        current_price=100.0,
+        allocated_margin_usdt=100.0,
+        quantity=1.0
+    )
+    assert ratio_flat < 5.0
+
+    # 2. Памп +65% на шорті (ціна з 100 виросла до 165) -> сильне навантаження (> 70%)
+    ratio_pump = monitor.estimate_paper_margin_ratio(
+        entry_price=100.0,
+        current_price=165.0,
+        allocated_margin_usdt=100.0,
+        quantity=1.0
+    )
+    assert ratio_pump >= 70.0
+
+    # 3. Повне вичерпання маржинального балансу -> 100%
+    ratio_busted = monitor.estimate_paper_margin_ratio(
+        entry_price=100.0,
+        current_price=210.0,
+        allocated_margin_usdt=100.0,
+        quantity=1.0
+    )
+    assert ratio_busted == 100.0
+
+
+@pytest.mark.asyncio
+async def test_margin_health_monitor_warning_level():
+    monitor = MarginHealthMonitor()
+    mock_port = MagicMock()
+    mock_port.get_futures_margin_ratio = AsyncMock(return_value=65.0)  # Warning range (60..75)
+    mock_close = AsyncMock()
+    mock_notify = AsyncMock()
+
+    pos = MagicMock()
+    pos.symbol = "SOL/USDT"
+    pos.group_id = "group_dn_1"
+
+    action = await monitor.check_position_health(
+        position=pos,
+        current_perp_price=150.0,
+        transfer_port=mock_port,
+        close_callback=mock_close,
+        notify_callback=mock_notify
+    )
+
+    assert action == MarginAction.WARNING
+    mock_notify.assert_called_once()
+    assert "Margin Warning" in mock_notify.call_args[0][0]
+    mock_close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_margin_health_monitor_rebalance_success():
+    monitor = MarginHealthMonitor()
+    mock_port = MagicMock()
+    mock_port.get_futures_margin_ratio = AsyncMock(return_value=78.0)  # Rebalance range (75..85)
+    mock_port.transfer_spot_to_futures = AsyncMock(return_value=True)  # Успішний переказ 25% USDT
+    mock_close = AsyncMock()
+    mock_notify = AsyncMock()
+
+    pos = MagicMock()
+    pos.symbol = "ETH/USDT"
+    pos.group_id = "group_dn_2"
+    pos.notional_value_usdt = 200.0
+
+    action = await monitor.check_position_health(
+        position=pos,
+        current_perp_price=3800.0,
+        transfer_port=mock_port,
+        close_callback=mock_close,
+        notify_callback=mock_notify
+    )
+
+    assert action == MarginAction.REBALANCED
+    mock_port.transfer_spot_to_futures.assert_called_once_with(50.0)  # 25% від 200 = 50 USDT
+    mock_notify.assert_called_once()
+    assert "MARGIN REBALANCED" in mock_notify.call_args[0][0]
+    mock_close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_margin_health_monitor_rebalance_failure_triggers_unwind():
+    monitor = MarginHealthMonitor()
+    mock_port = MagicMock()
+    mock_port.get_futures_margin_ratio = AsyncMock(return_value=78.0)
+    mock_port.transfer_spot_to_futures = AsyncMock(return_value=False)  # Немає вільного USDT!
+    mock_close = AsyncMock()
+    mock_notify = AsyncMock()
+
+    pos = MagicMock()
+    pos.symbol = "ETH/USDT"
+    pos.group_id = "group_dn_fail"
+    pos.notional_value_usdt = 100.0
+
+    action = await monitor.check_position_health(
+        position=pos,
+        current_perp_price=3800.0,
+        transfer_port=mock_port,
+        close_callback=mock_close,
+        notify_callback=mock_notify
+    )
+
+    # При невдалому поповненні система не залишає позицію на ліквідацію, а запускає Emergency Unwind
+    assert action == MarginAction.EMERGENCY_UNWIND
+    mock_close.assert_called_once_with("group_dn_fail", reason="MARGIN_REBALANCE_FAILED")
+
+
+@pytest.mark.asyncio
+async def test_margin_health_monitor_emergency_unwind():
+    monitor = MarginHealthMonitor()
+    mock_port = MagicMock()
+    mock_port.get_futures_margin_ratio = AsyncMock(return_value=88.5)  # Критичний рівень >= 85%
+    mock_close = AsyncMock()
+    mock_notify = AsyncMock()
+
+    pos = MagicMock()
+    pos.symbol = "BTC/USDT"
+    pos.group_id = "group_dn_crit"
+
+    action = await monitor.check_position_health(
+        position=pos,
+        current_perp_price=75000.0,
+        transfer_port=mock_port,
+        close_callback=mock_close,
+        notify_callback=mock_notify
+    )
+
+    assert action == MarginAction.EMERGENCY_UNWIND
+    mock_close.assert_called_once_with("group_dn_crit", reason="MARGIN_PROTECTION_UNWIND")
+    mock_notify.assert_called_once()
+    assert "EMERGENCY UNWIND" in mock_notify.call_args[0][0]
+
 
 

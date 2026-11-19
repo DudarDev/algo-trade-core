@@ -142,3 +142,19 @@ class DeltaNeutralPosition(models.Model):
 
     def __str__(self) -> str:
         return f"DeltaNeutral {self.symbol} [{self.mode}] APY: {self.projected_apy:.1f}% | Accrued: +{self.accrued_funding_usdt:.3f}$"
+
+    @property
+    def group_id(self) -> str:
+        return self.id
+
+    @property
+    def futures_entry_price(self) -> float:
+        return self.leg2_entry_price
+
+    @property
+    def notional_value_usdt(self) -> float:
+        return self.notional_usdt
+
+    @property
+    def quantity(self) -> float:
+        return self.leg2_amount

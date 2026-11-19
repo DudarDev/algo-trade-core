@@ -101,3 +101,19 @@ class DeltaNeutralPositionModel(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    @property
+    def group_id(self) -> str:
+        return self.id
+
+    @property
+    def futures_entry_price(self) -> float:
+        return self.leg2_entry_price
+
+    @property
+    def notional_value_usdt(self) -> float:
+        return self.notional_usdt
+
+    @property
+    def quantity(self) -> float:
+        return self.leg2_amount
+

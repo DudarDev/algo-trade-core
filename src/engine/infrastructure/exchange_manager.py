@@ -143,3 +143,50 @@ class ExchangeManager:
 
     async def get_private_exchange(self) -> Optional[ccxt_async.Exchange]:
         return self.private_exchange
+
+    async def get_futures_margin_ratio(self, symbol: str) -> Optional[float]:
+        """
+        Повертає Margin Ratio (%) з біржі для Live режиму або None для Paper-розрахунку.
+        """
+        if getattr(self.settings, 'PAPER_TRADING', True) or not self.private_exchange:
+            return None
+
+        try:
+            if hasattr(self.private_exchange, 'fapiPrivateV2GetAccount'):
+                acc = await self.private_exchange.fapiPrivateV2GetAccount()
+                positions = acc.get('positions', [])
+                clean_sym = symbol.replace('/', '').replace(':USDT', '')
+                for p in positions:
+                    if p.get('symbol') == clean_sym:
+                        m_ratio = float(acc.get('totalMaintMargin', 0.0)) / max(0.0001, float(acc.get('totalMarginBalance', 1.0))) * 100.0
+                        return round(m_ratio, 2)
+            return None
+        except Exception as e:
+            logger.warning(f"⚠️ [Margin Query] Помилка отримання Margin Ratio для {symbol}: {e}")
+            return None
+
+    async def transfer_spot_to_futures(self, amount_usdt: float) -> bool:
+        """
+        Переказ USDT зі Spot на USD-M Futures для порятунку маржі.
+        Підтримує Paper-режим та Live Binance Universal Transfer API.
+        """
+        if getattr(self.settings, 'PAPER_TRADING', True) or not self.private_exchange:
+            logger.info(f"📝 [Paper Transfer] Імітація переказу {amount_usdt:.2f} USDT зі Spot на Futures. Успішно!")
+            return True
+
+        try:
+            logger.info(f"🔄 [Universal Transfer] Переказ {amount_usdt:.2f} USDT зі Spot на USD-M Futures...")
+            if hasattr(self.private_exchange, 'transfer'):
+                await self.private_exchange.transfer('USDT', amount_usdt, 'spot', 'future')
+                return True
+            elif hasattr(self.private_exchange, 'sapiPostAssetTransfer'):
+                await self.private_exchange.sapiPostAssetTransfer({
+                    'type': 'MAIN_UMFUTURE',
+                    'asset': 'USDT',
+                    'amount': amount_usdt
+                })
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"❌ [Universal Transfer Error] Не вдалося переказати {amount_usdt:.2f} USDT: {e}")
+            return False

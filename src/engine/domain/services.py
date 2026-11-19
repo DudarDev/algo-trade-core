@@ -1,7 +1,13 @@
 import time
-from typing import Tuple, Optional
+import asyncio
+import logging
+from dataclasses import dataclass
+from enum import Enum
+from typing import Tuple, Optional, Protocol, Any, Dict
 from src.engine.domain.models import Position, TradeSide
 from src.shared.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class OrderExecutionService:
@@ -98,3 +104,187 @@ class OrderExecutionService:
                 # даємо позиції дихати та відпрацювати до планового TP або SL.
                 
         return None
+
+
+# =====================================================================
+# 1. АСИМЕТРИЧНИЙ BASIS GUARD (CASH & CARRY)
+# =====================================================================
+
+@dataclass(frozen=True)
+class BasisCheckResult:
+    is_valid: bool
+    basis_pct: float
+    reason: str
+
+
+class AsymmetricBasisGuard:
+    def __init__(
+        self,
+        max_backwardation_pct: float = -0.10,  # Жорсткий ліміт на мінусовий базис (-0.10%)
+        max_contango_sanity_pct: float = 1.50  # Захист від аномалій/депегів (+1.50%)
+    ):
+        self.max_backwardation_pct = max_backwardation_pct
+        self.max_contango_sanity_pct = max_contango_sanity_pct
+
+    def evaluate(self, spot_price: float, perp_price: float) -> BasisCheckResult:
+        if spot_price <= 0 or perp_price <= 0:
+            return BasisCheckResult(False, 0.0, "INVALID_PRICES")
+
+        basis_pct = ((perp_price - spot_price) / spot_price) * 100.0
+
+        # 1. Блокуємо глибоку беквордацію (ф'ючерс дешевший за спот)
+        if basis_pct < self.max_backwardation_pct:
+            return BasisCheckResult(
+                is_valid=False,
+                basis_pct=round(basis_pct, 4),
+                reason=f"BACKWARDATION_EXCEEDED ({basis_pct:.3f}% < {self.max_backwardation_pct}%)"
+            )
+
+        # 2. Блокуємо екстремальне контанго (ймовірний глітч або криза ліквідності)
+        if basis_pct > self.max_contango_sanity_pct:
+            return BasisCheckResult(
+                is_valid=False,
+                basis_pct=round(basis_pct, 4),
+                reason=f"CONTANGO_ANOMALY ({basis_pct:.3f}% > {self.max_contango_sanity_pct}%)"
+            )
+
+        # Позитивний базис (контанго) або мікро-беквордація в межах допуску — дозволено
+        status_note = "CONTANGO_TAILWIND" if basis_pct > 0 else "NEUTRAL_BASIS"
+        return BasisCheckResult(True, round(basis_pct, 4), status_note)
+
+
+# =====================================================================
+# 2. МОНІТОРИНГ MARGIN RATIO (АНТИ-ЛІКВІДАТОР)
+# =====================================================================
+
+class MarginAction(str, Enum):
+    HEALTHY = "HEALTHY"
+    WARNING = "WARNING"
+    REBALANCED = "REBALANCED"
+    EMERGENCY_UNWIND = "EMERGENCY_UNWIND"
+
+
+class MarginTransferPort(Protocol):
+    async def get_futures_margin_ratio(self, symbol: str) -> Optional[float]:
+        """Повертає Margin Ratio у відсотках (0.0 - 100.0) або None для Paper-розрахунку."""
+        ...
+
+    async def transfer_spot_to_futures(self, amount_usdt: float) -> bool:
+        """Переказ USDT зі Spot на USD-M Futures для порятунку маржі."""
+        ...
+
+
+class MarginHealthMonitor:
+    def __init__(
+        self,
+        warning_threshold: float = 60.0,
+        rebalance_threshold: float = 75.0,
+        unwind_threshold: float = 85.0,
+        maintenance_margin_rate: float = 0.005  # 0.5% для базового рівня на Binance
+    ):
+        self.warning_threshold = warning_threshold
+        self.rebalance_threshold = rebalance_threshold
+        self.unwind_threshold = unwind_threshold
+        self.mmr = maintenance_margin_rate
+
+    def estimate_paper_margin_ratio(
+        self,
+        entry_price: float,
+        current_price: float,
+        allocated_margin_usdt: float,
+        quantity: float
+    ) -> float:
+        """
+        Симуляція Margin Ratio (%) для 1x шорту в Paper-режимі:
+        Margin Ratio = Maintenance Margin / Margin Balance * 100
+        """
+        notional_now = current_price * quantity
+        unrealized_pnl = (entry_price - current_price) * quantity
+        margin_balance = allocated_margin_usdt + unrealized_pnl
+
+        if margin_balance <= 0:
+            return 100.0
+
+        maint_margin = notional_now * self.mmr
+        # Приводимо до інтуїтивної шкали навантаження на маржу (0%..100%)
+        ratio = (maint_margin / margin_balance) * 100.0
+        # Додаткова перевірка: якщо ціна зросла на >60%, шкала має агресивно реагувати
+        drawdown_pct = max(0.0, ((current_price - entry_price) / entry_price) * 100.0) if entry_price > 0 else 0.0
+        return round(max(ratio, drawdown_pct * 1.15), 2)
+
+    async def check_position_health(
+        self,
+        position,
+        current_perp_price: float,
+        transfer_port: MarginTransferPort,
+        close_callback,
+        notify_callback
+    ) -> MarginAction:
+        async def _call(cb, *args, **kwargs):
+            if not cb:
+                return None
+            res = cb(*args, **kwargs)
+            if asyncio.iscoroutine(res):
+                return await res
+            return res
+
+        # 1. Отримуємо реальний Margin Ratio з біржі або рахуємо для Paper
+        margin_ratio = None
+        if hasattr(transfer_port, 'get_futures_margin_ratio'):
+            margin_ratio = await transfer_port.get_futures_margin_ratio(position.symbol)
+
+        if margin_ratio is None:
+            margin_ratio = self.estimate_paper_margin_ratio(
+                entry_price=getattr(position, 'futures_entry_price', getattr(position, 'leg2_entry_price', 0.0)),
+                current_price=current_perp_price,
+                allocated_margin_usdt=getattr(position, 'notional_value_usdt', getattr(position, 'notional_usdt', 100.0)),
+                quantity=getattr(position, 'quantity', getattr(position, 'leg2_amount', 0.0))
+            )
+
+        group_id = getattr(position, 'group_id', getattr(position, 'position_id', getattr(position, 'id', '')))
+
+        # 2. Рівень 3: Критичний — негайний вихід із обох ніг до ліквідації
+        if margin_ratio >= self.unwind_threshold:
+            logger.critical(
+                f"🚨 [MARGIN UNWIND] {position.symbol} Margin Ratio={margin_ratio}% >= {self.unwind_threshold}%. Closing both legs!"
+            )
+            await _call(close_callback, group_id, reason="MARGIN_PROTECTION_UNWIND")
+            await _call(
+                notify_callback,
+                f"🚨 *EMERGENCY UNWIND*: `{position.symbol}` закрито через ризик ліквідації (Margin Ratio: `{margin_ratio}%`)."
+            )
+            return MarginAction.EMERGENCY_UNWIND
+
+        # 3. Рівень 2: Спроба авто-ребалансу маржі
+        if margin_ratio >= self.rebalance_threshold:
+            notional = getattr(position, 'notional_value_usdt', getattr(position, 'notional_usdt', 100.0))
+            top_up_amount = round(notional * 0.25, 2)  # +25% до маржі
+            logger.warning(
+                f"⚠️ [MARGIN REBALANCE] {position.symbol} Ratio={margin_ratio}%. Transferring {top_up_amount} USDT..."
+            )
+            success = False
+            if hasattr(transfer_port, 'transfer_spot_to_futures'):
+                success = await transfer_port.transfer_spot_to_futures(top_up_amount)
+
+            if success:
+                await _call(
+                    notify_callback,
+                    f"🔄 *MARGIN REBALANCED*: `{position.symbol}` (Ratio `{margin_ratio}%`). Додано `{top_up_amount} USDT` на ф'ючерси."
+                )
+                return MarginAction.REBALANCED
+            else:
+                # Якщо переказ не вдався (немає вільного USDT) — страхуємось закриттям
+                logger.critical(f"🚨 [REBALANCE FAILED] {position.symbol}. Triggering Emergency Unwind!")
+                await _call(close_callback, group_id, reason="MARGIN_REBALANCE_FAILED")
+                return MarginAction.EMERGENCY_UNWIND
+
+        # 4. Рівень 1: Попередження
+        if margin_ratio >= self.warning_threshold:
+            logger.warning(f"⚠️ [MARGIN WARNING] {position.symbol} Margin Ratio={margin_ratio}%")
+            await _call(
+                notify_callback,
+                f"⚠️ *Margin Warning*: `{position.symbol}` наблизився до `{margin_ratio}%` навантаження маржі."
+            )
+            return MarginAction.WARNING
+
+        return MarginAction.HEALTHY

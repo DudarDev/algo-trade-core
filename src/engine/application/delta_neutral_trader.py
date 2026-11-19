@@ -15,6 +15,13 @@ from src.engine.domain.models import (
     DeltaNeutralStatus,
     TradeSide
 )
+from src.engine.domain.services import (
+    AsymmetricBasisGuard,
+    BasisCheckResult,
+    MarginHealthMonitor,
+    MarginAction,
+    MarginTransferPort
+)
 from src.engine.infrastructure.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
@@ -59,6 +66,22 @@ class DeltaNeutralTrader:
         self.max_entry_basis_pct = float(getattr(settings, 'MAX_ENTRY_BASIS_PCT', 0.80))
         # Беквордація (ф'ючерс дешевший за спот) небезпечна, бо збільшує збиток на спреді
         self.min_entry_basis_pct = float(getattr(settings, 'MIN_ENTRY_BASIS_PCT', -0.05))
+
+        # Ініціалізація інституційного AsymmetricBasisGuard
+        self.max_backwardation_pct = float(getattr(settings, 'MAX_BACKWARDATION_PCT', getattr(settings, 'MIN_ENTRY_BASIS_PCT', -0.10)))
+        self.max_contango_sanity_pct = float(getattr(settings, 'MAX_CONTANGO_SANITY_PCT', getattr(settings, 'MAX_ENTRY_BASIS_PCT', 1.50)))
+        self.basis_guard = AsymmetricBasisGuard(
+            max_backwardation_pct=self.max_backwardation_pct,
+            max_contango_sanity_pct=self.max_contango_sanity_pct
+        )
+
+        # Анти-Ліквідатор: Моніторинг здоров'я маржі
+        self.margin_monitor = MarginHealthMonitor(
+            warning_threshold=float(getattr(settings, 'MARGIN_WARNING_THRESHOLD', 60.0)),
+            rebalance_threshold=float(getattr(settings, 'MARGIN_REBALANCE_THRESHOLD', 75.0)),
+            unwind_threshold=float(getattr(settings, 'MARGIN_UNWIND_THRESHOLD', 85.0)),
+            maintenance_margin_rate=float(getattr(settings, 'MAINTENANCE_MARGIN_RATE', 0.005))
+        )
 
         # Дворівневий захист від негативного фандингу:
         # 1. Миттєвий вихід при падінні нижче hard_negative_threshold (-0.01% за 8h)
@@ -156,18 +179,19 @@ class DeltaNeutralTrader:
 
         # 3. Асиметричний базис-контроль (Asymmetric Basis Guard)
         if spot_price > 0 and perp_price > 0:
-            basis_pct = ((perp_price - spot_price) / spot_price) * 100.0
+            basis_res = self.basis_guard.evaluate(spot_price, perp_price)
+            basis_pct = basis_res.basis_pct
             if mode == DeltaNeutralMode.SPOT_PERP:
-                # Беквордація: ф'ючерс дешевший за спот. Небезпечно для Cash & Carry!
-                if basis_pct < self.min_entry_basis_pct:
-                    return False, f"BASIS_BACKWARDATION ({basis_pct:+.2f}% < {self.min_entry_basis_pct:+.2f}%)", {
-                        "apy": apy, "basis_pct": basis_pct
-                    }
-                # Контанго: ф'ючерс дорожчий. Дозволяємо до розумної межі (до +0.80%)
-                if basis_pct > self.max_entry_basis_pct:
-                    return False, f"BASIS_EXTREME_CONTANGO ({basis_pct:+.2f}% > {self.max_entry_basis_pct:+.2f}%)", {
-                        "apy": apy, "basis_pct": basis_pct
-                    }
+                # Якщо Basis Guard відхилив угоду (глибока беквордація або екстремальне контанго/аномалія)
+                if not basis_res.is_valid:
+                    if "BACKWARDATION" in basis_res.reason:
+                        return False, f"BASIS_BACKWARDATION ({basis_res.reason})", {
+                            "apy": apy, "basis_pct": basis_pct, "guard_reason": basis_res.reason
+                        }
+                    else:
+                        return False, f"BASIS_EXTREME_CONTANGO ({basis_res.reason})", {
+                            "apy": apy, "basis_pct": basis_pct, "guard_reason": basis_res.reason
+                        }
             else:
                 if abs(basis_pct) > self.max_entry_basis_pct:
                     return False, f"BASIS_DISLOCATION ({abs(basis_pct):.2f}% > {self.max_entry_basis_pct:.2f}%)", {
@@ -175,6 +199,7 @@ class DeltaNeutralTrader:
                     }
         else:
             basis_pct = 0.0
+            basis_res = BasisCheckResult(True, 0.0, "NEUTRAL_BASIS")
 
 
         details = {

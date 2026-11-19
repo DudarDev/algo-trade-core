@@ -94,6 +94,7 @@ class CryptoBot:
             exchange_manager=self.exchange,
             is_paper=getattr(settings, 'PAPER_TRADING', True)
         )
+        self.margin_monitor = getattr(self.delta_neutral_trader, 'margin_monitor', None)
 
         if getattr(settings, 'WS_STREAM_ENABLED', True):
             from src.engine.infrastructure.websocket_feed import ws_feed
@@ -630,6 +631,41 @@ class CryptoBot:
                             }
                             self.delta_neutral_trader.accrue_funding(rates_map)
                             await self.delta_neutral_trader.evaluate_auto_exits(rates_map)
+
+                            # Анти-Ліквідатор: Моніторинг здоров'я маржі для активних Cash & Carry позицій
+                            if hasattr(self, 'margin_monitor') and self.margin_monitor:
+                                try:
+                                    current_perp_prices = {}
+                                    for item in f_res.get('funding_rates', []):
+                                        sym = item.get('symbol')
+                                        if sym:
+                                            p_val = item.get('perp_price') or item.get('binance_price') or item.get('price')
+                                            if p_val:
+                                                current_perp_prices[sym] = float(p_val)
+
+                                    active_positions = self.delta_neutral_trader.repo.get_active_positions()
+                                    if asyncio.iscoroutine(active_positions):
+                                        active_positions = await active_positions
+
+                                    for pos in active_positions:
+                                        perp_price = current_perp_prices.get(pos.symbol)
+                                        if not perp_price:
+                                            try:
+                                                perp_price = await self.exchange.fetch_current_price(pos.symbol)
+                                            except Exception:
+                                                perp_price = None
+
+                                        if perp_price:
+                                            notify_cb = getattr(self.notifier, 'send_message', getattr(self.notifier, 'notify', None)) if self.notifier else None
+                                            await self.margin_monitor.check_position_health(
+                                                position=pos,
+                                                current_perp_price=perp_price,
+                                                transfer_port=self.exchange,
+                                                close_callback=self.delta_neutral_trader.close_position,
+                                                notify_callback=notify_cb
+                                            )
+                                except Exception as me:
+                                    logger.warning(f"⚠️ [Margin Monitor Loop] Помилка перевірки маржі: {me}")
 
                     except Exception as fe:
                         logger.debug(f"Funding radar error: {fe}")
